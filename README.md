@@ -4,7 +4,7 @@ Runtime content delivery for Godot 4.7+. A server hands a client a manifest. The
 
 ## Install
 
-1. Copy `addons/dot_core/` and `addons/dot_cloud/` into your project.
+1. Copy `addons/gs_core/` and `addons/gs_cloud/` into your project.
 2. Enable both in *Project > Project Settings > Plugins*.
 
 ## Use
@@ -31,10 +31,10 @@ if res.ok:
 The headless CLI makes a key and publishes a directory:
 
 ```bash
-godot --headless --path . --script addons/dot_cloud/publish/dot_cloud_cli.gd -- \
+godot --headless --path . --script addons/gs_cloud/publish/gs_cloud_cli.gd -- \
     keygen --private keys/content.key --public keys/content.pub
 
-godot --headless --path . --script addons/dot_cloud/publish/dot_cloud_cli.gd -- \
+godot --headless --path . --script addons/gs_cloud/publish/gs_cloud_cli.gd -- \
     publish --source content/dm_arena --out dist/dm_arena \
     --id dm_arena --version 1.2.0 --entry dm_arena.tscn --key keys/content.key
 ```
@@ -65,7 +65,7 @@ Every option and a worked example are in [docs/cdn-publish.md](docs/cdn-publish.
 
 ## Two things to know first
 
-**Godot cannot unmount a resource pack.** The API does not exist. dot-cloud gives every content set its own versioned path, so nothing ever needs replacing. "Unloading" means dropping references, not freeing the file table. See [docs/mounting.md](docs/mounting.md#a-mounted-resource-pack-can-never-be-unmounted).
+**Godot cannot unmount a resource pack.** The API does not exist. gs-cloud gives every content set its own versioned path, so nothing ever needs replacing. "Unloading" means dropping references, not freeing the file table. See [docs/mounting.md](docs/mounting.md#a-mounted-resource-pack-can-never-be-unmounted).
 
 **Unsigned content is remote code execution.** `require_signed_manifests` is on by default, and the config refuses to validate without a trusted key. You can turn it off for LAN or first-party servers; it warns every time. See [docs/trust.md](docs/trust.md).
 

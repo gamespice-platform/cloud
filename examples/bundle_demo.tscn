@@ -1,4 +1,4 @@
-[gd_scene load_steps=2 format=3 uid="uid://dotcloud0bundle1"]
+[gd_scene load_steps=2 format=3 uid="uid://gscloud0bundle1"]
 
 [ext_resource type="Script" path="res://examples/bundle_demo.gd" id="1_demo"]
 

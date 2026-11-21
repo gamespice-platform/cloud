@@ -3,7 +3,7 @@ extends Control
 ## The downloaded-content inventory: listing, pinning, deleting, "keep this game's content", the
 ## quota hint and the postMessage bridge's handling. No network. Run: res://examples/inventory_demo.tscn
 
-const WORK := "user://dot_cloud_inventory_demo"
+const WORK := "user://gs_cloud_inventory_demo"
 const OBJ := 1024
 const SECTIONS := 8
 const CHECKS := 92
@@ -22,7 +22,7 @@ func _ready() -> void:
 
 
 func _run() -> void:
-	_line("[b]dot-cloud inventory[/b]")
+	_line("[b]gs-cloud inventory[/b]")
 	GSPaths.remove_tree(WORK)
 
 	await _section_inventory()
@@ -199,48 +199,48 @@ func _section_bridge() -> void:
 	var site := "https://moddingcommunity.com"
 	var bridge := GSCloudInventoryBridge.new(store, PackedStringArray([site]))
 
-	_check("is_request recognises the protocol", GSCloudInventoryBridge.is_request({"dot": "dot-inventory", "op": "list"}))
+	_check("is_request recognises the protocol", GSCloudInventoryBridge.is_request({"dot": "gs-inventory", "op": "list"}))
 	_check("is_request ignores other traffic", not GSCloudInventoryBridge.is_request({"type": "resize"}) and not GSCloudInventoryBridge.is_request("x"))
 
-	var denied := await bridge.handle({"dot": "dot-inventory", "op": "list", "id": 1}, "https://evil.example")
+	var denied := await bridge.handle({"dot": "gs-inventory", "op": "list", "id": 1}, "https://evil.example")
 	_check("unlisted origin gets no reply", denied.is_empty())
 	var star := GSCloudInventoryBridge.new(store, PackedStringArray(["*"]))
-	_check("star is never honoured", (await star.handle({"dot": "dot-inventory", "op": "list", "id": 1}, "*")).is_empty())
+	_check("star is never honoured", (await star.handle({"dot": "gs-inventory", "op": "list", "id": 1}, "*")).is_empty())
 	_check("empty origin refused", (await bridge.handle({"op": "list"}, "")).is_empty())
 
-	var list := await bridge.handle({"dot": "dot-inventory", "op": "list", "id": 7}, site)
+	var list := await bridge.handle({"dot": "gs-inventory", "op": "list", "id": 7}, site)
 	_check("list ok, id echoed", list["ok"] == true and list["id"] == 7 and list["op"] == "list")
 	_check("list carries packs", (list["value"]["packs"] as Array).size() == 2)
 
-	var pin := await bridge.handle({"dot": "dot-inventory", "op": "pin", "id": 8, "pack": "p", "pinned": true}, site)
+	var pin := await bridge.handle({"dot": "gs-inventory", "op": "pin", "id": 8, "pack": "p", "pinned": true}, site)
 	_check("pin ok", pin["ok"] == true and _find(store.inventory(), "p").get("pinned") == true)
-	var badpin := await bridge.handle({"dot": "dot-inventory", "op": "pin", "id": 9, "pack": "p"}, site)
+	var badpin := await bridge.handle({"dot": "gs-inventory", "op": "pin", "id": 9, "pack": "p"}, site)
 	_check("pin without flag is invalid", badpin["ok"] == false and badpin["error"]["code"] == GSError.CODE_INVALID)
 
-	var game := await bridge.handle({"dot": "dot-inventory", "op": "pin_game", "id": 10, "game": "p", "pinned": true}, site)
+	var game := await bridge.handle({"dot": "gs-inventory", "op": "pin_game", "id": 10, "game": "p", "pinned": true}, site)
 	_check("pin_game ok", game["ok"] == true and store.packs.pinned_games.has("p"))
 
-	var unknown := await bridge.handle({"dot": "dot-inventory", "op": "format_disk", "id": 11}, site)
+	var unknown := await bridge.handle({"dot": "gs-inventory", "op": "format_disk", "id": 11}, site)
 	_check("unknown op invalid", unknown["ok"] == false and unknown["error"]["code"] == GSError.CODE_INVALID)
-	var future := await bridge.handle({"dot": "dot-inventory", "op": "list", "id": 12, "v": 99}, site)
+	var future := await bridge.handle({"dot": "gs-inventory", "op": "list", "id": 12, "v": 99}, site)
 	_check("unknown version refused", future["ok"] == false and future["error"]["code"] == GSError.CODE_VERSION)
 
-	var del := await bridge.handle({"dot": "dot-inventory", "op": "delete", "id": 13, "pack": "q", "force": true}, site)
+	var del := await bridge.handle({"dot": "gs-inventory", "op": "delete", "id": 13, "pack": "q", "force": true}, site)
 	_check("delete ok", del["ok"] == true and not store.has(h2))
-	var nodel := await bridge.handle({"dot": "dot-inventory", "op": "delete", "id": 14}, site)
+	var nodel := await bridge.handle({"dot": "gs-inventory", "op": "delete", "id": 14}, site)
 	_check("delete needs a pack", nodel["ok"] == false)
 
-	var quota := await bridge.handle({"dot": "dot-inventory", "op": "quota", "id": 15}, site)
+	var quota := await bridge.handle({"dot": "gs-inventory", "op": "quota", "id": 15}, site)
 	_check("quota has a cause field", quota["ok"] == true and quota["value"].has("quota_cause"))
 
-	var clear := await bridge.handle({"dot": "dot-inventory", "op": "clear", "id": 16}, site)
+	var clear := await bridge.handle({"dot": "gs-inventory", "op": "clear", "id": 16}, site)
 	_check("clear spares pinned", clear["ok"] == true and store.has(h1))
 
 	var hit := [false]
 	bridge.clear_all_fn = func() -> GSResult:
 		hit[0] = true
 		return GSResult.success(0)
-	var all := await bridge.handle({"dot": "dot-inventory", "op": "clear_all", "id": 17}, site)
+	var all := await bridge.handle({"dot": "gs-inventory", "op": "clear_all", "id": 17}, site)
 	_check("clear_all uses the host hook", all["ok"] == true and hit[0])
 	var json := JSON.stringify(list)
 	_check("replies are JSON-safe", json != "" and JSON.parse_string(json) is Dictionary)
@@ -284,17 +284,17 @@ func _section_review() -> void:
 
 	var site := "https://moddingcommunity.com"
 	var bridge := GSCloudInventoryBridge.new(store, PackedStringArray([site, "null"]))
-	_check("origin null refused", (await bridge.handle({"dot": "dot-inventory", "op": "list", "id": 1}, "null")).is_empty())
-	var odd := await bridge.handle({"dot": "dot-inventory", "op": "list", "id": 2, "v": [1]}, site)
+	_check("origin null refused", (await bridge.handle({"dot": "gs-inventory", "op": "list", "id": 1}, "null")).is_empty())
+	var odd := await bridge.handle({"dot": "gs-inventory", "op": "list", "id": 2, "v": [1]}, site)
 	_check("array version answered with an error", odd.get("ok") == false)
-	var odd2 := await bridge.handle({"dot": "dot-inventory", "op": "list", "id": 3, "v": {"a": 1}}, site)
+	var odd2 := await bridge.handle({"dot": "gs-inventory", "op": "list", "id": 3, "v": {"a": 1}}, site)
 	_check("dictionary version answered with an error", odd2.get("ok") == false)
 
 	store.record_pack(_manifest("bp", "1", "map", "bp", [h2]))
 	store.set_pinned("bp", true)
-	var nb := await bridge.handle({"dot": "dot-inventory", "op": "delete", "id": 4, "pack": "bp"}, site)
+	var nb := await bridge.handle({"dot": "gs-inventory", "op": "delete", "id": 4, "pack": "bp"}, site)
 	_check("bridge delete of pinned refused", nb["ok"] == false and nb["error"]["code"] == GSError.CODE_STATE)
-	var fb := await bridge.handle({"dot": "dot-inventory", "op": "delete", "id": 5, "pack": "bp", "force": true}, site)
+	var fb := await bridge.handle({"dot": "gs-inventory", "op": "delete", "id": 5, "pack": "bp", "force": true}, site)
 	_check("bridge delete with force ok", fb["ok"] == true)
 
 	var pck_dir := store.config.cache_dir.path_join("packs")
@@ -362,13 +362,13 @@ func _section_site_report() -> void:
 
 	var site := "https://moddingcommunity.com"
 	var bridge := GSCloudInventoryBridge.new(store, PackedStringArray([site]))
-	var sync := await bridge.handle({"dot": "dot-inventory", "op": "sync", "id": 30, "pending": [{"packId": "ghost", "version": "1", "action": "pin"}]}, site)
+	var sync := await bridge.handle({"dot": "gs-inventory", "op": "sync", "id": 30, "pending": [{"packId": "ghost", "version": "1", "action": "pin"}]}, site)
 	var value: Dictionary = sync.get("value", {})
 	_check("sync answers with the report body", sync.get("ok") == true and (value["packs"] as Array).size() == 2 and value["done"] == 0 and value["refused"] == 1)
 	_check("sync carries the acknowledgement", (value["ack"] as Array).size() == 1 and value["ack"][0]["action"] == "pin")
-	var bad := await bridge.handle({"dot": "dot-inventory", "op": "sync", "id": 31, "pending": "nope"}, site)
+	var bad := await bridge.handle({"dot": "gs-inventory", "op": "sync", "id": 31, "pending": "nope"}, site)
 	_check("sync refuses pending that is not a list", bad["ok"] == false and bad["error"]["code"] == GSError.CODE_INVALID)
-	var plain := await bridge.handle({"dot": "dot-inventory", "op": "sync", "id": 32}, site)
+	var plain := await bridge.handle({"dot": "gs-inventory", "op": "sync", "id": 32}, site)
 	_check("sync with nothing pending just reports", plain["ok"] == true and (plain["value"]["packs"] as Array).size() == 2)
 	store.close()
 	_done()

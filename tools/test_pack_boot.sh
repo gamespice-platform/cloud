@@ -1,14 +1,14 @@
 #!/bin/bash
 # Regression test for the delivered-pack boot gate, on the pack that caused it: game-hungario 0.1.19 as published to the
-# prod content origin. On a host at dot-server-deploy's addons.lock (dot-net v0.1.36 or later types identity as Node) its
+# prod content origin. On a host at gs-server-deploy's addons.lock (gs-net v0.1.36 or later types identity as Node) its
 # hungry_net_bridge.gd no longer compiles ("Cannot infer the type of "net_id""), _make_bridge hands back null and a
 # server logs only "A game has to supply the bridge between itself and the netcode." The gate must refuse it and name the
 # bridge and the parse error; a published version with the fix (--good, default the dev origin's latest) must pass.
 #   tools/test_pack_boot.sh [HOST_LOCK] [--good ORIGIN ID VERSION]
-# HOST_LOCK defaults to ../dot-server-deploy/addons.lock. Needs the network (it fetches both packs).
+# HOST_LOCK defaults to ../gs-server-deploy/addons.lock. Needs the network (it fetches both packs).
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LOCK="$HERE/../dot-server-deploy/addons.lock"
+LOCK="$HERE/../gs-server-deploy/addons.lock"
 case "${1:-}" in --*|"") ;; *) LOCK="$1"; shift ;; esac
 GOOD_ORIGIN="https://tmcdevgames.net/content"; GOOD_ID="gamemann/game-hungario"; GOOD_VER=""
 if [ "${1:-}" = --good ]; then GOOD_ORIGIN="${2:?}"; GOOD_ID="${3:?}"; GOOD_VER="${4:-}"; fi
@@ -61,7 +61,7 @@ bash "$HERE/tools/pack_boot_test.sh" "$TMP/nonet" "$LOCK" >"$TMP/nonet.log" 2>&1
 rc=$?
 [ $rc -eq 0 ] && ok "a module without netcode boots (no bridge asked for)" || { fail "a module without netcode was refused (exit $rc)"; grep '^pack_boot' "$TMP/nonet.log"; }
 
-# A signed manifest (the envelope dot_cloud_envelope.gd writes: {"payload": base64url of the manifest}) is read through.
+# A signed manifest (the envelope gs_cloud_envelope.gd writes: {"payload": base64url of the manifest}) is read through.
 python3 -I - "$TMP/nonet" "$TMP/signed" <<'PY'
 import base64, json, os, shutil, sys
 shutil.copytree(sys.argv[1], sys.argv[2])
@@ -152,7 +152,7 @@ for d, side in ((dst + "_client", "client"), (dst + "_both", None)):
         if side: e["side"] = side
         m["files"] = [f for f in m["files"] if f["path"] != path] + [e]
     put("game/client_only.gd", "extends Node\n", side)
-    put("game/no_net_module.gd", "extends GSGameModule\n\nconst C := preload(\"res://dot_cloud/%s/%s/game/client_only.gd\")\n" % (m["content_id"], m["version"]))
+    put("game/no_net_module.gd", "extends GSGameModule\n\nconst C := preload(\"res://gs_cloud/%s/%s/game/client_only.gd\")\n" % (m["content_id"], m["version"]))
     yml = next(f for f in m["files"] if f["path"] == "game.yml")
     text = open(os.path.join(d, "objects", yml["sha256"][:2], yml["sha256"])).read()
     put("game.yml", "\n".join(l + "  # the server module" if l.startswith("module:") else l for l in text.split("\n")))

@@ -13,7 +13,7 @@ extends Node
 ## [/codeblock]
 
 ## Per process: two runs at once (the heavy queue allows two) would otherwise delete each other's files.
-var WORK := "user://dot_cloud_workshop_sync_demo_%d" % OS.get_process_id()
+var WORK := "user://gs_cloud_workshop_sync_demo_%d" % OS.get_process_id()
 const GAME := "gamemann/game-playlot"
 const CHECKS := 147
 const ACCEPTS := {"kinds": ["map", "prop", "script"], "map_kinds": ["sandbox"]}
@@ -123,8 +123,8 @@ func _make_packs() -> void:
 	_make_pack("ws_wrongkey", "map", false, 0, "other")
 	_make_pack("ws_addon", "addon", true)
 	_make_pack("ws_addon2", "addon", true)
-	# Both lay their addon at a directory something else owns: this demo's own dot_cloud, and ws_addon's.
-	_make_pack("ws_addon_clash", "addon", true, 0, "tmc", "dot_cloud")
+	# Both lay their addon at a directory something else owns: this demo's own gs_cloud, and ws_addon's.
+	_make_pack("ws_addon_clash", "addon", true, 0, "tmc", "gs_cloud")
 	_make_pack("ws_addon_twin", "addon", true, 0, "tmc", "ws_addon")
 
 
@@ -497,7 +497,7 @@ func _check_addons() -> void:
 	_world["revision"] = "w1:addon-8"
 	var clash: Dictionary = (await _ws.sync(GAME)).value
 	_check(clash["failed"].size() == 1 and clash["failed"][0]["code"] == GSError.CODE_CONFLICT and clash["addons"].is_empty(), "an addon at a directory the build has fails loudly as a conflict", str(clash["failed"]))
-	_check(DirAccess.dir_exists_absolute("res://addons/dot_cloud") and GSCloudWorkshop.addon_clash("ws_fresh", "ws_fresh") == "", "armed: a directory nobody has is no clash")
+	_check(DirAccess.dir_exists_absolute("res://addons/gs_cloud") and GSCloudWorkshop.addon_clash("ws_fresh", "ws_fresh") == "", "armed: a directory nobody has is no clash")
 	_world["items"] = [_item("ws_addon"), _item("ws_addon_twin")]
 	_world["revision"] = "w1:addon-9"
 	var twin: Dictionary = (await _ws.sync(GAME)).value
@@ -713,10 +713,10 @@ func _check_online_refused() -> void:
 	_check(not res.ok and res.error.code == GSError.CODE_FORBIDDEN and _list_requests() == before, "an online index session is refused before any request")
 	_index.set_session(&"solo")
 	var link := Node.new()
-	GSRegistry.register(&"dot_client_link", link)
+	GSRegistry.register(&"gs_client_link", link)
 	var linked := await _ws.sync(GAME)
 	_check(not linked.ok and linked.error.code == GSError.CODE_FORBIDDEN, "so is a registered client link (a join in progress)")
-	GSRegistry.unregister(&"dot_client_link")
+	GSRegistry.unregister(&"gs_client_link")
 	link.free()
 	_world["revision"] = "w1:fifteen"
 	var back := await _ws.sync(GAME)
@@ -754,7 +754,7 @@ func _check_reporting() -> void:
 	var lines := _ws.describe_lines()
 	_check(lines.size() >= 2 and "\n".join(lines).contains("workshop: on"), "describe_lines says what the Workshop holds", "\n".join(lines).substr(0, 200))
 	_check(_ws.describe().has("last"), "describe carries the last sync")
-	_check(GSRegistry.get_service(GSCloudWorkshop.SERVICE) == _ws, "registered as dot_workshop")
+	_check(GSRegistry.get_service(GSCloudWorkshop.SERVICE) == _ws, "registered as gs_workshop")
 	var cfg := GSCloudWorkshopConfig.new()
 	var applied := cfg.apply_dictionary({"workshop_metered": "never", "workshop_key_ids": ["tmc", "x"]})
 	_check(cfg.workshop_metered == "never" and cfg.workshop_key_ids.size() == 2 and cfg.validate().ok, "config layers read workshop_* keys")

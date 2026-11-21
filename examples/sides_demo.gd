@@ -15,7 +15,7 @@ extends Node
 ## godot --headless --path . res://examples/sides_demo.tscn
 ## [/codeblock]
 
-const WORK := "user://dot_cloud_sides_demo"
+const WORK := "user://gs_cloud_sides_demo"
 
 ## Every check this suite runs, the closing count included. See docs/testing.md.
 const CHECKS := 51
@@ -38,7 +38,7 @@ func _ready() -> void:
 
 
 func _run() -> void:
-	print("dot-cloud sides (API 8)")
+	print("gs-cloud sides (API 8)")
 	GSPaths.remove_tree(WORK)
 
 	var keys := GSCloudSignature.generate_keypair(2048)

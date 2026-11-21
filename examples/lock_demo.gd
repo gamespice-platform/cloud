@@ -3,7 +3,7 @@ extends Node
 ## GSCloudLock and GSCloudClient.ensure_locked: the CDN precedence and download-list rules of fetch_lock.sh, then a real mount from a lock.
 ## Run: godot --headless --path . res://examples/lock_demo.tscn
 
-const WORK := "user://dot_cloud_lock_demo"
+const WORK := "user://gs_cloud_lock_demo"
 const CHECKS := 53
 const SECTIONS := 6
 
@@ -20,7 +20,7 @@ func _ready() -> void:
 
 
 func _run() -> void:
-	print("dot-cloud lock file")
+	print("gs-cloud lock file")
 	GSPaths.remove_tree(WORK)
 	var keys := GSCloudSignature.generate_keypair(2048)
 	if not keys.ok:
@@ -47,20 +47,20 @@ func _section_bases() -> void:
 	_begin("cdn precedence")
 	var doc := {"origin": "https://dev.example/content", "mirrors": ["https://m.example/c/"]}
 	var envf := WORK.path_join("bootstrap.env")
-	GSPaths.write_text(envf, "# c\nDOT_CDN_URL=\"https://envfile.example\"\n")
+	GSPaths.write_text(envf, "# c\nGS_CDN_URL=\"https://envfile.example\"\n")
 	_check("lock origin then mirrors", _bases(doc, {"environment": {}}) == ["https://dev.example/content", "https://m.example/c"])
 	_check("default content.gamespice.net", _bases({}, {"environment": {}}) == ["https://content.gamespice.net/content"])
 	_check("env file beats lock", _bases(doc, {"environment": {}}, envf) == ["https://envfile.example/content"])
-	_check("DOT_CDN_URL beats env file", _bases(doc, {"environment": {"DOT_CDN_URL": "https://e.example/content"}}, envf) == ["https://e.example/content"])
-	_check("--cdn beats DOT_CDN_URL", _bases(doc, {"cdn": "https://c.example", "environment": {"DOT_CDN_URL": "https://e.example"}}, envf) == ["https://c.example/content"])
-	_check("DOT_PACKS_FROM beats cdn", _bases(doc, {"cdn": "https://c.example", "environment": {"DOT_PACKS_FROM": "/srv/packs"}}) == ["/srv/packs"])
-	_check("--from beats everything", _bases(doc, {"from": "https://f.example/x/", "cdn": "https://c.example", "environment": {"DOT_PACKS_FROM": "/srv"}}) == ["https://f.example/x"])
-	_check("none fetches nothing", _bases(doc, {"environment": {"DOT_PACKS_FROM": "none"}}).is_empty())
-	_check("GS_CDN_URL beats DOT_CDN_URL", _bases(doc, {"environment": {"GS_CDN_URL": "https://g.example", "DOT_CDN_URL": "https://e.example"}}) == ["https://g.example/content"])
+	_check("GS_CDN_URL beats env file", _bases(doc, {"environment": {"GS_CDN_URL": "https://e.example/content"}}, envf) == ["https://e.example/content"])
+	_check("--cdn beats GS_CDN_URL", _bases(doc, {"cdn": "https://c.example", "environment": {"GS_CDN_URL": "https://e.example"}}, envf) == ["https://c.example/content"])
+	_check("GS_PACKS_FROM beats cdn", _bases(doc, {"cdn": "https://c.example", "environment": {"GS_PACKS_FROM": "/srv/packs"}}) == ["/srv/packs"])
+	_check("--from beats everything", _bases(doc, {"from": "https://f.example/x/", "cdn": "https://c.example", "environment": {"GS_PACKS_FROM": "/srv"}}) == ["https://f.example/x"])
+	_check("none fetches nothing", _bases(doc, {"environment": {"GS_PACKS_FROM": "none"}}).is_empty())
+	_check("GS_CDN_URL beats GS_CDN_URL", _bases(doc, {"environment": {"GS_CDN_URL": "https://g.example", "GS_CDN_URL": "https://e.example"}}) == ["https://g.example/content"])
 	_check("GS_PACKS_FROM is read", _bases(doc, {"environment": {"GS_PACKS_FROM": "/srv/gs"}}) == ["/srv/gs"])
 	var gsenvf := WORK.path_join("bootstrap_gs.env")
-	GSPaths.write_text(gsenvf, "GS_CDN_URL=\"https://gsfile.example\"\nDOT_CDN_URL=\"https://envfile.example\"\n")
-	_check("GS_CDN_URL in the env file beats DOT_CDN_URL", _bases(doc, {"environment": {}}, gsenvf) == ["https://gsfile.example/content"])
+	GSPaths.write_text(gsenvf, "GS_CDN_URL=\"https://gsfile.example\"\nGS_CDN_URL=\"https://envfile.example\"\n")
+	_check("GS_CDN_URL in the env file beats GS_CDN_URL", _bases(doc, {"environment": {}}, gsenvf) == ["https://gsfile.example/content"])
 	_end()
 
 
@@ -136,7 +136,7 @@ func _section_mount() -> void:
 	var got := await client.ensure_locked(dir.path_join("content.lock.json"), {"from": pub_root, "environment": {}, "env_file": ""})
 	_check("lock mounts", got.ok, str(got.error) if not got.ok else "")
 	_check("mounted the pack", got.ok and got.value["mounted"] == ["lk_a@1"], str(got.value) if got.ok else "")
-	_check("file readable", FileAccess.file_exists("res://dot_cloud/lk_a/1/a.txt"))
+	_check("file readable", FileAccess.file_exists("res://gs_cloud/lk_a/1/a.txt"))
 	_check("store and missing optional skipped", got.ok and got.value["skipped"].size() == 2)
 	_check("none fetches nothing", (await client.ensure_locked(dir.path_join("content.lock.json"), {"from": "none"})).value["mounted"].is_empty())
 	client.queue_free()
@@ -161,10 +161,10 @@ func _section_mount() -> void:
 
 func _section_parser() -> void:
 	_begin("yml subset")
-	var l := GSCloudLock.parse_list("merge: true # c\nremove: [dot-voice, a/b@1]\nentries:\n  - dot-core\n  - dot-vote@v0.2.1\n  - repo: game-fatal-contact\n    pin: v1\n  - pack: o/p@1.2.0\n")
+	var l := GSCloudLock.parse_list("merge: true # c\nremove: [gs-voice, a/b@1]\nentries:\n  - gs-core\n  - gs-vote@v0.2.1\n  - repo: game-fatal-contact\n    pin: v1\n  - pack: o/p@1.2.0\n")
 	_check("merge", l["merge"] == true)
-	_check("flow remove", l["remove"] == [["repo", "dot-voice"], ["pack", "a/b"]])
-	_check("block entries", l["entries"] == [["repo", "dot-core"], ["repo", "dot-vote"], ["repo", "game-fatal-contact"], ["pack", "o/p"]], str(l["entries"]))
+	_check("flow remove", l["remove"] == [["repo", "gs-voice"], ["pack", "a/b"]])
+	_check("block entries", l["entries"] == [["repo", "gs-core"], ["repo", "gs-vote"], ["repo", "game-fatal-contact"], ["pack", "o/p"]], str(l["entries"]))
 	_check("dotenv", GSCloudLock.parse_dotenv(_write("e.env", "A=1\n#B=2\nC = 'x y'\n")) == {"A": "1", "C": "x y"})
 	_end()
 

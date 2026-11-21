@@ -5,7 +5,7 @@ extends Node
 ## Run: godot --headless --path . res://examples/http_throttle_selftest.tscn
 
 const TestServer := preload("res://examples/http_test_server.gd")
-const WORK := "user://dot_cloud_http_throttle"
+const WORK := "user://gs_cloud_http_throttle"
 const CHECKS := 21
 
 var _failures := 0

@@ -19,8 +19,8 @@ extends Control
 ## godot --headless --path . res://examples/mount_demo.tscn
 ## [/codeblock]
 
-const WORK := "user://dot_cloud_mount_demo"
-const Uids := preload("res://addons/dot_cloud/mount/dot_cloud_mounter_uids.gd")
+const WORK := "user://gs_cloud_mount_demo"
+const Uids := preload("res://addons/gs_cloud/mount/gs_cloud_mounter_uids.gd")
 const _Sections := preload("res://examples/selftest/mount_sections.gd")
 
 @onready var _output: RichTextLabel = $Output
@@ -49,7 +49,7 @@ func _ready() -> void:
 
 
 func _run() -> void:
-	_line("[b]dot-cloud mounter[/b]")
+	_line("[b]gs-cloud mounter[/b]")
 	_line("")
 
 	GSPaths.remove_tree(WORK)
@@ -112,7 +112,7 @@ func _run() -> void:
 ## pack —
 ##
 ##     A required file is not readable after mounting.
-##     res://dot_cloud/<id>/0.1.0/game/<its paths script>.gd
+##     res://gs_cloud/<id>/0.1.0/game/<its paths script>.gd
 ##
 ## a file that is in the manifest, is in the store, and is not in the pack. Caught by
 ## `_check_prefix`, which is the last thing between that and a game with no behaviour.
@@ -144,7 +144,7 @@ func _section_republished_version() -> void:
 	# and `_check_prefix` refuses the mount above rather than this line failing.
 	_check(
 		"the file added by the republish is readable",
-		FileAccess.file_exists("res://dot_cloud/republished/1.0.0/b.txt"),
+		FileAccess.file_exists("res://gs_cloud/republished/1.0.0/b.txt"),
 		"the cached pack was reused for content that changed"
 	)
 
@@ -168,7 +168,7 @@ func _section_republished_version() -> void:
 	var r3: GSResult = await m3_mounter.mount(m3, _store, _scheduler)
 	_check(
 		"and is rebuilt rather than mounted",
-		r3.ok and FileAccess.file_exists("res://dot_cloud/cutshort/1.0.0/c.txt"),
+		r3.ok and FileAccess.file_exists("res://gs_cloud/cutshort/1.0.0/c.txt"),
 		str(r3.error) if not r3.ok else ""
 	)
 	_check("the rebuilt pack is intact", GSCloudMounter.pack_intact(stale))
@@ -297,7 +297,7 @@ func _section_mount_and_read() -> void:
 	_check("returns the prefix", str(res.value) == m.mount_prefix(), str(res.value))
 	_check(
 		"prefix carries id and version",
-		str(res.value) == "res://dot_cloud/fc/1.0.0", str(res.value)
+		str(res.value) == "res://gs_cloud/fc/1.0.0", str(res.value)
 	)
 
 	var read := GSPaths.read_bytes(m.mount_prefix().path_join("level.txt"))
@@ -630,7 +630,7 @@ func _manifest(id: String, version: String, entries: Array) -> GSCloudManifest:
 	m.content_id = id
 	m.version = version
 	m.display_name = id
-	m.mount_root = "dot_cloud"
+	m.mount_root = "gs_cloud"
 
 	for e in entries:
 		var f := GSCloudFile.new()

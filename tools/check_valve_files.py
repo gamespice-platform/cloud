@@ -23,7 +23,7 @@ SKIP_DIRS = {".git", ".godot"}
 
 
 def index_path():
-    return os.environ.get("GS_VALVE_INDEX", os.environ.get("DOT_VALVE_INDEX")) or os.path.expanduser("~/.cache/dot/valve_stock.idx")
+    return os.environ.get("GS_VALVE_INDEX", os.environ.get("GS_VALVE_INDEX")) or os.path.expanduser("~/.cache/dot/valve_stock.idx")
 
 
 def load_index(path):
@@ -39,16 +39,16 @@ def load_index(path):
 
 def build_index(out, roots):
     here = os.path.dirname(os.path.abspath(__file__))
-    cands = [os.environ.get("GS_FAMILY_DIR", os.environ.get("DOT_FAMILY_DIR", "")), os.path.join(here, "..", "..", ".."), "/home/gamedev/godot"]
-    mod = next((os.path.join(c, "dot-map-convert", "dotbsp", "vpk.py") for c in cands
-                if c and os.path.isfile(os.path.join(c, "dot-map-convert", "dotbsp", "vpk.py"))), None)
+    cands = [os.environ.get("GS_FAMILY_DIR", ""), os.path.join(here, "..", "..", ".."), "/home/gamedev/godot"]
+    mod = next((os.path.join(c, "gs-map-convert", "gsbsp", "vpk.py") for c in cands
+                if c and os.path.isfile(os.path.join(c, "gs-map-convert", "gsbsp", "vpk.py"))), None)
     if mod is None:
-        print("check_valve_files: dot-map-convert/dotbsp/vpk.py not found; set GS_FAMILY_DIR", file=sys.stderr); return 2
-    # Loaded by path under a stub package: dotbsp's __init__ and vtf pull numpy, which the archive-tree reader does not need.
+        print("check_valve_files: gs-map-convert/gsbsp/vpk.py not found; set GS_FAMILY_DIR", file=sys.stderr); return 2
+    # Loaded by path under a stub package: gsbsp's __init__ and vtf pull numpy, which the archive-tree reader does not need.
     import importlib.util, types
-    pkg = types.ModuleType("dotbsp"); pkg.__path__ = [os.path.dirname(mod)]
-    sys.modules["dotbsp"] = pkg; sys.modules["dotbsp.vtf"] = types.ModuleType("dotbsp.vtf")
-    spec = importlib.util.spec_from_file_location("dotbsp.vpk", mod); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+    pkg = types.ModuleType("gsbsp"); pkg.__path__ = [os.path.dirname(mod)]
+    sys.modules["gsbsp"] = pkg; sys.modules["gsbsp.vtf"] = types.ModuleType("gsbsp.vtf")
+    spec = importlib.util.spec_from_file_location("gsbsp.vpk", mod); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
     Vpk = m.Vpk
     n = 0
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
@@ -120,7 +120,7 @@ def git_files(repo, staged):
 
 def manifest_files(origin, pid, version):
     import base64, json, urllib.request
-    req = urllib.request.Request("%s/%s/%s/manifest.json" % (origin.rstrip("/"), pid, version), headers={"User-Agent": "dot-cloud-valve-guard/1"})
+    req = urllib.request.Request("%s/%s/%s/manifest.json" % (origin.rstrip("/"), pid, version), headers={"User-Agent": "gs-cloud-valve-guard/1"})
     with urllib.request.urlopen(req, timeout=60) as r:
         p = json.loads(r.read())["payload"]
     return [f["path"] for f in json.loads(base64.urlsafe_b64decode(p + "=" * (-len(p) % 4))).get("files", [])]
@@ -191,8 +191,8 @@ def main(argv):
     else:
         print("check_valve_files: note: no stock index at %s (--build-index); content-hash match skipped, name/extension rules ran" % ip, file=sys.stderr)
     allow = []
-    if os.environ.get("GS_VALVE_ALLOW", os.environ.get("DOT_VALVE_ALLOW")):
-        allow = [l.strip() for l in open((os.environ.get("GS_VALVE_ALLOW") or os.environ["DOT_VALVE_ALLOW"])) if l.strip() and not l.startswith("#")]
+    if os.environ.get("GS_VALVE_ALLOW", os.environ.get("GS_VALVE_ALLOW")):
+        allow = [l.strip() for l in open((os.environ.get("GS_VALVE_ALLOW") or os.environ["GS_VALVE_ALLOW"])) if l.strip() and not l.startswith("#")]
     try:
         files = git_files(root, staged) if git else walk(root, excl)
         hits = scan(files, pack_id, idx, allow)

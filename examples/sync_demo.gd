@@ -18,7 +18,7 @@ extends Control
 ## godot --headless --path . res://examples/sync_demo.tscn
 ## [/codeblock]
 
-const WORK := "user://dot_cloud_demo"
+const WORK := "user://gs_cloud_demo"
 const _Checks := preload("res://examples/selftest/sync_checks.gd")
 
 @onready var _output: RichTextLabel = $Output
@@ -45,7 +45,7 @@ func _ready() -> void:
 
 
 func _run() -> void:
-	_line("[b]dot-cloud end-to-end[/b]")
+	_line("[b]gs-cloud end-to-end[/b]")
 	_line("")
 
 	# Start clean so re-runs measure the same thing.
@@ -187,7 +187,7 @@ func _run() -> void:
 	_line("  mount prefix     %s" % manifest.mount_prefix())
 	_check(
 		"namespaced",
-		mounted_path.begins_with("res://dot_cloud/demo_fc/1.0.0/"),
+		mounted_path.begins_with("res://gs_cloud/demo_fc/1.0.0/"),
 		mounted_path
 	)
 

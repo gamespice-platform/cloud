@@ -4,7 +4,7 @@ extends Node
 ## Run: godot --headless --path . res://examples/mount_now_selftest.tscn
 
 const CHECKS := 17
-const WORK := "user://dot_cloud_mount_now"
+const WORK := "user://gs_cloud_mount_now"
 const LOCK := "res://addons.lock"
 
 var _failures := 0
@@ -16,7 +16,7 @@ func _ready() -> void:
 	GSPaths.remove_tree(GSCloudAddonSet.DIR)
 	GSPaths.remove_tree(WORK)
 	DirAccess.make_dir_recursive_absolute(WORK)
-	ProjectSettings.set_setting("dot_cloud/addon_overlay", "")
+	ProjectSettings.set_setting("gs_cloud/addon_overlay", "")
 	var had_lock := FileAccess.file_exists(LOCK)
 	if not had_lock:
 		var f := FileAccess.open(LOCK, FileAccess.WRITE)
@@ -64,7 +64,7 @@ func _state() -> String:
 func _run() -> void:
 	_check("no plan is refused", GSCloudAddonSet.mount_now() == GSCloudAddonSet.MountNow.REFUSED)
 
-	_plan("user://dot_cloud_addons/missing.pck")
+	_plan("user://gs_cloud_addons/missing.pck")
 	_check("a pack that is not on disk is refused", GSCloudAddonSet.mount_now() == GSCloudAddonSet.MountNow.REFUSED)
 	_check("and the plan stays ready", _state() == GSCloudAddonSet.STATE_READY)
 
@@ -78,7 +78,7 @@ func _run() -> void:
 	_plan(pack, {"state": GSCloudAddonSet.STATE_FAILED})
 	_check("a failed plan is refused", GSCloudAddonSet.mount_now() == GSCloudAddonSet.MountNow.REFUSED)
 	_check("nothing was mounted by the refusals", not FileAccess.file_exists("res://addons/mn_probe/mn.txt")
-			and str(ProjectSettings.get_setting("dot_cloud/addon_overlay", "")) == "")
+			and str(ProjectSettings.get_setting("gs_cloud/addon_overlay", "")) == "")
 
 	var garbage := "%s/garbage.pck" % GSCloudAddonSet.DIR
 	var g := FileAccess.open(garbage, FileAccess.WRITE)

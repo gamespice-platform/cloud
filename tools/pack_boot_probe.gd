@@ -1,8 +1,8 @@
 extends Node
 
 ## The mounted-pack boot test's probe (tools/pack_boot_test.sh copies it into a host project built at the
-## addons.lock tags). It mounts a pack's objects the way dot-cloud's mounter does (a .pck under
-## res://dot_cloud/<id>/<version>/) and fails when anything a server boots from would not:
+## addons.lock tags). It mounts a pack's objects the way gs-cloud's mounter does (a .pck under
+## res://gs_cloud/<id>/<version>/) and fails when anything a server boots from would not:
 ##   - a script the pack ships does not compile against the host's addons (a stale tree, an addon API drift);
 ##   - game.yml's module, scene or client_scene does not load;
 ##   - the module does not instantiate, or its _make_bridge() hands back no bridge (the host then logs
@@ -35,7 +35,7 @@ func _run(out: String) -> int:
 		printerr("pack_boot: no readable manifest.json in %s" % out)
 		return 2
 	var m := manifest as Dictionary
-	var prefix := "res://%s/%s/%s" % [str(m.get("mount_root", "dot_cloud")), str(m["content_id"]), str(m["version"])]
+	var prefix := "res://%s/%s/%s" % [str(m.get("mount_root", "gs_cloud")), str(m["content_id"]), str(m["version"])]
 	# A server fetches the server and both files only (GSCloudFile.side; an unknown side is both): it is judged on
 	# that view first, so a server script reaching a client-only file fails here as it would on the server.
 	var server_files: Array = []
@@ -72,7 +72,7 @@ func _run(out: String) -> int:
 	return 1 if _bad > 0 else 0
 
 
-## Packs [param files] into a .pck at [param prefix] and mounts it, as dot-cloud's mounter does. Returns
+## Packs [param files] into a .pck at [param prefix] and mounts it, as gs-cloud's mounter does. Returns
 ## {by_path, scripts, resources}, or {} when the pack could not be written or mounted (not a verdict).
 func _mount(out: String, prefix: String, files: Array, view: String) -> Dictionary:
 	var pck := OS.get_temp_dir().path_join("pack_boot_%d_%s.pck" % [OS.get_process_id(), view])
@@ -92,7 +92,7 @@ func _mount(out: String, prefix: String, files: Array, view: String) -> Dictiona
 		var at := prefix.path_join(str(f["path"]))
 		packer.add_file(at, obj)
 		by_path[str(f["path"])] = obj
-		# An export ships x.gd.remap + x.gdc for x.gd (dot_module_host.gd module_script_of): loaded as x.gd, once.
+		# An export ships x.gd.remap + x.gdc for x.gd (gs_module_host.gd module_script_of): loaded as x.gd, once.
 		var gd := _script_of(at)
 		if gd != "" and not scripts.has(gd):
 			scripts.append(gd)
@@ -148,14 +148,14 @@ func _check_game_yml(yml: Dictionary, prefix: String, keys: Array) -> void:
 			_check_module(res as GDScript, rel)
 
 
-## What the host does first with a module (dot_module_host.gd _instantiate_module, then GSGameModule's
+## What the host does first with a module (gs_module_host.gd _instantiate_module, then GSGameModule's
 ## netcode start): make one and ask it for its bridge. Neither is added to the tree; both are freed.
 func _check_module(script: GDScript, rel: String) -> void:
 	var module: Object = script.new()
 	if module == null:
 		_fail("game.yml module (%s) does not instantiate" % rel)
 		return
-	# The host asks for a bridge only when the game declares netcode (dot_game_module.gd: _net_config() not null, then
+	# The host asks for a bridge only when the game declares netcode (gs_game_module.gd: _net_config() not null, then
 	# _make_bridge()); a game without netcode keeps the inherited null bridge and boots. Off the tree a game's
 	# _net_config() may error (it reads `game`, unset here) and so return null: an error counts as netcode declared.
 	var wants_net := false
@@ -267,7 +267,7 @@ static func _script_of(file: String) -> String:
 
 
 ## The manifest inside a signed envelope ({"payload": base64url of the manifest JSON, "signatures": ...}, as
-## dot_cloud_envelope.gd writes it and tools/pack_fetch.py reads it); a bare manifest as it is.
+## gs_cloud_envelope.gd writes it and tools/pack_fetch.py reads it); a bare manifest as it is.
 static func _unwrap(doc: Variant) -> Variant:
 	if not (doc is Dictionary) or not (doc as Dictionary).has("payload"):
 		return doc

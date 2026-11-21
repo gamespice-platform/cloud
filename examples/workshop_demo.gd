@@ -12,7 +12,7 @@ extends Node
 ## godot --headless --path . res://examples/workshop_demo.tscn
 ## [/codeblock]
 
-const WORK := "user://dot_cloud_workshop_demo"
+const WORK := "user://gs_cloud_workshop_demo"
 const CHECKS := 56
 
 var _failures := 0
@@ -266,7 +266,7 @@ func _check_undeclared_code() -> void:
 
 	var refused := await _cloud.ensure_for_session(&"ws_forged", "1.0.0", &"solo", &"subscription", {"manifest_url": _manifest_url("ws_forged")})
 	_check(again.ok and not refused.ok and refused.error.code == GSError.CODE_FORBIDDEN, "the client refuses it as forbidden", str(refused.error) if not refused.ok else "mounted")
-	_check(not ResourceLoader.exists("res://dot_cloud/ws_forged/1.0.0/maps/m.tscn"), "and nothing of it was mounted")
+	_check(not ResourceLoader.exists("res://gs_cloud/ws_forged/1.0.0/maps/m.tscn"), "and nothing of it was mounted")
 	_check(_index.entry("ws_forged@1.0.0:map/m") == null, "or indexed")
 
 	# Armed: the honest version of the same files mounts, so the refusal was the scan and not
@@ -328,7 +328,7 @@ func _check_uid_policy() -> void:
 	var m1 := await _cloud.ensure(&"ws_uid_game", "1.0.0", PackedStringArray(), _manifest_url("ws_uid_game"))
 	_check(p1.ok and m1.ok, "a game pack mounts and registers its uid", str(m1.error) if not m1.ok else "")
 	var owned := ResourceUID.get_id_path(shared_id)
-	_check(owned.begins_with("res://dot_cloud/ws_uid_game/"), "which points into the game pack", owned)
+	_check(owned.begins_with("res://gs_cloud/ws_uid_game/"), "which points into the game pack", owned)
 
 	# The subscription reuses both that id and the host's own.
 	var s2 := WORK.path_join("src_uid2")
@@ -338,7 +338,7 @@ func _check_uid_policy() -> void:
 	_check(p2.ok and m2.ok, "the subscription mounts", str(m2.error) if not m2.ok else "")
 	_check(ResourceUID.get_id_path(shared_id) == owned, "the game's uid was not re-pointed")
 	_check(ResourceUID.get_id_path(host_id) == host_path, "nor was the host's own")
-	_check(ResourceUID.has_id(fresh_id) and ResourceUID.get_id_path(fresh_id).begins_with("res://dot_cloud/ws_uid_sub/"), "an id nobody knew was added")
+	_check(ResourceUID.has_id(fresh_id) and ResourceUID.get_id_path(fresh_id).begins_with("res://gs_cloud/ws_uid_sub/"), "an id nobody knew was added")
 	var mounts: Array = _cloud.mounter.describe()["mounted"]
 	var skipped := -1
 	for e: Dictionary in mounts:
@@ -351,7 +351,7 @@ func _check_uid_policy() -> void:
 	_uid_source(s3, {"shared": shared_text})
 	_publish(s3, "ws_uid_plain", "1.0.0", ship)
 	var m3 := await _cloud.ensure(&"ws_uid_plain", "1.0.0", PackedStringArray(), _manifest_url("ws_uid_plain"))
-	_check(m3.ok and ResourceUID.get_id_path(shared_id).begins_with("res://dot_cloud/ws_uid_plain/"), "armed: a plain mount does move an id that points into other content")
+	_check(m3.ok and ResourceUID.get_id_path(shared_id).begins_with("res://gs_cloud/ws_uid_plain/"), "armed: a plain mount does move an id that points into other content")
 
 
 func _check_scan_alone() -> void:
@@ -359,8 +359,8 @@ func _check_scan_alone() -> void:
 	_line("[b]the script scan on its own[/b]")
 	var files := {
 		"a.tscn": "[gd_scene format=3]\n[sub_resource type=\"GDScript\" id=\"1\"]\n",
-		"b.tscn": "[gd_scene format=3]\n[ext_resource type=\"Script\" path=\"res://addons/dot_core/x.gd\" id=\"1\"]\n",
-		"c.tres": "[gd_resource type=\"Resource\" format=3]\n[ext_resource type=\"Script\" path=\"res://dot_cloud/p/1/s.gd\" id=\"1\"]\n",
+		"b.tscn": "[gd_scene format=3]\n[ext_resource type=\"Script\" path=\"res://addons/gs_core/x.gd\" id=\"1\"]\n",
+		"c.tres": "[gd_resource type=\"Resource\" format=3]\n[ext_resource type=\"Script\" path=\"res://gs_cloud/p/1/s.gd\" id=\"1\"]\n",
 		"d.res": "RSRC....GDScript....",
 		"e.res": "RSRC....Mesh....",
 		"f.txt": "extends Node",

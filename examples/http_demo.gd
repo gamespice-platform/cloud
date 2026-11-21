@@ -32,7 +32,7 @@ extends Control
 
 const TestServer := preload("res://examples/http_test_server.gd")
 
-const WORK := "user://dot_cloud_http_demo"
+const WORK := "user://gs_cloud_http_demo"
 
 ## A port nothing listens on. Connecting is refused immediately, which is the
 ## mirror failure worth testing — a black-holed port would just be a timeout.
@@ -65,7 +65,7 @@ func _ready() -> void:
 
 
 func _run() -> void:
-	_line("[b]dot-cloud over HTTP[/b]")
+	_line("[b]gs-cloud over HTTP[/b]")
 	_line("")
 
 	GSPaths.remove_tree(WORK)
@@ -432,7 +432,7 @@ func _test_resume(
 	# restart-from-zero path below, and passes every check above it.
 	#
 	# It was a printed line and not an assertion until 2026-08-28, on the
-	# grounds that it measures GSHttp rather than anything dot-cloud decides.
+	# grounds that it measures GSHttp rather than anything gs-cloud decides.
 	# It was also, for that whole time, printing "re-sent the object" —
 	# HTTPRequest has no append mode and download_to_file wrote the ranged body
 	# at offset zero, so resume across the family was inert and this was the one

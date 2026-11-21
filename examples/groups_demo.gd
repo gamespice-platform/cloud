@@ -4,7 +4,7 @@ extends Node
 ## the `.import` marker and `_imported/` output following their asset, a client fetching only its group's files, a mounted pack topped up with one group then all (`ensure_groups_at`, `"*"`), and the
 ## publisher's refusals (a pattern matching nothing, an empty group, the name `*`, a non-pack path, a malformed file). Run: [code]godot --headless --path . res://examples/groups_demo.tscn[/code]
 
-const WORK := "user://dot_cloud_groups_demo"
+const WORK := "user://gs_cloud_groups_demo"
 
 ## Every check this suite runs, the closing count included. See docs/testing.md.
 const CHECKS := 49
@@ -25,7 +25,7 @@ func _ready() -> void:
 
 
 func _run() -> void:
-	print("dot-cloud groups")
+	print("gs-cloud groups")
 	GSPaths.remove_tree(WORK)
 	var keys := GSCloudSignature.generate_keypair(2048)
 	if not keys.ok:

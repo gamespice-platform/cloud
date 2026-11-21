@@ -4,7 +4,7 @@ extends Node
 ## loads and runs, and the default publish still ships text.
 ## Run: godot --headless --path . res://examples/tokens_demo.tscn
 
-const WORK := "user://dot_cloud_tokens"
+const WORK := "user://gs_cloud_tokens"
 const CHECKS := 18
 
 var _failures := 0
@@ -32,7 +32,7 @@ script = ExtResource("1")
 	var tokens := work.path_join("tokens")
 	var code := OS.execute(OS.get_executable_path(), ["--headless", "--path", proj, "--import"], [], true)
 	var ran: Array = []
-	var tool_path := ProjectSettings.globalize_path("res://addons/dot_cloud/publish/tokenize_scripts.sh")
+	var tool_path := ProjectSettings.globalize_path("res://addons/gs_cloud/publish/tokenize_scripts.sh")
 	code = OS.execute("env", ["GODOT=" + OS.get_executable_path(), "bash", tool_path, proj, tokens], ran, true)
 	_check(code == 0, "tokenize_scripts.sh succeeds", str(ran))
 	_check(FileAccess.file_exists(tokens.path_join("game/thing.gdc")), "and writes game/thing.gdc")
@@ -73,7 +73,7 @@ script = ExtResource("1")
 	var compiled := warmed.loaded.filter(func(r: Resource) -> bool: return r is Script)
 	_check(not compiled.is_empty(), "warm_content compiles the tokenized script", str(warmed.loaded.size()))
 
-	var packed: PackedScene = load("res://dot_cloud/tok_pack/1.0.0/scenes/world.tscn")
+	var packed: PackedScene = load("res://gs_cloud/tok_pack/1.0.0/scenes/world.tscn")
 	_check(packed != null, "the scene loads")
 	if packed != null:
 		var node := packed.instantiate()

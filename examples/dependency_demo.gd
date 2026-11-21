@@ -4,7 +4,7 @@ extends Node
 ## a shared store skipped, a missing store or a loop refused before mount, and the CLI-less parser.
 ## Run: godot --headless --path . res://examples/dependency_demo.tscn
 
-const WORK := "user://dot_cloud_dependency_demo"
+const WORK := "user://gs_cloud_dependency_demo"
 const CHECKS := 98
 const SECTIONS := 11
 
@@ -22,7 +22,7 @@ func _ready() -> void:
 
 
 func _run() -> void:
-	print("dot-cloud dependencies (API 15)")
+	print("gs-cloud dependencies (API 15)")
 	GSPaths.remove_tree(WORK)
 	var keys := GSCloudSignature.generate_keypair(2048)
 	if not keys.ok:
@@ -77,8 +77,8 @@ func _section_shared_store() -> void:
 	var a := await client.ensure(&"map_a", "1")
 	_check("map a mounts", a.ok, str(a.error) if not a.ok else "")
 	_check("store mounted first", _ready_keys.size() == 2 and _ready_keys[0] == "lib_store@1", str(_ready_keys))
-	_check("store file readable", FileAccess.file_exists("res://dot_cloud/lib_store/1/pbr/a.bin"))
-	_check("dependency_prefix answers", client.dependency_prefix(&"lib_store", "1") == "res://dot_cloud/lib_store/1")
+	_check("store file readable", FileAccess.file_exists("res://gs_cloud/lib_store/1/pbr/a.bin"))
+	_check("dependency_prefix answers", client.dependency_prefix(&"lib_store", "1") == "res://gs_cloud/lib_store/1")
 	var b := await client.ensure(&"map_b", "1")
 	_check("map b mounts", b.ok, str(b.error) if not b.ok else "")
 	_check("store not fetched again", _ready_keys.size() == 3 and _ready_keys[2] == "map_b@1", str(_ready_keys))
@@ -93,7 +93,7 @@ func _section_missing() -> void:
 	var got := await client.ensure(&"map_c", "1")
 	_check("pack refused", not got.ok)
 	_check("says what it needed", not got.ok and str(got.error).contains("lib_store@9"), str(got.error) if not got.ok else "")
-	_check("pack not mounted", not client.is_mounted(&"map_c", "1") and not FileAccess.file_exists("res://dot_cloud/map_c/1/map.txt"))
+	_check("pack not mounted", not client.is_mounted(&"map_c", "1") and not FileAccess.file_exists("res://gs_cloud/map_c/1/map.txt"))
 	client.queue_free()
 	_end()
 

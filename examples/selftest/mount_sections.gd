@@ -20,7 +20,7 @@ static func uids(h: Node) -> void:
 	# And one the HOST owns: a real file in this build, registered here the way the
 	# editor's own cache would have.
 	var stolen := ResourceUID.create_id()
-	var host_file := "res://addons/dot_cloud/mount/dot_cloud_mounter.gd"
+	var host_file := "res://addons/gs_cloud/mount/gs_cloud_mounter.gd"
 	ResourceUID.add_id(stolen, host_file)
 
 	var texture: PackedByteArray = h._blob("atlas", 256)
@@ -87,9 +87,9 @@ static func slice_loader(h: Node) -> void:
 	h._line("[b]12. slice loader yields between slices[/b]")
 
 	var paths := PackedStringArray()
-	for f in DirAccess.get_files_at("res://addons/dot_cloud/transfer"):
+	for f in DirAccess.get_files_at("res://addons/gs_cloud/transfer"):
 		if f.ends_with(".gd"):
-			paths.append("res://addons/dot_cloud/transfer/" + f)
+			paths.append("res://addons/gs_cloud/transfer/" + f)
 	h._check("have scripts to load", paths.size() >= 4, str(paths.size()))
 
 	for threaded in [false, true]:
@@ -234,7 +234,7 @@ static func two_publishers(h: Node) -> void:
 	)
 
 	# The refusal is only worth having if the first publisher's content survived it.
-	var read := GSPaths.read_bytes("res://dot_cloud/contested/1.0.0/level.txt")
+	var read := GSPaths.read_bytes("res://gs_cloud/contested/1.0.0/level.txt")
 	h._check("the first publisher's bytes are still what is mounted",
 		read.ok and (read.value as PackedByteArray) == alice)
 	h._check("and there is still one mount", mounter.mounted_keys().size() == 1)
@@ -264,13 +264,13 @@ static func namespaced_ids(h: Node) -> void:
 	var body: PackedByteArray = h._blob("namespaced", 256)
 	h._store.put_bytes(body, GSHash.sha256_bytes(body))
 
-	var m: GSCloudManifest = h._manifest("alice/dot-controller", "1.0.0", [["a.txt", body, true]])
+	var m: GSCloudManifest = h._manifest("alice/gs-controller", "1.0.0", [["a.txt", body, true]])
 
 	h._check("a two-segment id validates", m.validate().ok,
 		str(m.validate().error) if not m.validate().ok else "")
 	h._check(
 		"and its mount prefix nests",
-		m.mount_prefix() == "res://dot_cloud/alice/dot-controller/1.0.0",
+		m.mount_prefix() == "res://gs_cloud/alice/gs-controller/1.0.0",
 		m.mount_prefix()
 	)
 
@@ -278,7 +278,7 @@ static func namespaced_ids(h: Node) -> void:
 	h._check("it mounts", mounted.ok, str(mounted.error) if not mounted.ok else "")
 	h._check(
 		"and its file is readable at the nested path",
-		FileAccess.file_exists("res://dot_cloud/alice/dot-controller/1.0.0/a.txt")
+		FileAccess.file_exists("res://gs_cloud/alice/gs-controller/1.0.0/a.txt")
 	)
 
 	# A bare id is what every first-party pack already is, and must not have become
@@ -304,7 +304,7 @@ static func namespaced_ids(h: Node) -> void:
 	# one member publishing as another is decorative.
 	var scoped := {"key": "-----BEGIN PUBLIC KEY-----", "content_ids": ["alice/*"]}
 	h._check("alice/* covers alice's own id",
-		GSCloudSignature.scope_allows(scoped, "alice/dot-controller"))
+		GSCloudSignature.scope_allows(scoped, "alice/gs-controller"))
 	h._check("and does not cover another member's",
 		not GSCloudSignature.scope_allows(scoped, "alicebob/x"))
 	h._check("nor the flattened lookalike",

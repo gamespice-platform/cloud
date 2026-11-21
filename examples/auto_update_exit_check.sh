@@ -2,7 +2,7 @@
 #
 # An auto-update restart exits 75 while stdin is a real pipe whose writer stays open, as a
 # panel attaches it; a supervisor restarts on exactly that code. The stdin console half
-# (the reader that used to swallow the code) is in dot-server/examples/exit_code_check.sh.
+# (the reader that used to swallow the code) is in gs-server/examples/exit_code_check.sh.
 #
 #   examples/auto_update_exit_check.sh     exit 0 when the run ends 75, 1 otherwise
 set -uo pipefail

@@ -3,7 +3,7 @@ extends Node
 ## [GSCloudAutoUpdate] against a fake clock, a fake origin and a fake player count.
 ## Run: godot --headless --path . res://examples/auto_update_demo.tscn
 
-const WORK := "user://dot_cloud_auto_update_demo"
+const WORK := "user://gs_cloud_auto_update_demo"
 const SECTIONS := 11
 const CHECKS := 67
 
@@ -55,7 +55,7 @@ func _ready() -> void:
 
 
 func _run() -> void:
-	print("dot-cloud auto-update")
+	print("gs-cloud auto-update")
 	GSPaths.remove_tree(WORK)
 
 	await _section_empty_restarts_at_once()

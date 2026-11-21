@@ -20,7 +20,7 @@ extends Control
 ## godot --headless --path . res://examples/store_demo.tscn
 ## [/codeblock]
 
-const WORK := "user://dot_cloud_store_demo"
+const WORK := "user://gs_cloud_store_demo"
 
 ## Every object in this demo is this big, so byte arithmetic in the assertions
 ## below is readable and a limit can be expressed as a number of objects.
@@ -51,7 +51,7 @@ func _ready() -> void:
 
 
 func _run() -> void:
-	_line("[b]dot-cloud store[/b]")
+	_line("[b]gs-cloud store[/b]")
 	_line("")
 
 	GSPaths.remove_tree(WORK)
@@ -194,7 +194,7 @@ func _section_pressure() -> void:
 	# setting to change, not a disk to clean; a prod server was refused maps exactly so).
 	var said := str(stuck.error)
 	_check("names the limit and its key", said.contains("limit 4.0 KiB (cache_bytes)")
-		and said.contains("DOT_CLOUD_CACHE_BYTES") and said.contains("--cloud-cache-bytes")
+		and said.contains("GS_CLOUD_CACHE_BYTES") and said.contains("--cloud-cache-bytes")
 		and said.contains("set it to 0 for unlimited"), said)
 	_check("says referenced bytes and disk free", said.contains("4.0 KiB referenced")
 		and said.contains("disk free ") and not said.contains("disk free unknown"), said)
@@ -402,7 +402,7 @@ func _section_partials() -> void:
 
 	# On web partials sit in Emscripten's in-memory /tmp while objects are in the IndexedDB mirror,
 	# and a rename between two mounts is refused (EXDEV). /dev/shm is the same shape on Linux.
-	var outside := "/dev/shm/dot_cloud_store_demo.part"
+	var outside := "/dev/shm/gs_cloud_store_demo.part"
 	if DirAccess.dir_exists_absolute("/dev/shm"):
 		var bytes := _blob(52, OBJ)
 		GSPaths.write_bytes(outside, bytes)

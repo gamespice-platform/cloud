@@ -4,7 +4,7 @@
 	"origin": "https://content.gamespice.net/content",
 	"packs": [
 		{
-			"id": "gamemann/game-arena",
+			"id": "gamemann/game-fatal-contact",
 			"into": "",
 			"kind": "pack",
 			"manifest_sha256": "578571575ce2e952ee35790012ab4d3707cc952cf77efa2c6a33ef819c431be4",

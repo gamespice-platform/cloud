@@ -1,0 +1,1202 @@
+@tool
+class_name GSCloudClient
+extends "gs_cloud_client_urls.gd"
+
+## The one node a game needs: fetch a manifest, download, verify, mount (usage in docs/client.md).
+##
+## No singleton: one per content channel or server, so a background map download is a second client.
+
+const CHANNEL := "cloud"
+const _Prefetch := preload("gs_cloud_client_prefetch.gd")
+const _Warm := preload("gs_cloud_client_warm.gd")
+const _Job := preload("gs_cloud_client_job.gd")
+const _Manifests := preload("gs_cloud_client_manifests.gd")
+const _Report := preload("gs_cloud_client_report.gd")
+
+## Registry name the rest of the family looks this up under.
+const SERVICE := &"gs_cloud_client"
+
+## Where a content set is in its lifecycle. Drives loading-screen text.
+enum Phase {
+	IDLE,
+	FETCHING_MANIFEST,
+	VERIFYING_SIGNATURE,
+	PLANNING,        ## Working out what is missing.
+	DOWNLOADING,
+	VERIFYING,
+	MOUNTING,
+	READY,
+	FAILED,
+}
+
+## Phase changed. [param text] is a player-facing description.
+signal phase_changed(phase: Phase, text: String)
+
+## Forwarded from the downloader. See [method GSCloudDownloader.progress].
+signal progress_changed(progress: Dictionary)
+
+## The whole job's progress (every pack of a dependency tree or a Workshop sync), see [GSCloudJobProgress].
+signal job_progress_changed(snapshot: Dictionary)
+
+## Content is downloaded, verified and mounted.
+signal content_ready(manifest: GSCloudManifest, mount_prefix: String)
+
+## Content was released. The scene tree referencing it must already be gone.
+signal content_released(content_key: String)
+
+signal failed(error: GSError)
+
+## Emitted when an acquisition finishes, so a second caller for the same content can
+## wait for the first rather than starting a sync that is refused. Internal: a consumer
+## wants [signal content_ready], which says a mount is usable.
+signal _acquire_finished(content_key: String, result: GSResult)
+
+@export_group("Configuration")
+
+## Content-delivery settings. A default [GSCloudConfig] is created if unset.
+##
+## The default refuses unsigned manifests, so it fails validation until [member GSCloudConfig.trusted_keys] has a key: a content system that mounts scripts should not be secure by accident.
+@export var config: GSCloudConfig = null
+
+## Path to a JSON config file layered over [member config]'s defaults.
+@export var config_file: String = "user://gs_cloud.json"
+
+@export_group("Sources")
+
+## Allow content to arrive over the game connection when no HTTP source works.
+##
+## Needs a delegate; GameSpice Server supplies one. See [GSCloudSourceNetchan].
+@export var allow_netchan_fallback: bool = true
+
+@export_group("Service")
+
+## Publish this client in [GSRegistry] so other addons find it under [constant SERVICE].
+##
+## GSClientLink, GSGameManager, the content command and GSAvatarCatalogue duck-type against it; an absent cloud reads as "content ships in the build", so a missing registration errors nowhere.
+@export var register_service: bool = true
+
+## Suffix for this client's registry name, so two clients in one process do not displace each other.
+@export var service_scope: StringName = &""
+
+@export_group("Requirements")
+
+## Who this build is in the refusal a player reads ("this [b]client[/b] has level 2"); `"build"` by default.
+## GameSpice Cloud cannot tell a server from a client, and the reader needs to know which to update.
+@export var host_role: String = "build"
+
+@export_group("Wiring")
+
+## Where to find a [GSScheduler] for hashing; defaults to a child.
+## Point it at the host's scheduler to share one frame budget.
+@export var scheduler_ref: GSNodeRef = null
+
+var store: GSCloudStore = null
+var mounter: GSCloudMounter = null
+var downloader: GSCloudDownloader = null
+var scheduler: GSScheduler = null
+
+## Sources in preference order. Mutable at runtime — GameSpice Server appends a netchan
+## source once a session exists.
+var sources: Array[GSCloudSource] = []
+
+## What this build's addons are, for checking a pack's [code]requires.json[/code] before
+## it is mounted. See [GSAddonApi]; a test that is standing in for an older build sets
+## [member GSAddonApi.overrides] here.
+var addon_api: GSAddonApi = GSAddonApi.new()
+
+var _phase: Phase = Phase.IDLE
+var _http: GSHttp = null
+
+## The client objects are downloaded through, separate from the manifest's.
+##
+## The manifest's response cap is right for an unverified document and wrong for an object, whose size is signed and whose bytes are hash-checked: sharing one node left packs over 8 MiB undeliverable.
+var _object_http: GSHttp = null
+
+## The verified published mirror list (API 13), or null for origin only.
+var _mirror_list: GSCloudMirrorList = null
+
+## Probes mirrors in [method load_mirror_list]; its own node because ranking overrides its timeout.
+var _probe_http: GSHttp = null
+var _started: bool = false
+var _registered_name: StringName = &""
+
+## content_key -> GSCloudManifest, for everything currently mounted.
+var _acquired: Dictionary = {}
+
+## The session a plain [method ensure] or [method acquire] mount is tagged with in [GSContentIndex].
+## `online` by default; the shell sets `solo`. The Workshop passes the tag through [method ensure_for_session].
+var session_tag: StringName = GSContentIndex.SESSION_ONLINE
+
+## content_key -> {session, source, uid_policy, allow_root} for a mount in progress that
+## [method ensure_for_session] started. Keyed rather than a member field so two mounts in
+## flight do not read each other's options.
+var _mount_opts: Dictionary = {}
+
+
+## Publishes the client so addons can find it.
+## In [method Node._ready], not [method start], because start awaits and a consumer resolving the service
+## in between would get null. [method acquire] starts itself if needed.
+func _ready() -> void:
+	if Engine.is_editor_hint() or not register_service:
+		return
+
+	_registered_name = (
+		GSRegistry.scoped_name(SERVICE, service_scope) if service_scope != &""
+		else SERVICE
+	)
+	GSRegistry.register(_registered_name, self)
+
+
+## Opens the cache and prepares the sources. Must be awaited before [method acquire].
+## Not in _ready because it awaits the browser's storage quota; without the ceiling the cache
+## would refuse valid downloads or accept ones it cannot store.
+func start() -> GSResult:
+	if _started:
+		return GSResult.success(self)
+
+	if config == null:
+		config = GSCloudConfig.new()
+
+	if config_file != "":
+		var loaded := config.apply_json_file(config_file)
+		if not loaded.ok:
+			return _fail(loaded.error)
+
+	config.apply_env()
+	config.apply_cli()
+
+	var valid := config.validate()
+	if not valid.ok:
+		return _fail(valid.error)
+
+	config.warn_about_risky_settings()
+
+	_resolve_scheduler()
+
+	_http = GSHttp.new()
+	_http.name = "ManifestHttp"
+	_http.timeout_sec = 30.0
+	# A manifest is small; a hostile host should not be able to stream gigabytes
+	# into memory before we notice it is not JSON.
+	_http.max_response_bytes = 8 * 1024 * 1024
+	add_child(_http)
+
+	# Objects: no response cap, and a longer timeout. A game pack is tens or hundreds of
+	# megabytes and thirty seconds is a small map on a slow line. See `_object_http`.
+	_object_http = GSHttp.new()
+	_object_http.name = "ObjectHttp"
+	_object_http.timeout_sec = config.file_timeout_sec
+	_object_http.max_response_bytes = 0
+	add_child(_object_http)
+
+	store = GSCloudStore.new(config)
+	var opened := await store.open()
+	if not opened.ok:
+		return _fail(opened.error)
+
+	store.sweep_partials()
+
+	if config.verify_cache_on_start:
+		_set_phase(Phase.VERIFYING, "Checking downloaded content…")
+		await store.verify_all(scheduler)
+
+	mounter = GSCloudMounter.new(config)
+	store.in_use_fn = func(key: String) -> bool: return mounter.is_mounted(key)
+
+	_build_sources()
+
+	downloader = _make_downloader(false)
+	pool = GSCloudDownloaderPool.new(downloader, _make_downloader, func() -> int: return config.parallel_packs)
+
+	_started = true
+	_set_phase(Phase.IDLE, "")
+
+	GSLog.info(CHANNEL, "client ready", store.describe())
+
+	# Never fails the start: without the list the origin serves everything.
+	if config.mirrors_url != "" and config.use_mirrors:
+		await load_mirror_list()
+	return GSResult.success(self)
+
+
+func _exit_tree() -> void:
+	if _registered_name != &"":
+		GSRegistry.unregister_instance(_registered_name, self)
+		_registered_name = &""
+
+	if store != null:
+		store.close()
+
+
+func _resolve_scheduler() -> void:
+	if scheduler_ref == null:
+		scheduler_ref = GSNodeRef.of_created(&"CloudScheduler", GSScheduler)
+		# Runs on the main thread in a browser: a worker's user:// calls are proxied to it
+		# and answered between frames (~350 ms an object on FC's threaded shell).
+		# Sliced on the main thread, the same verify takes seconds.
+		if GSPlatform.is_web() and get_node_or_null(^"CloudScheduler") == null:
+			_add_scheduler()
+
+	var res := scheduler_ref.resolve(self)
+	if res.ok and res.value is GSScheduler:
+		scheduler = res.value as GSScheduler
+		return
+
+	# A missing scheduler is recoverable — make one rather than refusing to run,
+	# because the most common cause is a ref pointing at a node the host renamed.
+	GSLog.warn(
+		CHANNEL,
+		"could not resolve a scheduler; creating one",
+		{"ref": scheduler_ref.describe()}
+	)
+	scheduler = _add_scheduler()
+
+
+func _add_scheduler() -> GSScheduler:
+	var s := GSScheduler.new()
+	s.name = "CloudScheduler"
+	# Before add_child: the scheduler starts its workers in _ready.
+	s.use_threads = not GSPlatform.is_web()
+	add_child(s)
+	return s
+
+
+func _build_sources() -> void:
+	sources.clear()
+
+	if not local_search_dirs.is_empty():
+		var local := GSCloudSourceLocal.new()
+		local.search_dirs = local_search_dirs
+		# First: a file already on disk costs nothing to check and beats any
+		# network round trip.
+		local.priority = 10
+		sources.append(local)
+
+	var http_source := GSCloudSourceHttp.new()
+	# Resolved, not raw: the objects come from the same origin as the manifest, and a
+	# manifest that downloaded from a base this turned into a URL must not be followed
+	# by file requests to a path that is still not one.
+	http_source.base_urls = resolved_http_base_urls()
+	http_source.priority = 50
+	http_source.http = _object_http
+	http_source.mirror_list = _mirror_list if config.use_mirrors else null
+	sources.append(http_source)
+
+	if allow_netchan_fallback:
+		var netchan := GSCloudSourceNetchan.new()
+		# Last: it costs the game server's own bandwidth, so it is what you fall
+		# back to, never what you reach for.
+		netchan.priority = 900
+		sources.append(netchan)
+
+
+## Gives the netchan source its transport delegate; called by GameSpice Server once a session exists.
+## Until then the source reports itself unsupported and is skipped.
+func set_netchan_delegate(delegate: Object) -> void:
+	for s in sources:
+		var nc := s as GSCloudSourceNetchan
+		if nc != null:
+			nc.delegate = delegate
+			GSLog.debug(
+				CHANNEL,
+				"netchan delegate set",
+				{"delegate": delegate.get_class() if delegate != null else "<none>"}
+			)
+
+
+## The whole flow for one content set: fetch, verify, download, mount. Idempotent.
+## Returns the entry scene path when the manifest declares one, otherwise the mount prefix.
+func acquire(
+	manifest_url: String,
+	groups: PackedStringArray = PackedStringArray()
+) -> GSResult:
+	if not _started:
+		var started := await start()
+		if not started.ok:
+			return started
+
+	_set_phase(Phase.FETCHING_MANIFEST, "Getting content information…")
+
+	var fetched := await fetch_manifest(manifest_url)
+	if not fetched.ok:
+		return _fail(fetched.error)
+
+	# A manifest read off the disk is a pack that is on the disk: adopt its directory, or every
+	# object beside it is asked for over HTTP and fails with no source to fail over to.
+	if is_local_manifest_url(manifest_url):
+		_adopt_local_dir(_local_manifest_path(manifest_url).get_base_dir())
+
+	var manifest: GSCloudManifest = fetched.value
+	return await acquire_manifest(manifest, groups)
+
+
+## Content being acquired right now, by key.
+##
+## A second caller for the same content waits for the first: the downloader runs one sync at a time, and failing the later caller lost the race between sv_map and a game's initial map.
+var _inflight: Dictionary = {}
+## The job being tracked, or null; [method begin_job] and [method end_job] nest.
+var job: GSCloudJobProgress = null
+var _job_depth := 0
+var _job_manifests: Dictionary = {}
+## Pack key -> the download groups the job fetches of it (API 23); a key not here fetches ungrouped files only.
+var _job_groups: Dictionary = {}
+## manifest URL -> pinned sha256 of the manifest file, set by [method ensure_locked].
+var _pinned: Dictionary = {}
+
+## Syncs run side by side, up to [member GSCloudConfig.parallel_packs]; a further one (a prefetch while the boot map downloads) waits its turn instead of failing.
+var pool: GSCloudDownloaderPool = null
+
+## Most dependency manifests fetched together while resolving a collection; a test reads it to prove the cap held.
+var resolve_peak := 0
+var _boosted := 0
+
+
+## Wait for an acquisition already running for [param key].
+func _await_inflight(key: String) -> GSResult:
+	while _inflight.has(key):
+		var payload: Array = await _acquire_finished
+
+		if payload.size() == 2 and String(payload[0]) == key:
+			return payload[1]
+
+	# The set emptied without our key being announced -- the owner died, or the client
+	# was torn down mid-sync. Answering "not there" is honest; the caller retries or
+	# falls back, which is what it does for any other failure.
+	return GSResult.fail(
+		GSError.CODE_STATE,
+		"The acquisition of '%s' ended without an answer." % key
+	)
+
+
+## [method acquire] for a manifest already in hand; GameSpice Server pushes manifests down the game connection.
+func acquire_manifest(
+	manifest: GSCloudManifest,
+	groups: PackedStringArray = PackedStringArray(),
+	chain: PackedStringArray = PackedStringArray()
+) -> GSResult:
+	if not _started:
+		var started := await start()
+		if not started.ok:
+			return started
+
+	_apply_side(manifest)
+	var key := manifest.key()
+
+	# Mounted, and with every file this side wants: a process that mounted it as a client
+	# and now hosts it too goes on to fetch and mount the rest (GSCloudMounter.covers).
+	if mounter.is_mounted(key) and mounter.covers(manifest, groups):
+		_index_manifest(manifest)
+		_set_phase(Phase.READY, "Ready.")
+		return _ready_result(manifest)
+
+	# A dependency loop would join its own acquisition below and wait for itself forever.
+	if chain.has(key):
+		return _fail(GSError.make(GSError.CODE_INVALID, "Content dependencies are circular.", key))
+
+	if _inflight.has(key):
+		GSLog.debug(CHANNEL, "joining an acquisition already running", {"content": key})
+		var joined := await _await_inflight(key)
+		# The running one may have asked for fewer groups (a map top-up joining the boot fetch).
+		if joined.ok and not mounter.covers(manifest, groups):
+			return await acquire_manifest(manifest, groups, chain)
+		return joined
+
+	# Released by wrapping, not by remembering: with four returns below, a leaked entry would make
+	# every later caller wait for an acquisition that is not running.
+	_inflight[key] = true
+
+	var outcome := await _acquire_inner(manifest, groups, key, chain)
+
+	_inflight.erase(key)
+	_acquire_finished.emit(key, outcome)
+
+	return outcome
+
+
+func _acquire_inner(
+	manifest: GSCloudManifest,
+	groups: PackedStringArray,
+	key: String,
+	chain: PackedStringArray = PackedStringArray()
+) -> GSResult:
+	# [b]Refused from the manifest alone, before a byte is fetched.[/b] A root overlay replaces
+	# the build's code for the whole process, which is a server's decision, never a
+	# subscription's (see [method ensure_for_session]).
+	var opts: Dictionary = _mount_opts.get(key, {})
+	if not bool(opts.get("allow_root", true)) and not manifest.provides.is_empty():
+		var paths := PackedStringArray()
+		for f in manifest.files:
+			paths.append(f.path)
+		if GSCloudProvides.is_root_overlay(manifest.provides, paths):
+			return _fail(GSError.make(
+				GSError.CODE_FORBIDDEN,
+				"This pack would overlay the build's addons, which a subscription may not do.",
+				key
+			))
+
+	var needed := await _ensure_dependencies(manifest, key, chain)
+	if not needed.ok:
+		return _fail(needed.error)
+
+	# Ask before downloading: an old web shell fetched minutes of a game and then said it needed a
+	# newer addon. requires.json is one small file the manifest lists, so fetch only that first.
+	var preflight := await _preflight_requirements(manifest, key)
+	if not preflight.ok:
+		return _fail(preflight.error)
+
+	var downloaded := await _download(manifest, groups, key)
+	if not downloaded.ok:
+		return _fail(downloaded.error)
+
+	# Before the mount: a pack built against a newer addon fails its scripts mid-load with "not declared".
+	# Its requirements are already in the store, and a refusal here leaves nothing mounted, which
+	# matters because a mounted pack can never be unmounted.
+	var fits := check_requirements(manifest)
+	if not fits.ok:
+		return _fail(fits.error)
+
+	# Again, after the awaits above: another client in this process (a listen server's
+	# player, a suite) may have stamped the same manifest object with its own side meanwhile.
+	_apply_side(manifest)
+	var honest := _rescan_for_code(manifest)
+	if not honest.ok:
+		return _fail(honest.error)
+
+	_set_phase(Phase.MOUNTING, "Preparing content…")
+
+	var mount_opts := opts.duplicate()
+	mount_opts["groups"] = groups
+	var mounted := await mounter.mount(manifest, store, scheduler, mount_opts)
+	if not mounted.ok:
+		return _fail(mounted.error)
+
+	_acquired[key] = manifest
+	_index_manifest(manifest)
+	if job != null:
+		job.note_unpacked()
+
+	_set_phase(Phase.READY, "Ready.")
+	content_ready.emit(manifest, str(mounted.value))
+
+	return _ready_result(manifest)
+
+
+## Acquires everything [param manifest] depends on, before its own download; a shared store pays once.
+## [param chain] is the keys above this call on its own stack, so concurrent acquisitions
+## neither see each other's chain nor share the depth cap.
+func _ensure_dependencies(manifest: GSCloudManifest, key: String, chain: PackedStringArray) -> GSResult:
+	if manifest.dependencies.is_empty():
+		return GSResult.success(true)
+	if chain.has(key) or chain.size() >= 4:
+		return GSResult.fail(GSError.CODE_INVALID, "Content dependencies are circular or nested too deep.", key)
+	var below := chain.duplicate()
+	below.append(key)
+	begin_job(manifest.display_name if manifest.display_name != "" else key)
+	await _Job.register_dependencies(self, manifest, 0)
+	var outcome := await _Job.ensure_all(self, key, manifest.dependencies, below)
+	end_job()
+	return outcome
+
+
+## Starts (or joins) a job: from here until the matching [method end_job] every pack's progress
+## also feeds [member job]. A caller that knows its packs up front calls [method GSCloudJobProgress.add_pack].
+func begin_job(label: String = "") -> GSCloudJobProgress:
+	if job == null:
+		job = GSCloudJobProgress.new()
+		job.label = label
+		job.changed.connect(func(s: Dictionary) -> void: job_progress_changed.emit(s))
+	_job_depth += 1
+	return job
+
+
+func end_job() -> void:
+	_job_depth = maxi(0, _job_depth - 1)
+	if _job_depth == 0 and job != null:
+		job.finish_all()
+		job = null
+		_job_manifests.clear()
+		_job_groups.clear()
+
+
+## Registers the missing bytes of [param refs] ([code]{id, version}[/code], with their dependency trees) in the open job, so its total is fixed before [method job_download] moves a byte. Needs [method begin_job]; a ref whose manifest will not resolve is left out and fails later with its context.
+##
+## [param groups] (API 23) are the download groups fetched of each ref itself, counted in the total and downloaded by [method job_download] (["*"] is all); its dependencies fetch none, as [method ensure] does.
+func job_register(refs: Array, groups: PackedStringArray = PackedStringArray()) -> GSResult:
+	if job == null:
+		return GSResult.fail(GSError.CODE_STATE, "job_register needs an open job.", "call begin_job first")
+	var synthetic := GSCloudManifest.new()
+	synthetic.dependencies.assign(refs)
+	await _Job.register_dependencies(self, synthetic, 0, groups)
+	return GSResult.success(true)
+
+
+## [method job_register] for a manifest the caller already resolved and verified (a Workshop plan).
+## [param groups] as in [method job_register], for this manifest.
+func job_register_manifest(manifest: GSCloudManifest, groups: PackedStringArray = PackedStringArray()) -> void:
+	if job != null:
+		await _Job.register_manifest(self, manifest, groups)
+
+
+## Downloads everything the job registered and mounts nothing, [member GSCloudConfig.parallel_packs] packs at a time. The value is [code]{key: GSError}[/code] for the packs that failed (they are left for the mount pass to report); this never fails as a whole.
+func job_download() -> GSResult:
+	if job == null:
+		return GSResult.fail(GSError.CODE_STATE, "job_download needs an open job.", "call begin_job first")
+	return GSResult.success(await _Job.download_all(self))
+
+
+## Ends the download half: the job's snapshot now says "unpack" with a count, and each pack mounted from here ticks it.
+func job_begin_unpack() -> void:
+	if job != null:
+		job.begin_unpack()
+
+
+## One file of a pack as bytes from the store, fetching only that file when it is not there yet (a game's descriptor, read before the pack is mounted).
+func read_pack_file(manifest: GSCloudManifest, path: String) -> GSResult:
+	return await _Job.read_file(self, manifest, path)
+
+
+## Where the dependency [param content_id] of a mounted pack is mounted, or "" when it is not mounted here.
+func dependency_prefix(content_id: StringName, version: String) -> String:
+	return mount_prefix_for(content_id, version) if is_mounted(content_id, version) else ""
+
+
+## Between download and mount: the stored files must not run more code than the manifest said.
+## Only for a manifest with [code]provides[/code]; older packs are trusted as before. Read from the
+## store because a refusal after mounting would refuse something already running.
+func _rescan_for_code(manifest: GSCloudManifest) -> GSResult:
+	if manifest.provides.is_empty() or bool(manifest.provides.get("runs_code", false)):
+		return GSResult.success(true)
+	var by_path := {}
+	var paths := PackedStringArray()
+	for f in manifest.wanted_files():
+		by_path[f.path] = f
+		paths.append(f.path)
+	var reader := func(p: String) -> PackedByteArray:
+		var f: GSCloudFile = by_path[p]
+		if store == null or not store.has(f.sha256):
+			return PackedByteArray()
+		var read := store.read(f.sha256)
+		return read.value if read.ok else PackedByteArray()
+	var scanned := GSCloudScriptScan.scan(paths, reader, manifest.provides)
+	if not scanned.ok:
+		return scanned
+	var verdict: Dictionary = scanned.value
+	if bool(verdict["runs_code"]):
+		return GSResult.fail(
+			GSError.CODE_FORBIDDEN,
+			"The pack's files run code its manifest did not declare.",
+			"%s: %s" % [manifest.key(), ", ".join(verdict["reasons"])]
+		)
+	return GSResult.success(true)
+
+
+## Registers what a mounted pack provides with [GSContentIndex], tagged with the session it
+## was mounted for. Idempotent, so an already-mounted id@version just gains the tag. A
+## manifest with no `provides` registers nothing: old packs behave exactly as before.
+func _index_manifest(manifest: GSCloudManifest) -> void:
+	if manifest.provides.is_empty():
+		return
+	var opts: Dictionary = _mount_opts.get(manifest.key(), {})
+	var session := StringName(str(opts.get("session", session_tag)))
+	var source := StringName(str(opts.get(
+		"source", &"server" if session == GSContentIndex.SESSION_ONLINE else &"game"
+	)))
+	var added := GSContentIndex.shared().add_pack({
+		"content_id": manifest.content_id,
+		"version": manifest.version,
+		"prefix": manifest.mount_prefix(),
+		"provides": GSCloudProvides.normalize(manifest.provides),
+		"session": session,
+		"source": source,
+	})
+	if not added.ok:
+		GSLog.warn(CHANNEL, "could not index what a pack provides", {
+			"content": manifest.key(), "why": added.error.message,
+		})
+
+
+## Fetches only [code]requires.json[/code] and runs [method check_requirements], so a pack this build cannot run is refused ([constant GSError.CODE_VERSION]) before its payload downloads.
+##
+## A failure to fetch the file is not a refusal: the full download that follows reports its own network trouble.
+func _preflight_requirements(manifest: GSCloudManifest, key: String) -> GSResult:
+	var req: GSCloudFile = null
+	for file in manifest.files:
+		if file.path == GSAddonApi.REQUIREMENTS_FILE:
+			req = file
+			break
+	if req == null:
+		return GSResult.success({})
+
+	if not store.has(req.sha256):
+		var sub := GSCloudManifest.new()
+		sub.content_id = manifest.content_id
+		sub.version = manifest.version
+		sub.mount_root = manifest.mount_root
+		sub.mirrors = manifest.mirrors
+		sub.files = [req]
+		var fetched := await _download(sub, PackedStringArray(), key, false)
+		if not fetched.ok:
+			GSLog.debug(CHANNEL, "requirements preflight could not fetch", {"content": key})
+			return GSResult.success({})
+
+	return check_requirements(manifest)
+
+
+## Puts every object [param manifest] names into the store, and mounts nothing.
+##
+## An addon pack lands at res://addons/<addon>/ in an overlay, not at its own mount. The manifest must already be verified; no requirements check, since an addon pack is the build.
+func download_manifest(
+	manifest: GSCloudManifest,
+	groups: PackedStringArray = PackedStringArray()
+) -> GSResult:
+	if not _started:
+		var started := await start()
+		if not started.ok:
+			return started
+
+	_apply_side(manifest)
+	var downloaded := await _download(manifest, groups, manifest.key())
+	if not downloaded.ok:
+		return downloaded
+
+	_set_phase(Phase.READY, "Ready.")
+	return GSResult.success(manifest)
+
+
+## Stamps this client's side ([method GSCloudConfig.resolved_side]) on [param manifest] (API 8).
+## On every way in, not at parse: the side is this process's fact, and a manifest shared by a
+## server's and a player's client in one process is re-stamped by whichever uses it.
+func _apply_side(manifest: GSCloudManifest) -> void:
+	if config != null:
+		manifest.fetch_side = config.resolved_side()
+
+
+## The download half of an acquisition, shared by [method acquire_manifest] and
+## [method download_manifest].
+func _download(
+	manifest: GSCloudManifest,
+	groups: PackedStringArray,
+	key: String,
+	track: bool = true
+) -> GSResult:
+	_set_phase(Phase.PLANNING, "Checking what needs downloading…")
+
+	var plan := plan_for(manifest, groups)
+
+	GSLog.info(
+		CHANNEL,
+		"acquiring content",
+		{
+			"content": key,
+			"need": plan["missing_files"],
+			"bytes": GSPaths.format_bytes(int(plan["missing_bytes"])),
+		}
+	)
+
+	if job != null and track:
+		job.add_pack(key, int(plan["missing_bytes"]), int(plan["missing_files"]))
+
+	if int(plan["missing_files"]) == 0:
+		store.record_pack(manifest)
+		return GSResult.success(true)
+
+	_set_phase(
+		Phase.DOWNLOADING,
+		"Downloading %s…" % GSPaths.format_bytes(int(plan["missing_bytes"]))
+	)
+
+	var worker := await pool.take(key)
+	_boosted += 1
+	scheduler.set_boost(600.0)
+	var synced := await worker.sync(manifest, groups)
+	if job != null and synced.ok and track:
+		job.finish_pack(key)
+	_boosted -= 1
+	if _boosted == 0:
+		scheduler.clear_boost()
+	pool.give_back(worker)
+
+	if synced.ok:
+		store.record_pack(manifest)
+	return synced
+
+
+## Whether this build has the addon API a pack's [code]requires.json[/code] asks for.
+## Read from the store so the pack need not be mounted. No such file (older packs, or one this
+## acquisition did not fetch) means nothing to check.
+func check_requirements(manifest: GSCloudManifest) -> GSResult:
+	for file in manifest.files:
+		if file.path != GSAddonApi.REQUIREMENTS_FILE:
+			continue
+
+		if store == null or not store.has(file.sha256):
+			GSLog.debug(CHANNEL, "requirements not fetched; not checked", {"content": manifest.key()})
+			return GSResult.success({})
+
+		var read := store.read(file.sha256)
+		if not read.ok:
+			return read.wrap("Could not read %s's requirements." % manifest.content_id)
+
+		var checked := addon_api.check_text(
+			(read.value as PackedByteArray).get_string_from_utf8(), host_role
+		)
+		if not checked.ok:
+			GSLog.warn(CHANNEL, "content needs more than this build has", {
+				"content": manifest.key(),
+				"why": checked.error.message,
+				"detail": checked.error.detail,
+			})
+		return checked
+
+	return GSResult.success({})
+
+
+## [method acquire] for content addressed by id and version rather than by URL: the interface GSMapLoader and the rest of the family duck-type against.
+##
+## Idempotent. [param manifest_url] overrides [member manifest_url_template]; empty resolves against [member local_search_dirs] then [member http_base_urls], disk before network.
+func ensure(
+	content_id: StringName,
+	version: String = "",
+	groups: PackedStringArray = PackedStringArray(),
+	manifest_url: String = "",
+	chain: PackedStringArray = PackedStringArray()
+) -> GSResult:
+	var id := String(content_id)
+
+	if id == "":
+		return GSResult.fail(
+			GSError.CODE_INVALID, "No content id to ensure."
+		)
+
+	# Start first, as acquire does: config_file is applied only in start(), so verifying before it
+	# runs reports "No trusted signing keys" against a config that never read its own file.
+	if not _started:
+		var started := await start()
+		if not started.ok:
+			return started
+
+	var effective_version := version if version != "" else "0.0.0"
+
+	if is_mounted(content_id, effective_version):
+		var manifest: GSCloudManifest = _acquired.get(
+			content_key_for(content_id, effective_version)
+		)
+		if manifest != null:
+			_apply_side(manifest)
+			if not mounter.covers(manifest, groups):
+				return await acquire_manifest(manifest, groups, chain)
+			_index_manifest(manifest)
+			_set_phase(Phase.READY, "Ready.")
+			return _ready_result(manifest)
+		# Mounted by an earlier run of this process, from a client that has since
+		# gone. The paths are there and resolvable, which is all a caller needs.
+		return GSResult.success(mount_prefix_for(content_id, effective_version))
+
+	var resolved := await resolve_manifest(content_id, version, manifest_url)
+	if not resolved.ok:
+		return resolved
+
+	return await acquire_manifest(resolved.value, groups, chain)
+
+
+## Fetches and mounts [param groups] of the content mounted where [param path] lives (API 22): the top-up a
+## game asks for on a map change, knowing its own root but not the id and version it was published as.
+## Value: the mount prefix, or "" when no acquired content holds [param path] (run from source, nothing to fetch).
+func ensure_groups_at(path: String, groups: PackedStringArray) -> GSResult:
+	for key: String in _acquired:
+		var manifest: GSCloudManifest = _acquired[key]
+		var prefix := manifest.mount_prefix().trim_suffix("/")
+		if path != prefix and not path.begins_with(prefix + "/"):
+			continue
+		var got := await acquire_manifest(manifest, groups)
+		if not got.ok:
+			return got
+		return GSResult.success(prefix)
+	return GSResult.success("")
+
+
+## Mounts what a repository's `content.lock.json` pins, the in-game twin of gs-bootstrap's fetch_lock.sh.
+## [param opts] are [method GSCloudLock.load_file]'s. Each `kind: "pack"` entry is ensured from the first
+## base serving a manifest matching its `manifest_sha256`; `kind: "store"` entries are listed as skipped.
+## A failed `optional` entry is logged, any other fails the call.
+## Value: {mounted: [id@version], skipped: [{id, version, why}], failed: [id@version]}.
+func ensure_locked(lock_path: String, opts: Dictionary = {}) -> GSResult:
+	var loaded := GSCloudLock.load_file(lock_path, opts)
+	if not loaded.ok:
+		return loaded
+	var lock: GSCloudLock = loaded.value
+	var report := {"mounted": [], "skipped": lock.skipped.duplicate(), "failed": []}
+	if lock.bases.is_empty():
+		GSLog.info(CHANNEL, "GS_PACKS_FROM=none, no locked content fetched")
+		return GSResult.success(report)
+	for p in lock.packs:
+		var id := String(p["id"])
+		var version := String(p["version"])
+		if String(p.get("kind", "pack")) != "pack":
+			report["skipped"].append({"id": id, "version": version, "why": "kind store: written by fetch_lock"})
+			continue
+		var got: GSResult = GSResult.fail(GSError.CODE_STATE, "There is nowhere to fetch %s from." % id)
+		for base in lock.bases:
+			var url := "%s/%s/%s/manifest.json" % [base.rstrip("/"), id, version]
+			_pinned[url] = String(p.get("manifest_sha256", ""))
+			got = await ensure(StringName(id), version, PackedStringArray(), url)
+			_pinned.erase(url)
+			if got.ok:
+				break
+		if got.ok:
+			report["mounted"].append("%s@%s" % [id, version])
+		elif p.get("optional", false):
+			GSLog.warn(CHANNEL, "optional lock pack not mounted", {"id": id, "version": version, "error": str(got.error)})
+			report["skipped"].append({"id": id, "version": version, "why": "optional, unavailable"})
+		else:
+			report["failed"].append("%s@%s" % [id, version])
+	if not report["failed"].is_empty():
+		return GSResult.fail(GSError.CODE_NETWORK, "Locked packs not mounted: %s" % ", ".join(report["failed"]))
+	return GSResult.success(report)
+
+
+## [method ensure] for a mount that knows its session and source; the one call the Workshop mounts through.
+##
+## [param session] is a [constant GSContentIndex] session tag, [param source] `&"subscription"`, `&"server"` or `&"game"`. [param options]: `uid_policy: "add_only"` leaves UIDs the process knows alone, `allow_root: false` refuses an addon overlay at the root, `manifest_url` as for [method ensure]. A subscription is never mounted for an online session.
+func ensure_for_session(
+	content_id: StringName,
+	version: String,
+	session: StringName,
+	source: StringName = &"game",
+	options: Dictionary = {}
+) -> GSResult:
+	if session != GSContentIndex.SESSION_SOLO and session != GSContentIndex.SESSION_ONLINE:
+		return GSResult.fail(GSError.CODE_INVALID, "Unknown session '%s'." % session)
+	if source == &"subscription" and session != GSContentIndex.SESSION_SOLO:
+		return GSResult.fail(
+			GSError.CODE_FORBIDDEN, "A subscription is only mounted for a solo session.",
+			"%s@%s" % [content_id, version]
+		)
+	var effective := version if version != "" else "0.0.0"
+	var key := content_key_for(content_id, effective)
+	_mount_opts[key] = {
+		"session": session,
+		"source": source,
+		"uid_policy": str(options.get("uid_policy", "")),
+		"allow_root": bool(options.get("allow_root", true)),
+	}
+	var result := await ensure(
+		content_id, version, PackedStringArray(), str(options.get("manifest_url", ""))
+	)
+	_mount_opts.erase(key)
+	return result
+
+
+## The verified manifest for [param content_id] at [param version], fetched like [method ensure], nothing mounted.
+## Candidates are asked in order ([member local_search_dirs], then [member http_base_urls]); the first
+## that verifies and agrees about its own id and version wins. Empty version is `0.0.0`.
+func resolve_manifest(
+	content_id: StringName,
+	version: String = "",
+	manifest_url: String = ""
+) -> GSResult:
+	return await _Manifests.resolve(self, content_id, version, manifest_url)
+
+
+## Adds a directory to the local source, creating one if there was none. Idempotent.
+## Also updates [member local_search_dirs] so [method describe] matches what is searched.
+func _adopt_local_dir(dir: String) -> void:
+	if dir == "" or local_search_dirs.has(dir):
+		return
+
+	local_search_dirs.append(dir)
+
+	for source in sources:
+		if source is GSCloudSourceLocal:
+			var local: GSCloudSourceLocal = source
+			if not local.search_dirs.has(dir):
+				local.search_dirs.append(dir)
+			return
+
+	# There was no local source, because there were no directories when the sources
+	# were built. One now, at the same priority _build_sources gives it.
+	var created := GSCloudSourceLocal.new()
+	created.search_dirs = PackedStringArray([dir])
+	created.priority = 10
+	sources.append(created)
+
+
+## Whether content addressed by id and version is mounted and ready to load from.
+## The id-and-version half of [method is_ready].
+func is_mounted(content_id: StringName, version: String = "") -> bool:
+	return is_ready(content_key_for(content_id, version))
+
+
+## The [code]id@version[/code] key this content is known by.
+## Duplicated from [method GSCloudManifest.key] on purpose: a caller asking whether content is
+## mounted has no manifest, and fetching one is what it is avoiding.
+static func content_key_for(content_id: StringName, version: String = "") -> String:
+	return "%s@%s" % [String(content_id), version if version != "" else "0.0.0"]
+
+
+## Where this content mounts, whether or not it is mounted yet.
+static func mount_prefix_for(content_id: StringName, version: String = "") -> String:
+	return "res://gs_cloud/%s/%s" % [
+		String(content_id), version if version != "" else "0.0.0"
+	]
+
+
+## Downloads and verifies a manifest without acting on it.
+##
+## Signatures verify over the bytes as received. A local path is read, not requested: HTTPRequest cannot fetch res:// or user://.
+func fetch_manifest(manifest_url: String) -> GSResult:
+	return await _Manifests.fetch(self, manifest_url)
+
+
+## Checks a manifest's signature against the configured trusted keys.
+func verify_manifest(manifest: GSCloudManifest) -> GSResult:
+	return _Manifests.verify(self, manifest)
+
+
+## What acquiring this manifest would cost, without doing it (cache lookups only).
+## For a "this map needs 240 MB, continue?" prompt on mobile and metered connections.
+func plan_for(
+	manifest: GSCloudManifest,
+	groups: PackedStringArray = PackedStringArray()
+) -> Dictionary:
+	_apply_side(manifest)
+	var wanted := manifest.wanted_files(groups)
+
+	var seen := {}
+	var missing_files := 0
+	var missing_bytes := 0
+	var cached_files := 0
+
+	for f in wanted:
+		if seen.has(f.sha256):
+			continue
+		seen[f.sha256] = true
+
+		if store.has(f.sha256):
+			cached_files += 1
+		else:
+			missing_files += 1
+			missing_bytes += f.size
+
+	return {
+		"content": manifest.key(),
+		"total_files": wanted.size(),
+		"unique_files": seen.size(),
+		"cached_files": cached_files,
+		"missing_files": missing_files,
+		"missing_bytes": missing_bytes,
+		"missing_human": GSPaths.format_bytes(missing_bytes),
+		"cache_shortfall": store.shortfall(missing_bytes),
+		"already_mounted": mounter.is_mounted(manifest.key()),
+	}
+
+
+## Releases content. [b]Free everything referencing it first[/b]: nodes holding its resources keep them
+## cached and Godot cannot unmount a pack (see [GSCloudMounter]). This makes the content
+## unreachable and its objects evictable, not the file table reclaimed.
+func release(content_key: String) -> GSResult:
+	if not mounter.is_mounted(content_key):
+		return GSResult.fail(
+			GSError.CODE_INVALID, "Not mounted.", content_key
+		)
+
+	var res := mounter.unmount(content_key, store)
+	_acquired.erase(content_key)
+
+	if res.ok:
+		content_released.emit(content_key)
+
+	return res
+
+
+func cancel() -> void:
+	if pool != null:
+		pool.cancel_all()
+
+
+## Fetches and verifies the site's signed mirror list ([param url] or [member GSCloudConfig.mirrors_url])
+## and hands it to the HTTP source, ranked by latency when [param rank] is set.
+## Does nothing with no URL or when opted out; a failure logs WARN and leaves delivery origin-only.
+func load_mirror_list(url: String = "", rank: bool = true) -> GSResult:
+	if not _started:
+		var started := await start()
+		if not started.ok:
+			return started
+	var where := resolve_base_url(url if url != "" else config.mirrors_url)
+	if where == "" or not config.use_mirrors:
+		return GSResult.success(null)
+
+	var res := await _load_mirror_list_inner(where, rank)
+	if not res.ok:
+		GSLog.warn(CHANNEL, "mirror list refused; using the origin only", {
+			"url": where, "why": str(res.error),
+		})
+	return res
+
+
+func _load_mirror_list_inner(where: String, rank: bool) -> GSResult:
+	var url_ok := GSCloudMirrorList.check_base_url(where)
+	if not url_ok.ok:
+		return url_ok
+	var fetched := await _http.get_bytes(where)
+	if not fetched.ok:
+		return fetched.wrap("Could not download the mirror list.")
+	var seen_path := config.cache_dir.path_join("mirrors_seen.json")
+	var newest := GSCloudMirrorList.newest_seen(seen_path)
+	if _mirror_list != null:
+		newest = maxi(newest, _mirror_list.issued_at)
+	var parsed := GSCloudMirrorList.parse_signed(
+		fetched.value, config.trusted_keys, int(Time.get_unix_time_from_system()), newest
+	)
+	if not parsed.ok:
+		return parsed
+	var list: GSCloudMirrorList = parsed.value
+	GSCloudMirrorList.remember(seen_path, list.issued_at)
+	if rank and not list.mirrors.is_empty():
+		if _probe_http == null:
+			_probe_http = GSHttp.new()
+			_probe_http.name = "ProbeHttp"
+			_probe_http.max_response_bytes = 64 * 1024
+			add_child(_probe_http)
+		await list.rank(_probe_http, 3.0)
+	_mirror_list = list
+	for s in sources:
+		var http_source := s as GSCloudSourceHttp
+		if http_source != null:
+			http_source.mirror_list = list
+	GSLog.info(CHANNEL, "mirror list loaded", list.describe())
+	return GSResult.success(list)
+
+
+## The verified mirror list in use, or null (none loaded, or opted out).
+func mirror_list() -> GSCloudMirrorList:
+	return _mirror_list if config != null and config.use_mirrors else null
+
+
+## The same path on every avatar-carrying published mirror, for an origin [param url], so an
+## addon fetching origin files (avatars) can fail over. Empty with no list or when opted out.
+func mirror_alternatives(url: String) -> PackedStringArray:
+	var list := mirror_list()
+	return list.alternatives(url) if list != null else PackedStringArray()
+
+
+## Downloads the packs a server will want into the store before connecting, mounting nothing.
+## [param doc] is `{format: 1, kind: "gs_cloud_prefetch", server_id, app_id, packs: [{id, version, bytes}],
+## avatar_library, mirrors_url}`. Manifests resolve like [method ensure]; a pack past
+## [member GSCloudConfig.prefetch_max_bytes] or [member GSCloudConfig.prefetch_max_packs] is skipped.
+## Returns `{packs_fetched, packs_skipped, bytes, skipped: [{id, version, why}], avatar_library}`.
+func prefetch(doc: Dictionary) -> GSResult:
+	return await _Prefetch.run(self, doc)
+
+
+## Validates a prefetch document strictly: kind, format, and each pack's id and version through
+## [method GSCloudManifest.validate_shape]. Packs past [param max_packs] land in `over_cap`.
+static func parse_prefetch(doc: Dictionary, max_packs: int) -> GSResult:
+	return _Prefetch.parse(doc, max_packs)
+
+
+func phase() -> Phase:
+	return _phase
+
+
+func is_ready(content_key: String) -> bool:
+	return mounter != null and mounter.is_mounted(content_key)
+
+
+func acquired_keys() -> PackedStringArray:
+	var out := PackedStringArray(_acquired.keys())
+	out.sort()
+	return out
+
+
+func manifest_for(content_key: String) -> GSCloudManifest:
+	return _acquired.get(content_key)
+
+
+## The addon classes a pack names, compiled while its big objects still download.
+var _prewarm: GSCloudSliceLoader
+var _prewarming := false
+signal _prewarm_done
+
+
+## Top-level pack folders whose scripts are not warmed.
+const WARM_SKIP_DIRS := _Warm.SKIP_DIRS
+
+
+## Compiles the scripts of the mounted packs [param keys], and the addon classes they name, a slice
+## per frame, so the scene load() that follows is a cache hit. Skipped where there are threads.
+## Keep the returned loader until that load() is done. [param on_progress] gets (done, total).
+func _prewarm_classes(manifest: GSCloudManifest) -> void:
+	await _Warm.prewarm_classes(self, manifest)
+
+
+func warm_content(tree: SceneTree, keys: PackedStringArray, force: bool = false, on_progress: Callable = Callable()) -> GSCloudSliceLoader:
+	return await _Warm.warm_content(self, tree, keys, force, on_progress)
+
+
+func _ready_result(manifest: GSCloudManifest) -> GSResult:
+	var entry := manifest.entry_scene_path()
+	if entry != "":
+		return GSResult.success(entry)
+	return GSResult.success(manifest.mount_prefix())
+
+
+func _set_phase(p: Phase, text: String) -> void:
+	if _phase == p:
+		return
+	_phase = p
+	phase_changed.emit(p, text)
+
+
+func _fail(error: GSError) -> GSResult:
+	_set_phase(Phase.FAILED, error.message)
+	GSLog.error(
+		CHANNEL,
+		error.message,
+		{"code": error.code, "detail": error.detail}
+	)
+	failed.emit(error)
+	return GSResult.failure(error)
+
+
+## [param extra] downloaders (beyond the first) get a share of [member GSCloudConfig.parallel_downloads], so four packs at once do not open four times the connections.
+func _make_downloader(extra: bool) -> GSCloudDownloader:
+	var d := GSCloudDownloader.new()
+	d.name = "Downloader%d" % (pool.size() if extra and pool != null else 0)
+	d.config = config
+	d.store = store
+	d.scheduler = scheduler
+	d.sources = sources
+	if extra:
+		d.slots_cap = maxi(2, ceili(float(config.parallel_downloads) / float(maxi(1, config.parallel_packs))))
+	d.progress_changed.connect(_on_progress.bind(d))
+	d.bundle_unpacked.connect(_prewarm_classes)
+	add_child(d)
+	return d
+
+
+func _on_progress(p: Dictionary, from: GSCloudDownloader) -> void:
+	var key := pool.key_of(from) if pool != null else ""
+	if job != null and key != "":
+		job.set_pack_done(key, int(p.get("done_bytes", 0)), int(p.get("done_files", 0)))
+	progress_changed.emit(p)
+
+
+static func phase_name(p: Phase) -> String:
+	return Phase.keys()[p]
+
+
+func describe() -> Dictionary:
+	return {
+		"phase": phase_name(_phase),
+		"started": _started,
+		"acquired": Array(acquired_keys()),
+		"store": store.describe() if store != null else {},
+		"mounts": mounter.describe() if mounter != null else {},
+		"downloader": downloader.describe() if downloader != null else {},
+	}
+
+
+## Lines for a `cloud_status` console command.
+func describe_lines() -> PackedStringArray:
+	return _Report.lines(self)

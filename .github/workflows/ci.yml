@@ -25,4 +25,4 @@ jobs:
             hygiene: true
             suites: 'examples/http_demo examples/mount_demo examples/store_demo examples/sync_demo examples/netchan_demo examples/delivered_scene_demo examples/addon_set_demo'
         secrets:
-            DEPS_TOKEN: ${{ secrets.DOT_DEPS_TOKEN }}
+            DEPS_TOKEN: ${{ secrets.GS_DEPS_TOKEN }}

@@ -2,11 +2,11 @@
 #   .\tools\publish_pack.ps1 [publish] -Source DIR -Id NAME [-Version V | -Bump patch|minor|major] [-Lock content.lock.json]
 #       [-Into DIR] [-Kind pack|store] [-LockOptional] [-Asset ID] [-Name TEXT] [-Meta k=v,...] [-ExcludeDir a,b] [-Site URL] [-TokenFile FILE]
 #       [-Out DIR] [-Godot BIN] [-DryRun] [-NoImport] [-HostAddons LOCK,...] [-HostLevel name=N,...]
-#   publish derives requires.json like publish_pack.sh (GameSpice Core's dot_requires.gd) and caps each level at the -HostAddons lock's
+#   publish derives requires.json like publish_pack.sh (GameSpice Core's gs_requires.gd) and caps each level at the -HostAddons lock's
 #   (addon repo at the locked ref, LEVEL in <addon>_api.gd) or -HostLevel name=N; a committed requires.json above the host is refused.
-#   A requires.floor.json is judged against those same levels (dot_requires.gd --pin NAME=N), not the linked heads.
+#   A requires.floor.json is judged against those same levels (gs_requires.gd --pin NAME=N), not the linked heads.
 #   -HostAddons leaves out the addons/<name> folders the host owns, matched by folder name or by the repository a linked addon points into.
-#   Without -HostAddons every addon under the source's addons/ is packed. Unlike publish_pack.sh, dot_* family addons are not left out by default.
+#   Without -HostAddons every addon under the source's addons/ is packed. Unlike publish_pack.sh, gs_* family addons are not left out by default.
 #   Shell-only (publish_pack.sh; not in this script): the relock verb, --resume, --pack-addon, --depends, --min-engine, --entry, --mount-root,
 #   --extra-file, the refusal of more than 5 addon folders, relinking dangling addon links in a worktree, and the desktop-only VRAM import warning.
 #   .\tools\publish_pack.ps1 versions [-Id NAME] [-Site URL] [-TokenFile FILE]
@@ -14,7 +14,7 @@
 #   publish -MemberOf ASSET: publish as a member of that collection asset (keeps -Id, no Workshop page of its own)
 # Token: $env:GS_CLI_TOKEN (a creator token), else the file in -TokenFile / $env:GS_CLI_TOKEN_FILE / ~\.config\dot\cli-token. Never an
 # argument; an env token is copied to a temp file that is removed on exit. Site: -Site, $env:GS_SITE, else https://tmcdev.net.
-# Needs Godot on PATH or -Godot, and python3 for the Valve guard (check_valve_files.py). The upload runs inside Godot (dot_cloud_cli.gd); curl is not used.
+# Needs Godot on PATH or -Godot, and python3 for the Valve guard (check_valve_files.py). The upload runs inside Godot (gs_cloud_cli.gd); curl is not used.
 param([Parameter(Position = 0)][ValidateSet('publish', 'versions', 'member')][string]$Command = 'publish',
       [string]$Source, [string]$Id, [string]$Version, [ValidateSet('', 'patch', 'minor', 'major')][string]$Bump = '',
       [string]$Lock = 'content.lock.json', [string]$Into, [ValidateSet('', 'pack', 'store')][string]$Kind = '', [switch]$LockOptional, [int]$Asset = 0, [int]$MemberOf = 0,
@@ -22,7 +22,6 @@ param([Parameter(Position = 0)][ValidateSet('publish', 'versions', 'member')][st
       [string[]]$HostAddons = @(), [string[]]$HostLevel = @(),
       [string]$Godot, [switch]$DryRun, [switch]$NoImport)
 $ErrorActionPreference = 'Stop'
-foreach ($e in Get-ChildItem env:DOT_*) { $g = 'GS_' + $e.Name.Substring(4); if (-not (Test-Path "env:$g")) { Set-Item "env:$g" $e.Value; if (-not $env:GS_QUIET_DEPRECATION) { [Console]::Error.WriteLine("WARN: $($e.Name) is deprecated, use $g") } } }  # old DOT_* names still work
 $here = Split-Path -Parent $PSScriptRoot
 if (-not $Godot) { $Godot = if ($env:GODOT) { $env:GODOT } else { 'godot' } }
 if (-not $Site) { $Site = $env:GS_SITE }
@@ -84,7 +83,7 @@ try {
     if ($stale) {
         & $Godot --headless --path $here --import *> $null
     }
-    $run = @('--headless', '--path', $here, '--script', 'addons/dot_cloud/publish/dot_cloud_cli.gd', '--')
+    $run = @('--headless', '--path', $here, '--script', 'addons/gs_cloud/publish/gs_cloud_cli.gd', '--')
     if ($Command -eq 'versions') {
         & $Godot @run versions --token-file (Full $TokenFile) @a
         exit $LASTEXITCODE
@@ -138,7 +137,7 @@ try {
     # requires.json: derived like publish_pack.sh, capped at the host lock's levels; a committed one above them is refused.
     $pp = (Resolve-Path (Full $Source)).Path
     while ($pp -and -not (Test-Path (Join-Path $pp 'project.godot'))) { $pp = Split-Path -Parent $pp }
-    if ($pp -and (Test-Path (Join-Path $pp 'addons/dot_core/tools/dot_requires.gd'))) {
+    if ($pp -and (Test-Path (Join-Path $pp 'addons/gs_core/tools/gs_requires.gd'))) {
         $req = Join-Path (Full $Source) 'requires.json'; $mode = 'check'
         if (-not (Test-Path $req)) {
             $req = Join-Path $tmp 'requires.json'; $mode = 'cap'
@@ -158,7 +157,7 @@ try {
                 }
             }
             $reqlog = Join-Path $tmp 'req.log'
-            & $Godot --headless --path $pp --script res://addons/dot_core/tools/dot_requires.gd -- --out $req @pins *> $reqlog
+            & $Godot --headless --path $pp --script res://addons/gs_core/tools/gs_requires.gd -- --out $req @pins *> $reqlog
             if ($LASTEXITCODE -ne 0 -or -not (Test-Path $req) -or (Get-Item $req).Length -eq 0) {
                 Get-Content $reqlog -Tail 20 | ForEach-Object { [Console]::Error.WriteLine($_) }
                 Write-Error "publish_pack: could not derive requires.json for $pp"; exit 1
@@ -187,7 +186,7 @@ try {
         if ($mode -eq 'cap') { [IO.File]::WriteAllText($req, ($doc | ConvertTo-Json -Depth 5) + "`n") }
         Write-Host ("publish_pack: requires.json ({0}): {1}" -f $(if ($mode -eq 'cap') { 'derived' } else { 'committed' }), (($doc.addons.PSObject.Properties | Sort-Object Name | ForEach-Object { "$($_.Name) $($_.Value)" }) -join ', '))
     } elseif ($pp) {
-        Write-Host "publish_pack: note: $pp has no addons/dot_core/tools/dot_requires.gd; the pack ships without requires.json"
+        Write-Host "publish_pack: note: $pp has no addons/gs_core/tools/gs_requires.gd; the pack ships without requires.json"
     }
     if (-not $Out) { $Out = Join-Path $tmp 'out' }
     $a += '--source', (Full $Source), '--out', (Full $Out)

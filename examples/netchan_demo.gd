@@ -36,7 +36,7 @@ extends Control
 
 const ChunkServer := preload("res://examples/netchan_chunk_server.gd")
 
-const WORK := "user://dot_cloud_netchan_demo"
+const WORK := "user://gs_cloud_netchan_demo"
 
 ## Awaited by the hanging delegate. Never emitted, on purpose.
 signal never_fires
@@ -68,7 +68,7 @@ func _ready() -> void:
 
 
 func _run() -> void:
-	_line("[b]dot-cloud in-band (netchan) transfer[/b]")
+	_line("[b]gs-cloud in-band (netchan) transfer[/b]")
 	_line("")
 
 	GSPaths.remove_tree(WORK)

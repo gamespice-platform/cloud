@@ -6,7 +6,7 @@ extends Node
 
 const TestServer := preload("res://examples/http_test_server.gd")
 
-const WORK := "user://dot_cloud_mirror_demo"
+const WORK := "user://gs_cloud_mirror_demo"
 const DEAD_BASE := "http://127.0.0.1:1"
 const ALICE := "alice/map"
 const BOB := "bob/level"
@@ -35,7 +35,7 @@ func _ready() -> void:
 
 
 func _run() -> void:
-	print("dot-cloud published mirrors")
+	print("gs-cloud published mirrors")
 	GSPaths.remove_tree(WORK)
 
 	var k1 := GSCloudSignature.generate_keypair(2048)
@@ -126,7 +126,7 @@ func _test_parse() -> void:
 	_check("an unsigned list is refused", not GSCloudMirrorList.parse_signed(bare, keys, now).ok)
 
 	var wrong := _list("https://cdn.example", three)
-	wrong["kind"] = "dot_cloud_prefetch"
+	wrong["kind"] = "gs_cloud_prefetch"
 	_check("the wrong kind is refused", not GSCloudMirrorList.parse_signed(_signed(wrong), keys, now).ok)
 	var newer := _list("https://cdn.example", three)
 	newer["format"] = 2
@@ -395,7 +395,7 @@ func _test_prefetch() -> void:
 	_check("nothing was mounted", client.acquired_keys().is_empty() and not client.is_mounted(StringName(BOB), VERSION))
 
 	var bad_kind := doc.duplicate(true)
-	bad_kind["kind"] = "dot_cloud_mirrors"
+	bad_kind["kind"] = "gs_cloud_mirrors"
 	_check("the wrong kind is refused", not (await client.prefetch(bad_kind)).ok)
 	_check("a traversal id is refused", not (await client.prefetch(_prefetch_doc([["../x", VERSION]]))).ok)
 	_check("a traversal version is refused", not (await client.prefetch(_prefetch_doc([[BOB, "../.."]]))).ok)
@@ -434,7 +434,7 @@ func _mirror(id: String, base: String, packs: Array, avatars: bool) -> Dictionar
 func _list(origin: String, mirrors: Array) -> Dictionary:
 	var now := int(Time.get_unix_time_from_system())
 	return {
-		"format": 1, "kind": "dot_cloud_mirrors", "issued_at": now, "expires_at": now + 3600,
+		"format": 1, "kind": "gs_cloud_mirrors", "issued_at": now, "expires_at": now + 3600,
 		"origin": origin, "mirrors": mirrors,
 	}
 
@@ -465,7 +465,7 @@ func _prefetch_doc(packs: Array) -> Dictionary:
 	for p: Array in packs:
 		list.append({"id": p[0], "version": p[1], "bytes": 0})
 	return {
-		"format": 1, "kind": "dot_cloud_prefetch", "server_id": 12, "app_id": 3, "packs": list,
+		"format": 1, "kind": "gs_cloud_prefetch", "server_id": 12, "app_id": 3, "packs": list,
 		"avatar_library": "https://site.example/lib",
 	}
 

@@ -10,17 +10,17 @@ extends Node
 ## start must refuse the overlay (an earlier start that never arrived, and an overlay made
 ## for another build), and once with nothing to mount.
 ##
-## The pack is `modcommunity/dot-probe@0.2.0`, published here with a key made for the run:
+## The pack is `modcommunity/gs-probe@0.2.0`, published here with a key made for the run:
 ## a class this build has never heard of, a scene that names its script by absolute path,
-## and the API file a probe is taken from. The build's own record says `dot-probe v0.1.0`
-## (`res://addons.lock`, written for the run and removed after). Last, `modcommunity/dot-nested`: a
-## game addon released inside its project (`addons/dot_nested/plugin.cfg`), as the site publishes it.
+## and the API file a probe is taken from. The build's own record says `gs-probe v0.1.0`
+## (`res://addons.lock`, written for the run and removed after). Last, `modcommunity/gs-nested`: a
+## game addon released inside its project (`addons/gs_nested/plugin.cfg`), as the site publishes it.
 ##
 ## [codeblock]
 ## godot --headless --path . res://examples/addon_set_demo.tscn
 ## [/codeblock]
 
-const WORK := "user://dot_cloud_addon_set_demo"
+const WORK := "user://gs_cloud_addon_set_demo"
 const LOCK := "res://addons.lock"
 
 ## Every check, including the one that compares against it. See docs/testing.md.
@@ -42,8 +42,8 @@ func _ready() -> void:
 func _run() -> void:
 	GSPaths.remove_tree(WORK)
 	GSPaths.remove_tree(GSCloudAddonSet.DIR)
-	ProjectSettings.set_setting("dot_cloud/addon_overlay", "")
-	_write(LOCK, "# for addon_set_demo\ndot-probe\tv0.1.0\ndot-core\tv0.1.5\n")
+	ProjectSettings.set_setting("gs_cloud/addon_overlay", "")
+	_write(LOCK, "# for addon_set_demo\ngs-probe\tv0.1.0\ngs-core\tv0.1.5\n")
 
 	_versions()
 	_class_list()
@@ -80,7 +80,7 @@ func _class_list() -> void:
 	var editor := GSCloudScriptClass.read_cache()
 	var scripts := {}
 
-	for root: String in ["res://addons/dot_cloud", "res://addons/dot_core"]:
+	for root: String in ["res://addons/gs_cloud", "res://addons/gs_core"]:
 		for rel in GSPaths.list_files_recursive(root):
 			if rel.ends_with(".gd"):
 				var path := root.path_join(rel)
@@ -95,7 +95,7 @@ func _class_list() -> void:
 
 	for entry in editor:
 		var path := str(entry.get("path", ""))
-		if not (path.begins_with("res://addons/dot_cloud/") or path.begins_with("res://addons/dot_core/")):
+		if not (path.begins_with("res://addons/gs_cloud/") or path.begins_with("res://addons/gs_core/")):
 			continue
 		compared += 1
 		var m: Variant = mine.get(str(entry.get("class", "")))
@@ -109,10 +109,10 @@ func _class_list() -> void:
 	_check(compared > 50 and differ.is_empty() and mine.size() == compared,
 		"%d classes, every field the editor's" % compared, ", ".join(differ.slice(0, 8)))
 
-	var merged := GSCloudScriptClass.merge(editor, PackedStringArray(["res://addons/dot_cloud"]), [])
+	var merged := GSCloudScriptClass.merge(editor, PackedStringArray(["res://addons/gs_cloud"]), [])
 	var cfg := ConfigFile.new()
 	_check(cfg.parse(GSCloudScriptClass.cache_text(merged)) == OK
-		and (cfg.get_value("", "list", []) as Array).size() == editor.size() - mine.keys().filter(func(c): return str(mine[c]["path"]).begins_with("res://addons/dot_cloud/")).size(),
+		and (cfg.get_value("", "list", []) as Array).size() == editor.size() - mine.keys().filter(func(c): return str(mine[c]["path"]).begins_with("res://addons/gs_cloud/")).size(),
 		"and a merge that drops an addon round-trips through the engine's format")
 	_done()
 
@@ -128,23 +128,23 @@ func _policy() -> void:
 	var set := GSCloudAddonSet.new()
 	set.namespaces = PackedStringArray(["modcommunity/", "alice/x"])
 
-	var newer: Dictionary = set.plan_for([_entry("dot_probe", "modcommunity/dot-probe", "0.2.0")])
-	_check((newer["wanted"] as Dictionary).has("dot_probe"), "a newer version is wanted")
+	var newer: Dictionary = set.plan_for([_entry("gs_probe", "modcommunity/gs-probe", "0.2.0")])
+	_check((newer["wanted"] as Dictionary).has("gs_probe"), "a newer version is wanted")
 
-	var same: Dictionary = set.plan_for([_entry("dot_probe", "modcommunity/dot-probe", "v0.1.0")])
+	var same: Dictionary = set.plan_for([_entry("gs_probe", "modcommunity/gs-probe", "v0.1.0")])
 	_check((same["wanted"] as Dictionary).is_empty(), "the version this build has is not")
 
-	var older: Dictionary = set.plan_for([_entry("dot_core", "modcommunity/dot-core", "0.1.4")])
+	var older: Dictionary = set.plan_for([_entry("gs_core", "modcommunity/gs-core", "0.1.4")])
 	_check((older["wanted"] as Dictionary).is_empty(), "nor an older one: a server never takes a client backwards")
 
-	var unknown: Dictionary = set.plan_for([_entry("dot_newthing", "modcommunity/dot-newthing", "0.1.0")])
-	_check((unknown["wanted"] as Dictionary).has("dot_newthing"), "an addon this build does not have is wanted")
+	var unknown: Dictionary = set.plan_for([_entry("gs_newthing", "modcommunity/gs-newthing", "0.1.0")])
+	_check((unknown["wanted"] as Dictionary).has("gs_newthing"), "an addon this build does not have is wanted")
 
-	var foreign: Dictionary = set.plan_for([_entry("dot_probe", "mallory/dot-probe", "9.0.0")])
-	_check((foreign["wanted"] as Dictionary).is_empty() and (foreign["refused"] as Dictionary).has("dot_probe"),
+	var foreign: Dictionary = set.plan_for([_entry("gs_probe", "mallory/gs-probe", "9.0.0")])
+	_check((foreign["wanted"] as Dictionary).is_empty() and (foreign["refused"] as Dictionary).has("gs_probe"),
 		"a pack from a namespace this client does not take is refused", str(foreign["refused"]))
 
-	var mislabelled: Dictionary = set.plan_for([{"dir": "dot_probe", "repo": "dot-probe", "id": "modcommunity/dot-net", "version": "9.0.0"}])
+	var mislabelled: Dictionary = set.plan_for([{"dir": "gs_probe", "repo": "gs-probe", "id": "modcommunity/gs-net", "version": "9.0.0"}])
 	_check((mislabelled["wanted"] as Dictionary).is_empty(), "a repository that is not the pack's own name is refused", str(mislabelled["refused"]))
 
 	var lookalike: Dictionary = set.plan_for([_entry("x", "alice/x-evil", "1.0.0")])
@@ -154,25 +154,25 @@ func _policy() -> void:
 	_check((exact["wanted"] as Dictionary).has("x"), "and does admit itself")
 
 	var escape: Dictionary = set.plan_for([
-		_entry("../dot_core", "modcommunity/dot-core", "9.0.0"),
-		_entry("Dot_UI", "modcommunity/dot-ui", "9.0.0"),
+		_entry("../gs_core", "modcommunity/gs-core", "9.0.0"),
+		_entry("GS_UI", "modcommunity/gs-ui", "9.0.0"),
 	])
 	_check((escape["wanted"] as Dictionary).is_empty() and (escape["refused"] as Dictionary).size() == 2,
 		"a directory that is not one plain name is refused", str(escape["refused"]))
 
-	# What is already running counts: the overlay raised dot_probe to 0.2.0 this start.
-	GSCloudAddonSet.write_plan({"pack": "user://dot_cloud_addons/overlay-x.pck", "addons": {
-		"dot_probe": _entry("dot_probe", "modcommunity/dot-probe", "0.2.0")}})
-	ProjectSettings.set_setting("dot_cloud/addon_overlay", "user://dot_cloud_addons/overlay-x.pck")
+	# What is already running counts: the overlay raised gs_probe to 0.2.0 this start.
+	GSCloudAddonSet.write_plan({"pack": "user://gs_cloud_addons/overlay-x.pck", "addons": {
+		"gs_probe": _entry("gs_probe", "modcommunity/gs-probe", "0.2.0")}})
+	ProjectSettings.set_setting("gs_cloud/addon_overlay", "user://gs_cloud_addons/overlay-x.pck")
 
-	var held: Dictionary = set.plan_for([_entry("dot_probe", "modcommunity/dot-probe", "0.2.0")])
+	var held: Dictionary = set.plan_for([_entry("gs_probe", "modcommunity/gs-probe", "0.2.0")])
 	_check((held["wanted"] as Dictionary).is_empty(), "a version the running overlay already has needs nothing")
 
-	var widened: Dictionary = set.plan_for([_entry("dot_newthing", "modcommunity/dot-newthing", "0.1.0")])
-	_check((widened["wanted"] as Dictionary).has("dot_probe") and (widened["wanted"] as Dictionary).has("dot_newthing"),
+	var widened: Dictionary = set.plan_for([_entry("gs_newthing", "modcommunity/gs-newthing", "0.1.0")])
+	_check((widened["wanted"] as Dictionary).has("gs_probe") and (widened["wanted"] as Dictionary).has("gs_newthing"),
 		"and a new set keeps what the overlay raised, rather than taking it backwards")
 
-	ProjectSettings.set_setting("dot_cloud/addon_overlay", "")
+	ProjectSettings.set_setting("gs_cloud/addon_overlay", "")
 	GSCloudAddonSet.forget()
 	_check(GSCloudAddonSet.read_plan().is_empty(), "forget() leaves no plan")
 	_done()
@@ -180,75 +180,75 @@ func _policy() -> void:
 
 # 2b
 
-## The build's lock names a pack by its repository (`dot-probe`); the site now also calls it
+## The build's lock names a pack by its repository (`gs-probe`); the site now also calls it
 ## `gamespice-platform/probe`. Either id, and either spelling in a lock, is the same pack, so
 ## moving to the new ids never makes a shell refetch an addon it already has.
 func _pack_ids() -> void:
 	_section("a pack is the same under the old and the new id")
 	var set := GSCloudAddonSet.new()
-	var old_id := "modcommunity/dot-probe"
+	var old_id := "modcommunity/gs-probe"
 	var new_id := "gamespice-platform/probe"
 
 	var built := GSCloudAddonSet.built_versions()
-	_check(built.has("dot-probe") and built["dot-probe"] == "0.1.0", "the old lock format still reads repo -> version")
+	_check(built.has("gs-probe") and built["gs-probe"] == "0.1.0", "the old lock format still reads repo -> version")
 
-	var by_old: Dictionary = set.plan_for([_entry("dot_probe", old_id, "0.1.0")])
+	var by_old: Dictionary = set.plan_for([_entry("gs_probe", old_id, "0.1.0")])
 	_check((by_old["wanted"] as Dictionary).is_empty(), "old id, old lock: the built version is found")
 
-	var by_new_old_repo: Dictionary = set.plan_for([{"dir": "dot_probe", "repo": "dot-probe", "id": new_id, "version": "0.1.0"}])
+	var by_new_old_repo: Dictionary = set.plan_for([{"dir": "gs_probe", "repo": "gs-probe", "id": new_id, "version": "0.1.0"}])
 	_check((by_new_old_repo["wanted"] as Dictionary).is_empty() and (by_new_old_repo["refused"] as Dictionary).is_empty(),
-		"new id with the repository still named dot-probe: same entry, nothing to fetch", str(by_new_old_repo["refused"]))
+		"new id with the repository still named gs-probe: same entry, nothing to fetch", str(by_new_old_repo["refused"]))
 
-	var by_new: Dictionary = set.plan_for([{"dir": "dot_probe", "repo": "probe", "id": new_id, "version": "v0.1.0"}])
+	var by_new: Dictionary = set.plan_for([{"dir": "gs_probe", "repo": "probe", "id": new_id, "version": "v0.1.0"}])
 	_check((by_new["wanted"] as Dictionary).is_empty() and (by_new["refused"] as Dictionary).is_empty(),
 		"new id and a bare repo name: the same entry again", str(by_new["refused"]))
 
-	var newer: Dictionary = set.plan_for([{"dir": "dot_probe", "repo": "dot-probe", "id": new_id, "version": "0.2.0"}])
-	_check((newer["wanted"] as Dictionary).has("dot_probe") and str(newer["wanted"]["dot_probe"]["id"]) == new_id,
+	var newer: Dictionary = set.plan_for([{"dir": "gs_probe", "repo": "gs-probe", "id": new_id, "version": "0.2.0"}])
+	_check((newer["wanted"] as Dictionary).has("gs_probe") and str(newer["wanted"]["gs_probe"]["id"]) == new_id,
 		"a newer version under the new id is wanted, and fetched under that id")
 
-	var older: Dictionary = set.plan_for([{"dir": "dot_core", "repo": "dot-core", "id": "gamespice-platform/core", "version": "0.1.4"}])
+	var older: Dictionary = set.plan_for([{"dir": "gs_core", "repo": "gs-core", "id": "gamespice-platform/core", "version": "0.1.4"}])
 	_check((older["wanted"] as Dictionary).is_empty(), "an older version under the new id is still never taken")
 
 	# A lock that has moved forward spells the pack by its new id; the old id finds it too.
-	_write(LOCK, "# new spelling\ngamespice-platform/probe\tv0.1.0\ndot-core\tv0.1.5\n")
-	var moved_old: Dictionary = set.plan_for([_entry("dot_probe", old_id, "0.1.0")])
+	_write(LOCK, "# new spelling\ngamespice-platform/probe\tv0.1.0\ngs-core\tv0.1.5\n")
+	var moved_old: Dictionary = set.plan_for([_entry("gs_probe", old_id, "0.1.0")])
 	_check((moved_old["wanted"] as Dictionary).is_empty(), "new lock spelling, old id: the built version is found")
 
-	var moved_new: Dictionary = set.plan_for([{"dir": "dot_probe", "repo": "probe", "id": new_id, "version": "0.2.0"}])
-	_check((moved_new["wanted"] as Dictionary).has("dot_probe"), "new lock spelling, new id, newer: wanted")
+	var moved_new: Dictionary = set.plan_for([{"dir": "gs_probe", "repo": "probe", "id": new_id, "version": "0.2.0"}])
+	_check((moved_new["wanted"] as Dictionary).has("gs_probe"), "new lock spelling, new id, newer: wanted")
 
 	# Mixed: one pack spelled each way in the lock, a server announcing them the other way round.
 	var mixed: Dictionary = set.plan_for([
-		{"dir": "dot_probe", "repo": "dot-probe", "id": old_id, "version": "0.2.0"},
-		{"dir": "dot_core", "repo": "core", "id": "gamespice-platform/core", "version": "0.1.5"},
+		{"dir": "gs_probe", "repo": "gs-probe", "id": old_id, "version": "0.2.0"},
+		{"dir": "gs_core", "repo": "core", "id": "gamespice-platform/core", "version": "0.1.5"},
 	])
-	_check((mixed["wanted"] as Dictionary).keys() == ["dot_probe"], "mixed spellings: only the pack that is newer is wanted", str(mixed["wanted"].keys()))
+	_check((mixed["wanted"] as Dictionary).keys() == ["gs_probe"], "mixed spellings: only the pack that is newer is wanted", str(mixed["wanted"].keys()))
 
-	var crossed: Dictionary = set.plan_for([{"dir": "dot_probe", "repo": "dot-probe", "id": "gamespice-platform/net", "version": "9.0.0"}])
-	_check((crossed["wanted"] as Dictionary).is_empty() and (crossed["refused"] as Dictionary).has("dot_probe"),
+	var crossed: Dictionary = set.plan_for([{"dir": "gs_probe", "repo": "gs-probe", "id": "gamespice-platform/net", "version": "9.0.0"}])
+	_check((crossed["wanted"] as Dictionary).is_empty() and (crossed["refused"] as Dictionary).has("gs_probe"),
 		"a new id that is another pack's is refused as a mislabelled repository", str(crossed["refused"]))
 
 	var default_ns := GSCloudAddonSet.new()
-	var foreign: Dictionary = default_ns.plan_for([{"dir": "dot_probe", "repo": "probe", "id": "mallory/probe", "version": "9.0.0"}])
-	_check((foreign["refused"] as Dictionary).has("dot_probe"), "the new owner is a default namespace, another owner still is not")
+	var foreign: Dictionary = default_ns.plan_for([{"dir": "gs_probe", "repo": "probe", "id": "mallory/probe", "version": "9.0.0"}])
+	_check((foreign["refused"] as Dictionary).has("gs_probe"), "the new owner is a default namespace, another owner still is not")
 
 	# What the overlay raised is found under either id as well, and never listed twice.
-	_write(LOCK, "# for addon_set_demo\ndot-probe\tv0.1.0\ndot-core\tv0.1.5\n")
-	GSCloudAddonSet.write_plan({"pack": "user://dot_cloud_addons/overlay-y.pck", "addons": {
-		"dot_probe": {"dir": "dot_probe", "repo": "probe", "id": new_id, "version": "0.2.0"}}})
-	ProjectSettings.set_setting("dot_cloud/addon_overlay", "user://dot_cloud_addons/overlay-y.pck")
+	_write(LOCK, "# for addon_set_demo\ngs-probe\tv0.1.0\ngs-core\tv0.1.5\n")
+	GSCloudAddonSet.write_plan({"pack": "user://gs_cloud_addons/overlay-y.pck", "addons": {
+		"gs_probe": {"dir": "gs_probe", "repo": "probe", "id": new_id, "version": "0.2.0"}}})
+	ProjectSettings.set_setting("gs_cloud/addon_overlay", "user://gs_cloud_addons/overlay-y.pck")
 
 	var running := GSCloudAddonSet.running_versions()
-	_check(running.get("dot-probe") == "0.2.0" and not running.has("probe"), "an overlay entry under the new spelling raises the build's entry, not a second one", str(running))
+	_check(running.get("gs-probe") == "0.2.0" and not running.has("probe"), "an overlay entry under the new spelling raises the build's entry, not a second one", str(running))
 
-	var held: Dictionary = set.plan_for([_entry("dot_probe", old_id, "0.2.0")])
+	var held: Dictionary = set.plan_for([_entry("gs_probe", old_id, "0.2.0")])
 	_check((held["wanted"] as Dictionary).is_empty(), "the overlay's version is held across the id change")
 
-	ProjectSettings.set_setting("dot_cloud/addon_overlay", "")
+	ProjectSettings.set_setting("gs_cloud/addon_overlay", "")
 	GSCloudAddonSet.forget()
-	_check(GSCloudAddonSet.version_of(built, ["unknown", "modcommunity/dot-unknown"]) == ""
-		and not GSCloudAddonSet.has_pack(built, ["modcommunity/dot-unknown"]), "a pack the lock does not have is not found under either id")
+	_check(GSCloudAddonSet.version_of(built, ["unknown", "modcommunity/gs-unknown"]) == ""
+		and not GSCloudAddonSet.has_pack(built, ["modcommunity/gs-unknown"]), "a pack the lock does not have is not found under either id")
 	_done()
 
 
@@ -259,11 +259,11 @@ func _published_client() -> GSCloudClient:
 	var src := WORK.path_join("source")
 	GSPaths.ensure_dir(src.path_join("ui"))
 	_write(src.path_join("plugin.cfg"), "[plugin]\n\nname=\"Dot Probe\"\nversion=\"0.2.0\"\nscript=\"\"\n")
-	_write(src.path_join("dot_probe_api.gd"), "extends RefCounted\n\nconst LEVEL := 2\nconst OLDEST := 1\n")
-	_write(src.path_join("dot_probe_thing.gd"), "@tool\nclass_name GSProbeThing\nextends RefCounted\n\nstatic func hello() -> String:\n\treturn \"v2 from the pack\"\n")
-	_write(src.path_join("dot_probe_thing.gd.uid"), "uid://b7prob3th1ng\n")
+	_write(src.path_join("gs_probe_api.gd"), "extends RefCounted\n\nconst LEVEL := 2\nconst OLDEST := 1\n")
+	_write(src.path_join("gs_probe_thing.gd"), "@tool\nclass_name GSProbeThing\nextends RefCounted\n\nstatic func hello() -> String:\n\treturn \"v2 from the pack\"\n")
+	_write(src.path_join("gs_probe_thing.gd.uid"), "uid://b7prob3th1ng\n")
 	_write(src.path_join("ui/panel_script.gd"), "extends Node\n\nfunc _init() -> void:\n\tset_meta(\"v\", \"panel v2\")\n")
-	_write(src.path_join("ui/panel.tscn"), "[gd_scene format=3]\n\n[ext_resource type=\"Script\" path=\"res://addons/dot_probe/ui/panel_script.gd\" id=\"1\"]\n\n[node name=\"P\" type=\"Node\"]\nscript = ExtResource(\"1\")\n")
+	_write(src.path_join("ui/panel.tscn"), "[gd_scene format=3]\n\n[ext_resource type=\"Script\" path=\"res://addons/gs_probe/ui/panel_script.gd\" id=\"1\"]\n\n[node name=\"P\" type=\"Node\"]\nscript = ExtResource(\"1\")\n")
 
 	var keys := GSCloudSignature.generate_keypair(2048)
 	if not keys.ok:
@@ -274,7 +274,7 @@ func _published_client() -> GSCloudClient:
 	var pair: Dictionary = keys.value
 	_keys = pair
 	var pub := GSCloudPublisher.new()
-	pub.content_id = "modcommunity/dot-probe"
+	pub.content_id = "modcommunity/gs-probe"
 	pub.version = "0.2.0"
 	pub.signing_key_pem = str(pair["private"])
 	# An addon references itself by absolute `res://addons/...` paths, which are right where
@@ -285,7 +285,7 @@ func _published_client() -> GSCloudClient:
 	pub.exclude_suffixes = PackedStringArray([".import", ".tmp"])
 
 	var origin := WORK.path_join("origin")
-	var published := pub.publish(src, origin.path_join("modcommunity/dot-probe/0.2.0"))
+	var published := pub.publish(src, origin.path_join("modcommunity/gs-probe/0.2.0"))
 	_check(published.ok, "the addon publishes as a pack", str(published.error) if not published.ok else "")
 
 	var cloud := GSCloudClient.new()
@@ -307,7 +307,7 @@ func _builds(cloud: GSCloudClient) -> void:
 	var set := GSCloudAddonSet.new(cloud)
 	# Parts of a few KiB, so every start below boots an overlay that is several files (a browser keeps none over 127 MiB).
 	set.part_bytes = 2048
-	var decided := set.plan_for([_entry("dot_probe", "modcommunity/dot-probe", "0.2.0")])
+	var decided := set.plan_for([_entry("gs_probe", "modcommunity/gs-probe", "0.2.0")])
 	var built: GSResult = await set.build(decided["wanted"], {"server": "127.0.0.1:1"})
 	_check(built.ok, "build() fetches the pack and writes the overlay", str(built.error) if not built.ok else "")
 
@@ -323,18 +323,18 @@ func _builds(cloud: GSCloudClient) -> void:
 	_check(parts_ok, "each part is on the disk", str(packs))
 	_check(GSCloudAddonSet.plan_files(plan) == PackedStringArray([GSCloudAddonSet.PLAN]) + packs, "a restart keeps the plan and every part")
 	_check(not FileAccess.file_exists(packs[0] + ".part"), "no part is left under its unfinished name")
-	_check(str((plan.get("probes", {}) as Dictionary).get("dot_probe", "")) == "res://addons/dot_probe/dot_probe_api.gd",
+	_check(str((plan.get("probes", {}) as Dictionary).get("gs_probe", "")) == "res://addons/gs_probe/gs_probe_api.gd",
 		"the probe is the addon's API file", str(plan.get("probes", {})))
 	_check(str(plan.get("uids", [])).contains("uid://b7prob3th1ng"), "the pack's uids are listed for the boot to register")
 	_check(str((plan.get("resume", {}) as Dictionary).get("server", "")) == "127.0.0.1:1", "and where to go back to")
-	_check(not ResourceLoader.exists("res://addons/dot_probe/dot_probe_thing.gd"), "nothing of it is in this process")
-	_check(not ResourceLoader.exists("res://dot_cloud/modcommunity/dot-probe/0.2.0/plugin.cfg")
-		and not FileAccess.file_exists("res://dot_cloud/modcommunity/dot-probe/0.2.0/plugin.cfg"),
+	_check(not ResourceLoader.exists("res://addons/gs_probe/gs_probe_thing.gd"), "nothing of it is in this process")
+	_check(not ResourceLoader.exists("res://gs_cloud/modcommunity/gs-probe/0.2.0/plugin.cfg")
+		and not FileAccess.file_exists("res://gs_cloud/modcommunity/gs-probe/0.2.0/plugin.cfg"),
 		"not even at the pack's own mount prefix")
 
-	# The dot-probe pack, aimed at the directory where this build keeps dot-cloud.
+	# The gs-probe pack, aimed at the directory where this build keeps gs-cloud.
 	var plan_before := FileAccess.get_file_as_string(GSCloudAddonSet.PLAN)
-	var wrong: GSResult = await set.build({"dot_cloud": {"dir": "dot_cloud", "repo": "dot-probe", "id": "modcommunity/dot-probe", "version": "0.2.0"}}, {})
+	var wrong: GSResult = await set.build({"gs_cloud": {"dir": "gs_cloud", "repo": "gs-probe", "id": "modcommunity/gs-probe", "version": "0.2.0"}}, {})
 	_check(not wrong.ok and FileAccess.get_file_as_string(GSCloudAddonSet.PLAN) == plan_before,
 		"a pack aimed at a directory holding a different addon is refused, and nothing is written",
 		str(wrong.error) if not wrong.ok else "it built")
@@ -378,7 +378,7 @@ func _boots() -> void:
 	_check(str(started.get("hello", "")) == "v2 from the pack", "and runs", str(started.get("hello", "")))
 	_check(str(started.get("typed", "")) == "v2 from the pack", "a script naming it as a TYPE compiles after the boot", str(started.get("typed", "")))
 	_check(str(started.get("panel", "")) == "panel v2", "an addon scene loads its script from the overlay", str(started.get("panel", "")))
-	_check(str(started.get("uid", "")) == "res://addons/dot_probe/dot_probe_thing.gd", "its uid resolves to the overlaid file", str(started.get("uid", "")))
+	_check(str(started.get("uid", "")) == "res://addons/gs_probe/gs_probe_thing.gd", "its uid resolves to the overlaid file", str(started.get("uid", "")))
 	_check(str(started.get("state", "")) == GSCloudAddonSet.STATE_OK, "confirm_boot() marks the start arrived", str(started.get("state", "")))
 	_check(FileAccess.file_exists(GSCloudAddonSet.SHELL_CLASSES), "and the build's own class list was kept for the next merge")
 	_done()
@@ -418,68 +418,68 @@ func _boots() -> void:
 
 func _nested(cloud: GSCloudClient) -> void:
 	_section("an addon released inside its project")
-	const P := "res://dot_cloud/modcommunity/dot-nested/0.1.0/"
+	const P := "res://gs_cloud/modcommunity/gs-nested/0.1.0/"
 	var src := WORK.path_join("nested_source")
-	var a := src.path_join("addons/dot_nested")
+	var a := src.path_join("addons/gs_nested")
 	_write(src.path_join("project.godot"), "config_version=5\n")
 	_write(a.path_join("plugin.cfg"), "[plugin]\n\nname=\"Dot Nested\"\nversion=\"0.1.0\"\nscript=\"\"\n")
-	_write(a.path_join("dot_nested_api.gd"), "extends RefCounted\n\nconst LEVEL := 1\n")
-	_write(a.path_join("dot_nested_thing.gd"), "class_name GSNestedThing\nextends Node\n\nfunc _init() -> void:\n\tset_meta(\"v\", \"nested\")\n")
+	_write(a.path_join("gs_nested_api.gd"), "extends RefCounted\n\nconst LEVEL := 1\n")
+	_write(a.path_join("gs_nested_thing.gd"), "class_name GSNestedThing\nextends Node\n\nfunc _init() -> void:\n\tset_meta(\"v\", \"nested\")\n")
 	# What the site writes: the pack's own references moved onto its mount prefix.
-	_write(a.path_join("thing.tscn"), "[gd_scene format=3]\n\n[ext_resource type=\"Script\" path=\"%saddons/dot_nested/dot_nested_thing.gd\" id=\"1\"]\n\n[node name=\"T\" type=\"Node\"]\nscript = ExtResource(\"1\")\n" % P)
-	_write(a.path_join("beep.wav.import"), "[remap]\n\nimporter=\"wav\"\ntype=\"AudioStreamWAV\"\nuid=\"uid://b7n3st3dbeep\"\npath=\"%s_imported/beep.wav-0.sample\"\n\n[deps]\n\nsource_file=\"%saddons/dot_nested/beep.wav\"\n" % [P, P])
+	_write(a.path_join("thing.tscn"), "[gd_scene format=3]\n\n[ext_resource type=\"Script\" path=\"%saddons/gs_nested/gs_nested_thing.gd\" id=\"1\"]\n\n[node name=\"T\" type=\"Node\"]\nscript = ExtResource(\"1\")\n" % P)
+	_write(a.path_join("beep.wav.import"), "[remap]\n\nimporter=\"wav\"\ntype=\"AudioStreamWAV\"\nuid=\"uid://b7n3st3dbeep\"\npath=\"%s_imported/beep.wav-0.sample\"\n\n[deps]\n\nsource_file=\"%saddons/gs_nested/beep.wav\"\n" % [P, P])
 	_write(src.path_join("_imported/beep.wav-0.sample"), "imported")
-	_write(src.path_join("tools/dot_nested_tool.gd"), "class_name GSNestedTool\nextends RefCounted\n")
+	_write(src.path_join("tools/gs_nested_tool.gd"), "class_name GSNestedTool\nextends RefCounted\n")
 
 	var pub := GSCloudPublisher.new()
-	pub.content_id = "modcommunity/dot-nested"
+	pub.content_id = "modcommunity/gs-nested"
 	pub.version = "0.1.0"
 	pub.signing_key_pem = str(_keys["private"])
 	pub.rewrite_resource_paths = false
 	pub.exclude_suffixes = PackedStringArray([".tmp"])
 	pub.exclude_roots = PackedStringArray()
-	var published := pub.publish(src, WORK.path_join("origin/modcommunity/dot-nested/0.1.0"))
+	var published := pub.publish(src, WORK.path_join("origin/modcommunity/gs-nested/0.1.0"))
 	_check(published.ok, "a project holding the addon publishes", str(published.error) if not published.ok else "")
 
 	var set := GSCloudAddonSet.new(cloud)
-	var aimed: GSResult = await set.build({"dot_other": {"dir": "dot_other", "repo": "dot-nested", "id": "modcommunity/dot-nested", "version": "0.1.0"}}, {})
+	var aimed: GSResult = await set.build({"gs_other": {"dir": "gs_other", "repo": "gs-nested", "id": "modcommunity/gs-nested", "version": "0.1.0"}}, {})
 	_check(not aimed.ok, "aimed at a directory it does not hold, it is not an addon pack",
 		str(aimed.error) if not aimed.ok else "it built")
 
-	var built: GSResult = await set.build({"dot_nested": _entry("dot_nested", "modcommunity/dot-nested", "0.1.0")}, {})
-	_check(built.ok, "build() takes the addon from addons/dot_nested/", str(built.error) if not built.ok else "")
+	var built: GSResult = await set.build({"gs_nested": _entry("gs_nested", "modcommunity/gs-nested", "0.1.0")}, {})
+	_check(built.ok, "build() takes the addon from addons/gs_nested/", str(built.error) if not built.ok else "")
 	if not built.ok:
 		_done()
 		return
 
 	var plan: Dictionary = built.value
 	_check(GSCloudAddonSet.plan_packs(plan).size() == 1, "a small overlay is one file", str(plan.get("packs", [])))
-	_check((plan.get("uids", []) as Array).has(["uid://b7n3st3dbeep", "res://addons/dot_nested/beep.wav"]),
+	_check((plan.get("uids", []) as Array).has(["uid://b7n3st3dbeep", "res://addons/gs_nested/beep.wav"]),
 		"an import marker's uid is listed, pointing at its source", str(plan.get("uids", [])))
-	_check(str((plan["probes"] as Dictionary).get("dot_nested", "")) == "res://addons/dot_nested/dot_nested_api.gd",
+	_check(str((plan["probes"] as Dictionary).get("gs_nested", "")) == "res://addons/gs_nested/gs_nested_api.gd",
 		"the probe is the addon's API file at its own depth", str(plan["probes"]))
 	_check(ProjectSettings.load_resource_pack(str(plan["pack"]), true), "the overlay mounts in this process, for the checks below")
 
-	var scene := FileAccess.get_file_as_string("res://addons/dot_nested/thing.tscn")
-	_check(scene.contains("path=\"res://addons/dot_nested/dot_nested_thing.gd\"") and not scene.contains(P),
+	var scene := FileAccess.get_file_as_string("res://addons/gs_nested/thing.tscn")
+	_check(scene.contains("path=\"res://addons/gs_nested/gs_nested_thing.gd\"") and not scene.contains(P),
 		"the scene's reference to its script is moved back from the mount prefix", scene)
-	var node: Node = (load("res://addons/dot_nested/thing.tscn") as PackedScene).instantiate() if ResourceLoader.exists("res://addons/dot_nested/thing.tscn") else null
+	var node: Node = (load("res://addons/gs_nested/thing.tscn") as PackedScene).instantiate() if ResourceLoader.exists("res://addons/gs_nested/thing.tscn") else null
 	_check(node != null and str(node.get_meta("v", "")) == "nested", "and the scene loads its script from the overlay")
 	if node != null:
 		node.free()
 
 	var marker := ConfigFile.new()
-	marker.load("res://addons/dot_nested/beep.wav.import")
-	_check(str(marker.get_value("deps", "source_file", "")) == "res://addons/dot_nested/beep.wav"
+	marker.load("res://addons/gs_nested/beep.wav.import")
+	_check(str(marker.get_value("deps", "source_file", "")) == "res://addons/gs_nested/beep.wav"
 		and FileAccess.file_exists(str(marker.get_value("remap", "path", ""))),
 		"an import marker names its source where the overlay put it, and its output is where it says", str(marker.get_value("remap", "path", "")))
 
 	var classes := FileAccess.get_file_as_string(GSCloudScriptClass.CACHE_PATH)
 	_check(classes.contains("GSNestedThing") and not classes.contains("GSNestedTool"),
 		"the addon's classes are listed, the project's tools are not")
-	_check(not FileAccess.file_exists("res://addons/dot_nested/tools/dot_nested_tool.gd")
-		and not FileAccess.file_exists("res://addons/dot_nested/addons/dot_nested/plugin.cfg"),
-		"nothing outside the addon lands under res://addons/dot_nested/")
+	_check(not FileAccess.file_exists("res://addons/gs_nested/tools/gs_nested_tool.gd")
+		and not FileAccess.file_exists("res://addons/gs_nested/addons/gs_nested/plugin.cfg"),
+		"nothing outside the addon lands under res://addons/gs_nested/")
 	_done()
 
 
@@ -489,30 +489,30 @@ func _sided(cloud: GSCloudClient) -> void:
 	_section("an addon with sides and groups overlays only what this process fetched")
 	var src := WORK.path_join("sided_source")
 	_write(src.path_join("plugin.cfg"), "[plugin]\n\nname=\"Dot Sided\"\nversion=\"0.1.0\"\nscript=\"\"\n")
-	_write(src.path_join("dot_sided_api.gd"), "extends RefCounted\n\nconst LEVEL := 1\n")
+	_write(src.path_join("gs_sided_api.gd"), "extends RefCounted\n\nconst LEVEL := 1\n")
 	_write(src.path_join("server/rules.json"), "{\"server only\": true}\n")
 	_write(src.path_join("maps/big.bin"), "a large deferred map")
 	_write(src.path_join("sides.json"), "{\"server\": [\"server/\"]}\n")
 	_write(src.path_join("groups.json"), "{\"big\": [\"maps/*\"]}\n")
 
 	var pub := GSCloudPublisher.new()
-	pub.content_id = "modcommunity/dot-sided"
+	pub.content_id = "modcommunity/gs-sided"
 	pub.version = "0.1.0"
 	pub.signing_key_pem = str(_keys["private"])
 	pub.rewrite_resource_paths = false
-	var published := pub.publish(src, WORK.path_join("origin/modcommunity/dot-sided/0.1.0"))
+	var published := pub.publish(src, WORK.path_join("origin/modcommunity/gs-sided/0.1.0"))
 	_check(published.ok, "an addon with sides.json and groups.json publishes", str(published.error) if not published.ok else "")
 
 	var side_before := cloud.config.side
 	cloud.config.side = "client"
-	var wanted := {"dot_sided": _entry("dot_sided", "modcommunity/dot-sided", "0.1.0")}
+	var wanted := {"gs_sided": _entry("gs_sided", "modcommunity/gs-sided", "0.1.0")}
 	var set := GSCloudAddonSet.new(cloud)
 	set.groups = PackedStringArray()
 	var lean: GSResult = await set.build(wanted, {})
 	_check(lean.ok, "a client builds it with no groups", str(lean.error) if not lean.ok else "")
 
 	var sha := {}
-	var resolved: GSResult = await cloud.resolve_manifest(&"modcommunity/dot-sided", "0.1.0")
+	var resolved: GSResult = await cloud.resolve_manifest(&"modcommunity/gs-sided", "0.1.0")
 	if resolved.ok:
 		for f in (resolved.value as GSCloudManifest).files:
 			sha[f.path] = f.sha256
@@ -528,8 +528,8 @@ func _sided(cloud: GSCloudClient) -> void:
 	cloud.config.side = side_before
 
 	var mounted := full.ok and ProjectSettings.load_resource_pack(str((full.value as Dictionary)["pack"]), true)
-	_check(mounted and FileAccess.file_exists("res://addons/dot_sided/maps/big.bin")
-		and not FileAccess.file_exists("res://addons/dot_sided/server/rules.json"),
+	_check(mounted and FileAccess.file_exists("res://addons/gs_sided/maps/big.bin")
+		and not FileAccess.file_exists("res://addons/gs_sided/server/rules.json"),
 		"mounted, the overlay holds the group and not the other side's file")
 	_done()
 

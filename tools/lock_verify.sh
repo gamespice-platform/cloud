@@ -34,7 +34,7 @@ if not bases: sys.exit("lock_verify: the lock names no origin; pass --cdn or --f
 
 import os, time
 VER = "2"
-UA = {"User-Agent": "dot-cloud-lock-verify/" + VER}  # the CDN answers Python's default urllib UA with 403
+UA = {"User-Agent": "gs-cloud-lock-verify/" + VER}  # the CDN answers Python's default urllib UA with 403
 TRIES = int(os.environ.get("LOCK_VERIFY_TRIES", "5")); BACKOFF = float(os.environ.get("LOCK_VERIFY_BACKOFF", "0.5"))
 def transient(st): return st in (0, 403, 429) or 500 <= st <= 599  # CDN edge throttling or a hiccup; 404 and the rest are real answers
 limited = []  # every URL still throttled after all retries: reported apart from missing objects

@@ -7,16 +7,16 @@ The pieces and where they live:
 | Piece | Where | Names |
 | --- | --- | --- |
 | What a pack provides | the pack source's `provides.json`, signed into the manifest as `provides` | `GSCloudProvides` (GameSpice Cloud `manifest/`) |
-| The runtime index | GameSpice Core `core/` | `GSContentIndex`, `GSContentEntry`, registry name `dot_content_index` |
+| The runtime index | GameSpice Core `core/` | `GSContentIndex`, `GSContentEntry`, registry name `gs_content_index` |
 | Registering on mount, session tags, the code scan | GameSpice Cloud `client/`, `mount/` | `GSCloudClient.ensure_for_session`, `GSCloudScriptScan` |
-| The sync client | GameSpice Cloud `workshop/` | `GSCloudWorkshop` (registry name `dot_workshop`), `GSCloudWorkshopList`, `GSCloudWorkshopDevice` |
+| The sync client | GameSpice Cloud `workshop/` | `GSCloudWorkshop` (registry name `gs_workshop`), `GSCloudWorkshopList`, `GSCloudWorkshopDevice` |
 | The site API | website-city | `GET /api/app/v1/workshop`, `POST /api/app/v1/workshop/scope` |
 | Solo launch and the panel | GameSpice Server Deploy `client/` | `TmcSoloSession`, `TmcWorkshopPanel` |
 | Consumers | GameSpice Map, GameSpice Weapon, GameSpice Props, GameSpice NPC, game-playlot | `follow_content(index)` on each catalogue |
 
 ## Why the sync client is in GameSpice Cloud and not a new addon
 
-A `dot-workshop` addon on dot-cloud and dot-auth was the alternative. It would be a second repository, a `projects.tsv` row, a family entry, an `addons.lock` line and a new shell build for about four files, and it would be the third addon in the family that needs two others. dot-cloud already speaks to the site (`GSCloudRegistry` is the publishing half of the same backbone), and everything the client does after the list arrives is dot-cloud's own `ensure`. The one thing it needs from dot-auth is a bearer token, and that arrives as a `Callable` (`token_fn`) the host sets, so dot-cloud still imports nothing but dot-core. If the Workshop grows a UI of its own or a second backbone (a server-side subscription list for a community server), that is the point to split it out.
+A `gs-workshop` addon on gs-cloud and gs-auth was the alternative. It would be a second repository, a `projects.tsv` row, a family entry, an `addons.lock` line and a new shell build for about four files, and it would be the third addon in the family that needs two others. gs-cloud already speaks to the site (`GSCloudRegistry` is the publishing half of the same backbone), and everything the client does after the list arrives is gs-cloud's own `ensure`. The one thing it needs from gs-auth is a bearer token, and that arrives as a `Callable` (`token_fn`) the host sets, so gs-cloud still imports nothing but gs-core. If the Workshop grows a UI of its own or a second backbone (a server-side subscription list for a community server), that is the point to split it out.
 
 ## What a pack provides
 
@@ -73,11 +73,11 @@ Every entry has `kind`, `id` (unique within the pack and kind, `[a-z0-9_]+`), `n
 | `tool` | `script` | the game (game-playlot's tool gun) |
 | `sound` | `stream` | GameSpice Audio, or the game |
 | `script` | `script`, `hook` (the hook name, for example `playlot`) | the game's hook loader (game-playlot's `playlot_hook.gd` contract) |
-| `trail` | `def` (the pack's `trails.json`; every trail entry of a pack names the same one), `thumbnail` (the trail's image). Data only: the pack ships no code and is published with `--no-import`, so the images stay bytes | dot-trail `GSTrailStore.load_dir` on the def's directory (game-playlot wears it on the local player) |
+| `trail` | `def` (the pack's `trails.json`; every trail entry of a pack names the same one), `thumbnail` (the trail's image). Data only: the pack ships no code and is published with `--no-import`, so the images stay bytes | gs-trail `GSTrailStore.load_dir` on the def's directory (game-playlot wears it on the local player) |
 | `addon` | `dir` | **not mounted from a subscription** (see [online isolation](#online-isolation)) |
 | `game` | none; uses `accepts` | the site and the shell; never subscribable |
 
-A weapon's `def` names its behaviour script by path. A path inside the pack is rebased onto the mount by the publisher's rewrite like any other; a path under `res://addons/` is the host build's copy and is left alone, which is how a pack whose code is already in the shell (zee-dot-weapons, zed-dot-weapons) ships only its definitions and art. Per-pack art roots and similar consumer settings go in the entry's `meta` (zee's `asset_root`, relative to the pack root).
+A weapon's `def` names its behaviour script by path. A path inside the pack is rebased onto the mount by the publisher's rewrite like any other; a path under `res://addons/` is the host build's copy and is left alone, which is how a pack whose code is already in the shell (zee-gs-weapons, zed-gs-weapons) ships only its definitions and art. Per-pack art roots and similar consumer settings go in the entry's `meta` (zee's `asset_root`, relative to the pack root).
 
 `kinds` and `map_kind` are open sets. A kind this build does not know is kept in the index and offered to nobody; an unknown field is ignored. Neither is an error, and neither is logged above DEBUG, because a newer pack on an older client is the normal case.
 
@@ -110,7 +110,7 @@ The publisher adds `runs_code` (bool) to the manifest's `provides`, computed by 
 
 ### `GSContentIndex`
 
-GameSpice Core, `core/dot_content_index.gd`, beside `GSContent`. It is the answer to "what has been mounted that I could offer?" for every consumer, so no game, map menu or spawn menu ever names a pack path. It is an instance, not a static class, because it needs signals (the reason `GSLogBus` and `GSRegistryBus` exist), and it lives in `GSRegistry` under `dot_content_index` (`GSContentIndex.SERVICE`).
+GameSpice Core, `core/gs_content_index.gd`, beside `GSContent`. It is the answer to "what has been mounted that I could offer?" for every consumer, so no game, map menu or spawn menu ever names a pack path. It is an instance, not a static class, because it needs signals (the reason `GSLogBus` and `GSRegistryBus` exist), and it lives in `GSRegistry` under `gs_content_index` (`GSContentIndex.SERVICE`).
 
 ```gdscript
 static func shared() -> GSContentIndex      # the registered one, created and registered on first call
@@ -145,16 +145,16 @@ Two tags, `GSContentIndex.SESSION_SOLO` (`&"solo"`) and `SESSION_ONLINE` (`&"onl
 
 `GSCloudClient` calls `GSContentIndex.shared().add_pack(...)` after every successful mount whose manifest carries `provides`, with the session it was mounted for. `ensure()` and `acquire()` keep their signatures and tag with `GSCloudClient.session_tag` (default `&"online"`; the shell sets it). The Workshop mounts through `ensure_for_session(content_id, version, session, source, options) -> GSResult`, the one call that passes the tag and the mount options below explicitly. A manifest with no `provides` registers nothing: old packs keep working exactly as they do.
 
-**A subscription mount never re-points a UID the process already knows.** `dot_cloud_mounter_uids.gd` (`register`, called by `GSCloudMounter`) calls `ResourceUID.set_id` for an id the host already has, which is right for a second version of the same pack and wrong for anybody else's: a subscription pack shipping a resource under the UID of the game's own texture would redirect the game's references to its copy, in solo and in every later online session of the process. `ensure_for_session` with `source = &"subscription"` passes `uid_policy = "add_only"`: an id already registered to a path outside this content id's own mounts is skipped and counted (`uids_skipped=N` in the mount line).
+**A subscription mount never re-points a UID the process already knows.** `gs_cloud_mounter_uids.gd` (`register`, called by `GSCloudMounter`) calls `ResourceUID.set_id` for an id the host already has, which is right for a second version of the same pack and wrong for anybody else's: a subscription pack shipping a resource under the UID of the game's own texture would redirect the game's references to its copy, in solo and in every later online session of the process. `ensure_for_session` with `source = &"subscription"` passes `uid_policy = "add_only"`: an id already registered to a path outside this content id's own mounts is skipped and counted (`uids_skipped=N` in the mount line).
 
 ## The sync client
 
-`addons/dot_cloud/workshop/`. `GSCloudWorkshop` is a `Node` the host places beside its `GSCloudClient` (found through `GSContent.SERVICE`); it registers as `dot_workshop` in `_ready`. Configuration is a `GSCloudWorkshopConfig` (`GSConfig`, layered like every other):
+`addons/gs_cloud/workshop/`. `GSCloudWorkshop` is a `Node` the host places beside its `GSCloudClient` (found through `GSContent.SERVICE`); it registers as `gs_workshop` in `_ready`. Configuration is a `GSCloudWorkshopConfig` (`GSConfig`, layered like every other):
 
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `workshop_enabled` | `true` | Off: `sync()` succeeds with nothing, and the panel says the Workshop is off on this build |
-| `workshop_backbone_url` | `""` | The site origin; the shell passes its dot-auth `backbone_url`, never anything from a page |
+| `workshop_backbone_url` | `""` | The site origin; the shell passes its gs-auth `backbone_url`, never anything from a page |
 | `workshop_script_packs` | `"approved"` | `never`, `approved`, `any`. See [script packs](#script-packs) |
 | `workshop_key_ids` | `[]` | Narrows the keys a subscription may be signed with. The keys are the content client's own `trusted_keys` (`GSCloudWorkshop.trusted_key_ids()`): empty takes that whole keyring, and an id the keyring lacks trusts nothing, so a subscription is never trusted beyond the build's own pack verification (a dev shell's keyring adds `tmc-dev`; a production one has `tmc` alone). Name ids to keep a server-content key (a box's `local`) out of strangers' subscriptions |
 | `workshop_metered` | `"ask"` | `ask`, `allow`, `never`: what to do on a metered connection |
@@ -178,11 +178,11 @@ func describe() -> Dictionary
 func describe_lines() -> PackedStringArray
 ```
 
-`CHANNEL` is `dot.cloud.workshop`. The summary is `{guest, offline, from_cache, revision, mounted: [{content_id, version}], skipped: [{content_id, version, reason}], failed: [{content_id, version, code, message}]}`; `reason` is one of `device_off`, `metered`, `script_policy`, `quota`, `too_many`, `incompatible`.
+`CHANNEL` is `gs.cloud.workshop`. The summary is `{guest, offline, from_cache, revision, mounted: [{content_id, version}], skipped: [{content_id, version, reason}], failed: [{content_id, version, code, message}]}`; `reason` is one of `device_off`, `metered`, `script_policy`, `quota`, `too_many`, `incompatible`.
 
 ### What `sync()` does
 
-1. **Refuse online.** A registered `dot_client_link` or a current session of `online` fails with `CODE_FORBIDDEN`. This is the second lock; the shell never calls it there in the first place.
+1. **Refuse online.** A registered `gs_client_link` or a current session of `online` fails with `CODE_FORBIDDEN`. This is the second lock; the shell never calls it there in the first place.
 2. **Guest.** `token_fn` returns `""`: success with `guest: true` and nothing mounted. The panel says "Sign in to use your subscriptions", and nothing is read from the cache, because a cached list belongs to the account that fetched it.
 3. **Fetch.** `GET {backbone}/api/app/v1/workshop?game=<id>&since=<revision>&platform=<web|desktop|mobile>` with the bearer. `unchanged: true` keeps the cached list; otherwise the response replaces it (it is always the complete list for that game, so there is nothing to merge). `removed` entries are dropped from the cache and logged at DEBUG with their reason. `platform` is `GSCloudWorkshop.request_platform()`: `client_platform()` (from `GSPlatform`), or `force_platform` when that is allowed. It matters: the site holds its code-review policy per platform (by default a script pack reaches a browser once the site's scanner found nothing web-relevant in it or a reviewer cleared it, and reaches a native build only once a reviewer cleared it), so the same subscription can be listed on the web and withheld on the desktop. A request without `platform` (a third-party client that never sends it) is treated as native, the strict case. The site's scan is a triage aid for its reviewers, not a sandbox, which is why `script_policy` here stays the client's own floor. The site trusts the claim only for the client's own safety, so the client never claims a looser platform than it is: `force_platform = "web"` is refused unless `GSPlatform.is_web()` (logged once at WARN, and the real platform is sent), because a pack cleared for the browser's sandbox may still call `OS.execute` or load a native library, which only a native build can run. Forcing `desktop` or `mobile` (both native, the strict case) is always allowed. The `approved` each list entry carries is therefore approval for code that can run on this machine, and `workshop_script_packs = "approved"` relies on exactly that.
 4. **Offline.** A network failure, a timeout or a 5xx uses the cached list (`offline: true`, `from_cache: true`) and logs at INFO. A 401 drops the cache for that account and behaves as a guest. A cached list is keyed by the account id `/me` returned with it, and is ignored for any other account.
@@ -196,8 +196,8 @@ On the web, the cached list and the device file are written through `GSPaths` at
 
 ### The cache and the device file
 
-- `user://dot_cloud/workshop/<game slug>.json`: `{account, revision, fetched_at, response}`, the last list for that game. The site owns it; the device never edits it.
-- `user://dot_cloud/workshop/device.json`: `{off: ["<content_id>"], metered: "ask|allow|never"}`, this device's overrides. **Overrides stay on the device**: "off on this phone" is not a subscription change and never reaches the site. Anything that should follow the player to another device is a scope change and goes through `set_scope` / `set_all_games`.
+- `user://gs_cloud/workshop/<game slug>.json`: `{account, revision, fetched_at, response}`, the last list for that game. The site owns it; the device never edits it.
+- `user://gs_cloud/workshop/device.json`: `{off: ["<content_id>"], metered: "ask|allow|never"}`, this device's overrides. **Overrides stay on the device**: "off on this phone" is not a subscription change and never reaches the site. Anything that should follow the player to another device is a scope change and goes through `set_scope` / `set_all_games`.
 
 ### Suggested packs
 

@@ -2,11 +2,11 @@
 
 Runtime content delivery for Godot 4: a game server hands a client a manifest, the client works out what it is missing, downloads it, verifies it, and mounts it, on desktop, mobile and in the browser. It also lays newer addon releases over a client build at its next start (`GSCloudAddonSet`), so an addon release does not need a new build.
 
-**The distributable is `addons/dot_cloud/`.** It requires [GameSpice Core](../dot-core), which is a separate repository.
+**The distributable is `addons/gs_cloud/`.** It requires [GameSpice Core](../gs-core), which is a separate repository.
 
 ```bash
 # Local development setup — the symlink is gitignored on purpose.
-ln -s ../../dot-core/addons/dot_core addons/dot_core
+ln -s ../../gs-core/addons/gs_core addons/gs_core
 ```
 
 Read the family [CLAUDE.md](../../CLAUDE.md) first; this file is only what is specific to content delivery. The reasoning is in [docs/](docs/README.md).
@@ -33,18 +33,18 @@ Read the family [CLAUDE.md](../../CLAUDE.md) first; this file is only what is sp
 
 | Path | What |
 | --- | --- |
-| `addons/dot_cloud/dot_cloud_config.gd` | layered config; `validate()` refuses unsigned by default |
-| `addons/dot_cloud/dot_cloud_api.gd` | the API level (dot-core's `GSAddonApi` rule) and what each level added: 2 `GSCloudPublisher.extra_files`, 3 `acquire` refuses on `requires.json` before downloading the pack, 4 `ship_import_sources`, 5 `provides`, `GSCloudScriptScan`, `ensure_for_session`, 6 `GSCloudWorkshop`, 7 `client_platform`, 8 `GSCloudFile.side` / `GSCloudConfig.side` / `sides.json`, 9 `GSCloudManifest.bundle` (one signed ZIP of the small objects), `GSCloudPublisher.write_bundle`, `GSCloudConfig.use_bundles`, 10 `GSCloudSliceLoader.loaded` / `named_class_scripts`, `GSCloudClient.warm_content` (compiles a pack's scripts a slice per frame, reports progress), 11 `GSCloudPublisher.script_tokens_dir` (scripts as `.gdc` + `.gd.remap`, made by `publish/tokenize_scripts.sh`), 12 `GSCloudAutoUpdate` / `GSCloudAutoUpdateConfig`, 13 `GSCloudMirrorList` (signed published mirrors), per-base health, `GSCloudClient.load_mirror_list` / `mirror_alternatives` / `prefetch`, 14 `GSCloudMirrorList.parse_signed(..., newest_seen)` refuses a list older than the newest accepted, 15 `GSCloudManifest.dependencies`, `--depends`, 18 `GSCloudJobProgress` (`GSCloudClient.job_progress_changed`), 19 `GSCloudConfig.parallel_packs`, `GSCloudDownloaderPool` (dependencies download side by side; their manifests resolve under the same cap), 20 one total bar across a whole launch: `GSCloudClient.job_register` / `job_download` / `job_begin_unpack` / `read_pack_file`, `GSCloudWorkshop.defer_mount` / `mount_pending`, and the job snapshot's `phase`, `unpack_done`, `unpack_total`, 21 `GSCloudInventoryReport`, 22 groups are mounted, `"*"` selects every group, `GSCloudClient.ensure_groups_at`, 23 outer jobs take `groups`, 24 `GSCloudAddonSet.groups` (an overlay holds this side's files and the chosen groups), 25 `groups.json` rules match an `_imported/` output by its asset, 26 `GSCloudConfig.web_partials_dir` (web partials in memory, outside IndexedDB), 27 `GSCloudSourceHttp` waits out a 429 (Retry-After) or 5xx and retries the same base, 28 `GSCloudWorkshop` takes addon packs for a game that accepts kind `addon` (`summary.addons`, `addon_clash`, `workshop_max_addon_packs`), 32 `GSCloudSliceLoader.cached_scripts`, `dot_cloud/warm/list_file` (a pack's `warm.txt`: the cover waits for the listed scripts only) |
-| `addons/dot_cloud/manifest/` | `GSCloudFile` (refuses traversal and bad hashes), `GSCloudManifest` (`from_json_bytes()` is the only parser), `GSCloudEnvelope` (the signed wrapper), `GSCloudProvides` (the `provides` block, strict at publish, tolerant at mount), `GSCloudScriptScan` (`runs_code`) |
-| `addons/dot_cloud/store/` | the content-addressed cache: LRU eviction, refs, the index |
-| `addons/dot_cloud/transfer/` | source base with circuit breaker and `can_serve()`; HTTP, local, in-band sources; `GSCloudMirrorList` (the site's signed mirror list); the downloader (worker pool, failover, throttle, progress) |
-| `addons/dot_cloud/verify/` | RSA-SHA256 sign/verify |
-| `addons/dot_cloud/mount/` | `GSCloudMounter`: PCK building and the unmount problem |
-| `addons/dot_cloud/client/` | `GSCloudClient`, the one node a game needs |
-| `addons/dot_cloud/addon_set/`, `boot/` | newer addons as packs; the boot scene that mounts the overlay (names no addon class, and must not) |
-| `addons/dot_cloud/publish/` | publisher, CLI, `GSCloudRegistry` (built ahead of its consumer) |
-| `addons/dot_cloud/server/` | `GSCloudAutoUpdate` (registry `dot_cloud_autoupdate`, server only, a no-op on web), `GSCloudAutoUpdateConfig` |
-| `addons/dot_cloud/workshop/` | `GSCloudWorkshop` (registry `dot_workshop`, the solo sync client), `GSCloudWorkshopConfig`, `GSCloudWorkshopList`, `GSCloudWorkshopDevice` (this device's overrides) |
+| `addons/gs_cloud/gs_cloud_config.gd` | layered config; `validate()` refuses unsigned by default |
+| `addons/gs_cloud/gs_cloud_api.gd` | the API level (gs-core's `GSAddonApi` rule) and what each level added: 2 `GSCloudPublisher.extra_files`, 3 `acquire` refuses on `requires.json` before downloading the pack, 4 `ship_import_sources`, 5 `provides`, `GSCloudScriptScan`, `ensure_for_session`, 6 `GSCloudWorkshop`, 7 `client_platform`, 8 `GSCloudFile.side` / `GSCloudConfig.side` / `sides.json`, 9 `GSCloudManifest.bundle` (one signed ZIP of the small objects), `GSCloudPublisher.write_bundle`, `GSCloudConfig.use_bundles`, 10 `GSCloudSliceLoader.loaded` / `named_class_scripts`, `GSCloudClient.warm_content` (compiles a pack's scripts a slice per frame, reports progress), 11 `GSCloudPublisher.script_tokens_dir` (scripts as `.gdc` + `.gd.remap`, made by `publish/tokenize_scripts.sh`), 12 `GSCloudAutoUpdate` / `GSCloudAutoUpdateConfig`, 13 `GSCloudMirrorList` (signed published mirrors), per-base health, `GSCloudClient.load_mirror_list` / `mirror_alternatives` / `prefetch`, 14 `GSCloudMirrorList.parse_signed(..., newest_seen)` refuses a list older than the newest accepted, 15 `GSCloudManifest.dependencies`, `--depends`, 18 `GSCloudJobProgress` (`GSCloudClient.job_progress_changed`), 19 `GSCloudConfig.parallel_packs`, `GSCloudDownloaderPool` (dependencies download side by side; their manifests resolve under the same cap), 20 one total bar across a whole launch: `GSCloudClient.job_register` / `job_download` / `job_begin_unpack` / `read_pack_file`, `GSCloudWorkshop.defer_mount` / `mount_pending`, and the job snapshot's `phase`, `unpack_done`, `unpack_total`, 21 `GSCloudInventoryReport`, 22 groups are mounted, `"*"` selects every group, `GSCloudClient.ensure_groups_at`, 23 outer jobs take `groups`, 24 `GSCloudAddonSet.groups` (an overlay holds this side's files and the chosen groups), 25 `groups.json` rules match an `_imported/` output by its asset, 26 `GSCloudConfig.web_partials_dir` (web partials in memory, outside IndexedDB), 27 `GSCloudSourceHttp` waits out a 429 (Retry-After) or 5xx and retries the same base, 28 `GSCloudWorkshop` takes addon packs for a game that accepts kind `addon` (`summary.addons`, `addon_clash`, `workshop_max_addon_packs`), 32 `GSCloudSliceLoader.cached_scripts`, `gs_cloud/warm/list_file` (a pack's `warm.txt`: the cover waits for the listed scripts only) |
+| `addons/gs_cloud/manifest/` | `GSCloudFile` (refuses traversal and bad hashes), `GSCloudManifest` (`from_json_bytes()` is the only parser), `GSCloudEnvelope` (the signed wrapper), `GSCloudProvides` (the `provides` block, strict at publish, tolerant at mount), `GSCloudScriptScan` (`runs_code`) |
+| `addons/gs_cloud/store/` | the content-addressed cache: LRU eviction, refs, the index |
+| `addons/gs_cloud/transfer/` | source base with circuit breaker and `can_serve()`; HTTP, local, in-band sources; `GSCloudMirrorList` (the site's signed mirror list); the downloader (worker pool, failover, throttle, progress) |
+| `addons/gs_cloud/verify/` | RSA-SHA256 sign/verify |
+| `addons/gs_cloud/mount/` | `GSCloudMounter`: PCK building and the unmount problem |
+| `addons/gs_cloud/client/` | `GSCloudClient`, the one node a game needs |
+| `addons/gs_cloud/addon_set/`, `boot/` | newer addons as packs; the boot scene that mounts the overlay (names no addon class, and must not) |
+| `addons/gs_cloud/publish/` | publisher, CLI, `GSCloudRegistry` (built ahead of its consumer) |
+| `addons/gs_cloud/server/` | `GSCloudAutoUpdate` (registry `gs_cloud_autoupdate`, server only, a no-op on web), `GSCloudAutoUpdateConfig` |
+| `addons/gs_cloud/workshop/` | `GSCloudWorkshop` (registry `gs_workshop`, the solo sync client), `GSCloudWorkshopConfig`, `GSCloudWorkshopList`, `GSCloudWorkshopDevice` (this device's overrides) |
 | `examples/` | the demos, `http_test_server.gd`, `workshop_backbone.gd` (a fake site), the addon boot probe |
 
 ## Running and testing
@@ -80,7 +80,7 @@ Short forms; the reasoning is in the linked file.
 
 **Client**
 
-- `GSCloudClient` registers as `dot_cloud_client` in `_ready`, not `start()`: four addons find it there and treat its absence as "content ships in the build". [client](docs/client.md#the-registry-name)
+- `GSCloudClient` registers as `gs_cloud_client` in `_ready`, not `start()`: four addons find it there and treat its absence as "content ships in the build". [client](docs/client.md#the-registry-name)
 - `ensure(id, version)` checks the fetched manifest's own id and version before mounting; a local manifest is read, not requested. [client](docs/client.md#acquire-and-ensure)
 
 **Store and sources**
@@ -102,7 +102,7 @@ Short forms; the reasoning is in the linked file.
 - The publisher rewrites `res://` paths in `.tscn`/`.tres` onto the mount; binary `.scn`/`.res` it cannot, and the mount registers UIDs instead. [publishing](docs/publishing.md#a-scenes-references-move-with-the-pack)
 - A file in the pack that is not under the source goes in `extra_files` (API 2); never override `_imported_outputs_for`. [publishing](docs/publishing.md#a-file-that-is-not-under-the-source-extra_files)
 - A file only one side needs is declared in the source's `sides.json` (`{"client": [...], "server": [...]}`, API 8); the tag is signed into the entry, and the side a process fetches as is its own `GSCloudConfig.side` (`auto`: headless is server; web is always client). `wanted_files()` is the one filter. An unknown side value is read as both (a new side is a new level); a scene referencing the other side's file is refused at publish; a mount widens in place when the same process later wants more of it (`covers()`). [publishing](docs/publishing.md#a-file-only-one-side-needs-sidesjson), [mounting](docs/mounting.md#a-pack-can-leave-files-out-per-side)
-- `GSCloudRegistry` has no caller on purpose: it waits for its site endpoint. [publishing](docs/publishing.md#dotcloudregistry-is-written-and-nothing-calls-it)
+- `GSCloudRegistry` has no caller on purpose: it waits for its site endpoint. [publishing](docs/publishing.md#gscloudregistry-is-written-and-nothing-calls-it)
 
 **Server auto-update**
 

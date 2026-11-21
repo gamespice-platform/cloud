@@ -1,0 +1,664 @@
+class_name GSCloudMounter
+extends RefCounted
+
+## Mounts downloaded content into the running project's virtual filesystem.
+## [b]Godot cannot unmount a resource pack[/b]: once [method ProjectSettings.load_resource_pack] returns, its
+## file table is merged for the life of the process, with no record of which pack added which entry.
+## So remounting game B over game A's paths with [code]replace_files = true[/code] misbehaves silently:
+## files only A had still resolve to A's bytes, and the resource cache may return A's loaded instance.
+## [b]So paths are never reused.[/b] Content mounts at [code]res://<mount_root>/<content_id>/<version>/[/code]
+## and "unloading" means:
+## 1. free the scene tree that referenced it (this frees the resources; the cache holds no reference of its own),
+## 2. check that was complete ([method purge_resources] reports what is still referenced, evicts nothing),
+## 3. release the store's refs so the objects become evictable,
+## 4. forget the mount and never use those paths again.
+## The lingering file-table entries cost kilobytes per mount. [method needs_restart_to_reclaim] and
+## [method restart_process] exist for the rare case that is not acceptable.
+
+const CHANNEL := "cloud.mount"
+const _Uids := preload("gs_cloud_mounter_uids.gd")
+
+## [code]options.uid_policy[/code]: only add ids the process does not know yet.
+const UID_ADD_ONLY := "add_only"
+
+## [code]options.groups[/code] (API 22): the download groups to mount beside the ungrouped files, a
+## [PackedStringArray]. What the downloader fetched for the same groups; absent mounts ungrouped files only.
+
+var config: GSCloudConfig
+
+## content_key -> {manifest, prefix, mounted_at, files}
+var _mounts: Dictionary = {}
+
+
+func _init(p_config: GSCloudConfig) -> void:
+	config = p_config
+
+
+## Builds a pack from cached objects and mounts it.
+## Godot mounts packs, the cache stores objects by hash, so this writes a thin PCK pointing content paths at
+## cached bytes. The pack is cached under the manifest key, so a later run's remount is one call.
+## [param store] must already hold every required object; run the downloader first.
+func mount(
+	manifest: GSCloudManifest,
+	store: GSCloudStore,
+	scheduler: GSScheduler = null,
+	options: Dictionary = {}
+) -> GSResult:
+	var engine_check := manifest.validate()
+	if not engine_check.ok:
+		return engine_check
+
+	var key := manifest.key()
+	var wanted := manifest.wanted_files(_groups_of(options))
+	var identity := _mount_identity(manifest, wanted)
+
+	# The key is not proof the content is the same: `content_id@version` is not derived from the bytes, so two
+	# publishers (or a re-used version) arrive indistinguishable, and since packs can contain scripts "another"
+	# is somebody else's code. It cannot be repaired after the mount, so refuse the second and let the caller decide.
+	if _mounts.has(key):
+		var held: Dictionary = _mounts[key]
+
+		# The same content asked for with more files than were mounted (API 8): a shell that joined as a client and
+		# then hosts the game wants the server-only files, and the pack cannot be remounted. The difference mounts as a
+		# second pack at the same prefix, replacing nothing. A narrower ask is already covered.
+		if str(held.get("identity", "")) != identity \
+				and str(held.get("whole", "")) == _mount_identity(manifest, manifest.files):
+			return await _mount_more(manifest, store, scheduler, options, wanted, held)
+
+		if str(held.get("identity", "")) != identity:
+			return GSResult.fail(
+				GSError.CODE_CONFLICT,
+				"Different content is already mounted under this id and version.",
+				("mounted %s, asked for %s -- bump the version, or namespace the "
+					+ "content_id, because this one is taken for the life of the "
+					+ "process") % [str(held.get("identity", "")), identity]
+			)
+
+		GSLog.debug(CHANNEL, "already mounted", {"content": key})
+		return GSResult.success(str(held["prefix"]))
+
+	# Everything required must be present before a single file is mounted. A
+	# half-mounted game is worse than an unmounted one: it loads, and then fails
+	# somewhere unrelated to the missing file.
+	var missing := PackedStringArray()
+	for f in wanted:
+		if f.required and not store.has(f.sha256):
+			missing.append(f.path)
+
+	if not missing.is_empty():
+		return GSResult.fail(
+			GSError.CODE_STATE,
+			"Content is not fully downloaded.",
+			"%d file(s) missing, first: %s" % [missing.size(), missing[0]]
+		)
+
+	var pack_path := _pack_path(manifest, wanted)
+
+	# A pack already built is what gets mounted, and it was assembled from objects verified when
+	# they were committed. Re-hashing every object on each refresh cost seconds of a tab's main
+	# thread (no worker threads on web) to re-prove what the pack's name already fingerprints.
+	var pack_cached := pack_intact(pack_path)
+	if config.verify_before_mount and scheduler != null and not pack_cached:
+		var verified := await _verify_objects(wanted, store, scheduler)
+		if not verified.ok:
+			return verified
+
+	# Where a mount's time goes (msec), in its "mounted" line: a web join can be diagnosed from its log alone.
+	var t_build := Time.get_ticks_msec()
+	var built := _build_pack(manifest, store, wanted, pack_path)
+	if not built.ok:
+		return built
+
+	var prefix := manifest.mount_prefix()
+	var t_load := Time.get_ticks_msec()
+
+	# replace_files stays false. With version-namespaced prefixes nothing needs
+	# replacing, and enabling it would let downloaded content shadow files the
+	# host project shipped — including its scripts.
+	var ok := ProjectSettings.load_resource_pack(
+		pack_path, config.allow_replace_files
+	)
+
+	if not ok:
+		return GSResult.fail(
+			GSError.CODE_IO,
+			"The engine refused to mount the content pack.",
+			pack_path
+		)
+
+	var t_check := Time.get_ticks_msec()
+	if config.enforce_mount_prefix:
+		var escaped := _check_prefix(manifest, wanted)
+		if not escaped.ok:
+			# Too late to undo — this is the belt to safe_relative's braces, and
+			# reaching it means a bug upstream. Report loudly; the process should
+			# be treated as compromised.
+			GSLog.error(
+				CHANNEL,
+				"content mounted outside its prefix — this is a bug",
+				{"content": key, "detail": escaped.error.detail}
+			)
+			return escaped
+
+	var uid_skips := [0]
+	var t_uids := Time.get_ticks_msec()
+	var uids := _Uids.register(
+		wanted, prefix, manifest.mount_root,
+		str(options.get("uid_policy", "")) == UID_ADD_ONLY, manifest.content_id, uid_skips
+	)
+	var t_index := Time.get_ticks_msec()
+
+	var paths := {}
+	for f in wanted:
+		paths[f.path] = true
+
+	_mounts[key] = {
+		"manifest": manifest,
+		"identity": identity,
+		"whole": _mount_identity(manifest, manifest.files),
+		"paths": paths,
+		"prefix": prefix,
+		"pack": pack_path,
+		"mounted_at": Time.get_ticks_msec(),
+		"files": wanted.size(),
+		"uids": uids,
+		"uids_skipped": int(uid_skips[0]),
+	}
+
+	store.add_refs(key, manifest.unique_hashes())
+	store.flush_index()
+
+	GSLog.info(
+		CHANNEL,
+		"mounted",
+		{
+			"content": key, "prefix": prefix, "files": wanted.size(), "uids": uids,
+			"uids_skipped": int(uid_skips[0]), "build_ms": t_load - t_build, "load_ms": t_check - t_load,
+			"check_ms": t_uids - t_check, "uids_ms": t_index - t_uids, "index_ms": Time.get_ticks_msec() - t_index,
+		}
+	)
+
+	return GSResult.success(prefix)
+
+
+## Whether [param manifest] is mounted with every file it now wants for [param groups]: false when the
+## same content was mounted for a narrower side or group set, so [method mount] would add the rest.
+## Different content under the key reads as covered; [method mount] is where that is refused.
+func covers(manifest: GSCloudManifest, groups: PackedStringArray = PackedStringArray()) -> bool:
+	var held: Dictionary = _mounts.get(manifest.key(), {})
+	if held.is_empty():
+		return false
+	if str(held.get("whole", "")) != _mount_identity(manifest, manifest.files):
+		return true
+	var paths: Dictionary = held.get("paths", {})
+	for f in manifest.wanted_files(groups):
+		if not paths.has(f.path):
+			return false
+	return true
+
+
+static func _groups_of(options: Dictionary) -> PackedStringArray:
+	var raw: Variant = options.get("groups", PackedStringArray())
+	if raw is PackedStringArray:
+		return raw
+	if raw is Array:
+		return PackedStringArray(raw)
+	return PackedStringArray()
+
+
+## The files [param wanted] has that the mount in [param held] lacks, as a second pack at the
+## same prefix. The checks are [method mount]'s, applied to the difference.
+func _mount_more(
+	manifest: GSCloudManifest,
+	store: GSCloudStore,
+	scheduler: GSScheduler,
+	options: Dictionary,
+	wanted: Array[GSCloudFile],
+	held: Dictionary
+) -> GSResult:
+	var key := manifest.key()
+	var paths: Dictionary = held.get("paths", {})
+	var extra: Array[GSCloudFile] = []
+	for f in wanted:
+		if not paths.has(f.path):
+			extra.append(f)
+
+	if extra.is_empty():
+		return GSResult.success(str(held["prefix"]))
+
+	for f in extra:
+		if f.required and not store.has(f.sha256):
+			return GSResult.fail(
+				GSError.CODE_STATE, "Content is not fully downloaded.", "first missing: %s" % f.path
+			)
+
+	if config.verify_before_mount and scheduler != null:
+		var verified := await _verify_objects(extra, store, scheduler)
+		if not verified.ok:
+			return verified
+
+	var pack_path := _pack_path(manifest, extra)
+	var built := _build_pack(manifest, store, extra, pack_path)
+	if not built.ok:
+		return built
+
+	if not ProjectSettings.load_resource_pack(pack_path, config.allow_replace_files):
+		return GSResult.fail(
+			GSError.CODE_IO, "The engine refused to mount the content pack.", pack_path
+		)
+
+	if config.enforce_mount_prefix:
+		var escaped := _check_prefix(manifest, extra)
+		if not escaped.ok:
+			GSLog.error(
+				CHANNEL,
+				"content mounted outside its prefix — this is a bug",
+				{"content": key, "detail": escaped.error.detail}
+			)
+			return escaped
+
+	var uid_skips := [0]
+	var uids := _Uids.register(
+		extra, str(held["prefix"]), manifest.mount_root,
+		str(options.get("uid_policy", "")) == UID_ADD_ONLY, manifest.content_id, uid_skips
+	)
+
+	for f in extra:
+		paths[f.path] = true
+	held["paths"] = paths
+	held["files"] = paths.size()
+	held["uids"] = int(held.get("uids", 0)) + uids
+
+	GSLog.info(
+		CHANNEL,
+		"mounted more of it",
+		{"content": key, "added": extra.size(), "files": paths.size(), "uids": uids}
+	)
+	return GSResult.success(str(held["prefix"]))
+
+
+## Writes a PCK mapping manifest paths to cached object bytes.
+## [PCKPacker] takes a target path per file, which is what is needed: the hash-named cached object must appear
+## at [code]res://<prefix>/<manifest path>[/code], which no export preset can express.
+func _build_pack(
+	manifest: GSCloudManifest,
+	store: GSCloudStore,
+	files: Array[GSCloudFile],
+	pack_path: String
+) -> GSResult:
+	# The path fingerprints paths and hashes, so an intact pack there is this content.
+	if pack_intact(pack_path):
+		GSLog.debug(
+			CHANNEL, "reusing cached pack", {"pack": pack_path.get_file()}
+		)
+		return GSResult.success(pack_path)
+	if FileAccess.file_exists(pack_path):
+		GSLog.warn(CHANNEL, "cached pack is incomplete; rebuilding", {"pack": pack_path.get_file()})
+		DirAccess.remove_absolute(pack_path)
+
+	var parent := GSPaths.ensure_parent_dir(pack_path)
+	if not parent.ok:
+		return parent
+
+	# Written aside and renamed when complete: a pack cut short has no file table, and the
+	# engine reads its header as a count of about a billion entries and never returns.
+	var part_path := pack_path + ".part"
+	var packer := PCKPacker.new()
+	var err := packer.pck_start(part_path)
+	if err != OK:
+		return GSResult.failure(
+			GSError.from_engine(err, "creating pack '%s'" % pack_path)
+		)
+
+	var prefix := manifest.mount_prefix()
+	var added := 0
+
+	for f in files:
+		if not store.has(f.sha256):
+			# Optional and absent. Skipped rather than failed — required files
+			# were checked before we got here.
+			continue
+
+		var target := prefix.path_join(f.path)
+		var source := store.path_for(f.sha256)
+
+		err = packer.add_file(target, source)
+		if err != OK:
+			return GSResult.failure(
+				GSError.from_engine(err, "adding '%s' to the pack" % f.path)
+			)
+		added += 1
+
+	err = packer.flush(false)
+	if err != OK:
+		return GSResult.failure(
+			GSError.from_engine(err, "writing pack '%s'" % pack_path)
+		)
+	packer = null
+	err = DirAccess.rename_absolute(part_path, pack_path)
+	if err != OK:
+		return GSResult.failure(
+			GSError.from_engine(err, "renaming pack '%s'" % pack_path)
+		)
+
+	GSWeb.sync_filesystem()
+
+	GSLog.debug(
+		CHANNEL,
+		"built pack",
+		{
+			"pack": pack_path.get_file(),
+			"files": added,
+			"size": GSPaths.format_bytes(GSPaths.file_size(pack_path)),
+		}
+	)
+
+	return GSResult.success(pack_path)
+
+
+## Whether [param path] is a whole PCK: from format 3 on, the header's directory offset is
+## written last, so a pack whose build was cut short has it at zero (or past the end).
+static func pack_intact(path: String) -> bool:
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return false
+	var length := f.get_length()
+	if length < 40 or f.get_32() != 0x43504447:
+		return false
+	if f.get_32() < 3:
+		return true
+	f.seek(32)
+	var dir_offset := f.get_64()
+	return dir_offset >= 40 and dir_offset + 4 <= length
+
+
+func _pack_path(manifest: GSCloudManifest, files: Array[GSCloudFile]) -> String:
+	# Version and a content fingerprint are in the name: republishing `id@0.1.0` from corrected sources is the
+	# ordinary fix loop, and the old name kept serving the old pack. The version also stops a publish overwriting
+	# a pack a running process has open (fatal on Windows). [param files] is the wanted set, so two group selections must not share a path.
+	return config.cache_dir.path_join(
+		"packs/%s-%s-%s.pck" % [
+			GSPaths.slugify(manifest.content_id),
+			GSPaths.slugify(manifest.version),
+			_pack_fingerprint(manifest, files),
+		]
+	)
+
+
+## What has to match for an already-mounted key to be the same content: the file set plus
+## [member GSCloudManifest.entry_scene] and [member GSCloudManifest.mount_root], since two manifests can
+## agree about every byte and still disagree about what loads and where it lands.
+func _mount_identity(manifest: GSCloudManifest, files: Array[GSCloudFile]) -> String:
+	return "%s|%s|%s" % [
+		_pack_fingerprint(manifest, files),
+		manifest.entry_scene,
+		manifest.mount_root,
+	]
+
+
+## What the assembled pack will contain, as a short stable digest.
+## Path AND hash, so a moved and a changed file both differ; sorted, as publish order is the publisher's.
+func _pack_fingerprint(manifest: GSCloudManifest, files: Array[GSCloudFile]) -> String:
+	var lines := PackedStringArray()
+
+	for f in files:
+		lines.append("%s:%s" % [f.path, f.sha256])
+
+	lines.sort()
+
+	# The id and version are part of the fingerprint, not just the name: a pack holds files at
+	# `res://<mount_root>/<id>/<version>/...`, and `alice/x` and `alice_x` slugify alike, so the wrong pack could mount.
+	return GSHash.sha256_text(
+		"%s\n%s\n%s" % [manifest.content_id, manifest.version, "\n".join(lines)]
+	).substr(0, 16)
+
+
+func _verify_objects(
+	files: Array[GSCloudFile],
+	store: GSCloudStore,
+	scheduler: GSScheduler
+) -> GSResult:
+	var seen := {}
+	var jobs: Array[GSJob] = []
+	var job_files: Array[GSCloudFile] = []
+
+	for f in files:
+		if seen.has(f.sha256):
+			continue
+		seen[f.sha256] = true
+
+		if not store.has(f.sha256):
+			continue
+
+		jobs.append(GSHashJob.new(store.path_for(f.sha256), f.sha256))
+		job_files.append(f)
+
+	# All submitted at once, never one await per object: a worker job's result
+	# lands at the scheduler's next frame, so a run() loop costs a frame an object
+	# (678 objects held for minutes on the threaded web build).
+	var results := await scheduler.run_all(jobs)
+	for i in results.size():
+		if not results[i].ok:
+			return results[i].wrap(
+				"Cached content for '%s' failed verification." % job_files[i].path
+			)
+
+	return GSResult.success(seen.size())
+
+
+## Confirms every mounted path is inside the manifest's prefix and resolvable.
+func _check_prefix(
+	manifest: GSCloudManifest,
+	files: Array[GSCloudFile]
+) -> GSResult:
+	var prefix := manifest.mount_prefix()
+
+	# Simplified on both sides first: begins_with() is no containment test ("res://a/b/../../evil" begins
+	# with "res://a/b/"), so the second check would agree with whatever the first let through.
+	var simple_prefix := prefix.simplify_path()
+
+	for f in files:
+		var path := prefix.path_join(f.path).simplify_path()
+
+		if not path.begins_with(simple_prefix + "/"):
+			return GSResult.fail(
+				GSError.CODE_INVALID,
+				"Content escaped its mount prefix.",
+				"%s is outside %s" % [path, prefix]
+			)
+
+		# file_exists first: it answers from the pack's table, where exists() asks every format loader (733 files a join).
+		if f.required and not FileAccess.file_exists(path) and not ResourceLoader.exists(path):
+			return GSResult.fail(
+				GSError.CODE_IO,
+				"A required file is not readable after mounting.",
+				path
+			)
+
+	return GSResult.success(true)
+
+
+## Forgets a mount and releases its cache references; does not remove the pack from the virtual
+## filesystem (see the class documentation), only makes the content unreachable.
+## The caller must free anything still holding a resource from this content [b]before[/b] calling: a [Node]
+## holding a [Mesh] keeps it in the resource cache and the next mount of the version gets the stale instance.
+func unmount(content_key: String, store: GSCloudStore) -> GSResult:
+	if not _mounts.has(content_key):
+		return GSResult.fail(
+			GSError.CODE_INVALID, "Not mounted.", content_key
+		)
+
+	var entry: Dictionary = _mounts[content_key]
+	var prefix: String = entry["prefix"]
+
+	# Not "purged" — see purge_resources. This is what the caller still holds.
+	var still_cached := purge_resources(prefix)
+
+	store.release_refs(content_key)
+	store.flush_index()
+
+	_mounts.erase(content_key)
+
+	GSLog.info(
+		CHANNEL,
+		"unmounted",
+		{
+			"content": content_key,
+			"still_cached": still_cached,
+			"note": "pack file table remains in memory; paths are now unused",
+		}
+	)
+
+	return GSResult.success(still_cached)
+
+
+## Counts cached resources still live under [param prefix], and warns about them.
+## Cannot evict: the cache holds no strong reference (a path is cached while something refers to it) and
+## `CACHE_MODE_IGNORE` only returns a new instance. Non-zero means the caller did [b]not[/b] free everything.
+func purge_resources(prefix: String) -> int:
+	var still_cached := 0
+
+	# has_cached is the only cache query exposed to script, and there is no
+	# "evict by prefix" at all, so this walks the mount's own file list.
+	for key in _mounts:
+		var entry: Dictionary = _mounts[key]
+		if str(entry["prefix"]) != prefix:
+			continue
+
+		var manifest: GSCloudManifest = entry["manifest"]
+		for f in manifest.files:
+			if ResourceLoader.has_cached(prefix.path_join(f.path)):
+				still_cached += 1
+
+	if still_cached > 0:
+		GSLog.warn(
+			CHANNEL,
+			"content is still referenced after unmount; free those nodes first",
+			{"prefix": prefix, "still_cached": still_cached}
+		)
+
+	return still_cached
+
+
+## Whether anything has been mounted that a restart would reclaim, for a "restart to free memory" UI.
+## Rarely worth showing: the leak is kilobytes of file-table entries.
+func needs_restart_to_reclaim() -> bool:
+	return not _mounts.is_empty() and not GSPlatform.can_unmount_packs()
+
+
+## Restarts the process to get a clean virtual filesystem: the only true unmount.
+## Desktop re-execs, a browser tab reloads, mobile does neither ([method GSPlatform.can_self_restart]).
+## An escape hatch; needing it means colliding mount paths, which version namespacing prevents.
+func restart_process() -> GSResult:
+	if not GSPlatform.can_self_restart():
+		return GSResult.fail(
+			GSError.CODE_UNSUPPORTED,
+			"This platform cannot restart itself.",
+			"the player must relaunch the app"
+		)
+
+	GSLog.info(CHANNEL, "restarting to reclaim mounted packs")
+
+	if GSPlatform.is_web():
+		GSWeb.sync_filesystem()
+		GSWeb.reload_page()
+		return GSResult.success(true)
+
+	var exe := OS.get_executable_path()
+	var args := OS.get_cmdline_args()
+
+	var pid := OS.create_process(exe, args)
+	if pid <= 0:
+		return GSResult.fail(
+			GSError.CODE_INTERNAL, "Could not start a new process."
+		)
+
+	var loop := Engine.get_main_loop()
+	if loop is SceneTree:
+		(loop as SceneTree).quit()
+
+	return GSResult.success(pid)
+
+
+func is_mounted(content_key: String) -> bool:
+	return _mounts.has(content_key)
+
+
+func mount_prefix_of(content_key: String) -> String:
+	if not _mounts.has(content_key):
+		return ""
+	return str(_mounts[content_key]["prefix"])
+
+
+## The `cfg` root a mounted pack ships (`<prefix>/cfg`), or "" when it has none or is not mounted.
+## A reader puts it first in its config roots (weakest), so `cfg/server` and the game still win.
+func cfg_root_of(content_key: String) -> String:
+	var root := mount_prefix_of(content_key).path_join("cfg")
+	return root if mount_prefix_of(content_key) != "" and DirAccess.dir_exists_absolute(root) else ""
+
+
+func mounted_keys() -> PackedStringArray:
+	var out := PackedStringArray(_mounts.keys())
+	out.sort()
+	return out
+
+
+## The entry scene of a mounted content set, ready to instantiate.
+func entry_scene_of(content_key: String) -> GSResult:
+	if not _mounts.has(content_key):
+		return GSResult.fail(
+			GSError.CODE_INVALID, "Not mounted.", content_key
+		)
+
+	var manifest: GSCloudManifest = _mounts[content_key]["manifest"]
+	var path := manifest.entry_scene_path()
+
+	if path == "":
+		return GSResult.fail(
+			GSError.CODE_INVALID,
+			"This content declares no entry scene.",
+			content_key
+		)
+
+	if not ResourceLoader.exists(path):
+		return GSResult.fail(
+			GSError.CODE_IO,
+			"The entry scene is missing from the mounted content.",
+			path
+		)
+
+	return GSResult.success(path)
+
+
+func describe() -> Dictionary:
+	var mounts := []
+	for key in mounted_keys():
+		var e: Dictionary = _mounts[key]
+		mounts.append({
+			"content": key,
+			"prefix": e["prefix"],
+			"files": e["files"],
+			# How many of this pack's own uids were registered. A number lower than the
+			# `.import` markers it carries means some were refused for belonging to
+			# somebody else — see `gs_cloud_mounter_uids.gd`.
+			"uids": e.get("uids", 0),
+			"uids_skipped": e.get("uids_skipped", 0),
+		})
+
+	return {
+		"mounted": mounts,
+		"can_unmount": GSPlatform.can_unmount_packs(),
+		"can_restart": GSPlatform.can_self_restart(),
+	}
+
+
+func describe_lines() -> PackedStringArray:
+	var out := PackedStringArray()
+	if _mounts.is_empty():
+		out.append("nothing mounted")
+		return out
+
+	for key in mounted_keys():
+		var e: Dictionary = _mounts[key]
+		out.append("%-28s %-4d %s" % [key, int(e["files"]), e["prefix"]])
+	return out

@@ -9,7 +9,7 @@ extends Node
 
 func _ready() -> void:
 	var info := {
-		"mounted": str(ProjectSettings.get_setting("dot_cloud/addon_overlay", "")),
+		"mounted": str(ProjectSettings.get_setting("gs_cloud/addon_overlay", "")),
 		"class": false,
 	}
 
@@ -26,7 +26,7 @@ func _ready() -> void:
 		if typed.reload() == OK:
 			info["typed"] = typed.new().call("run")
 
-		var packed := load("res://addons/dot_probe/ui/panel.tscn") as PackedScene
+		var packed := load("res://addons/gs_probe/ui/panel.tscn") as PackedScene
 		if packed != null:
 			var node := packed.instantiate()
 			info["panel"] = str(node.get_meta("v", ""))

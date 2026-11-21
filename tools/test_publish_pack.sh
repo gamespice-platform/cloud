@@ -8,7 +8,7 @@ GODOT="${1:-${GODOT:-godot}}"
 [ -x "$GODOT" ] || GODOT="$(command -v "$GODOT" 2>/dev/null || true)"; [ -n "$GODOT" ] || GODOT="$HOME/.local/bin/godot"; export GODOT
 [ -x "$GODOT" ] || { echo "test_publish_pack: no godot binary (pass one, set GODOT, or put godot on PATH)" >&2; exit 2; }
 # The publish CLI needs GameSpice Core's classes; without the link every check below fails with an unrelated parse error.
-[ -d "$HERE/../addons/dot_core" ] || { echo "test_publish_pack: addons/dot_core missing; run: ln -s ../../dot-core/addons/dot_core addons/dot_core (then rm -rf .godot if a run already cached without it)" >&2; exit 2; }
+[ -d "$HERE/../addons/gs_core" ] || { echo "test_publish_pack: addons/gs_core missing; run: ln -s ../../gs-core/addons/gs_core addons/gs_core (then rm -rf .godot if a run already cached without it)" >&2; exit 2; }
 W="$(mktemp -d)"; PASS=0; FAIL=0
 chk() { if eval "$2"; then PASS=$((PASS+1)); else FAIL=$((FAIL+1)); echo "FAIL: $1"; fi; }
 python3 -I "$HERE/test/mock_site.py" "$W/log" secret > "$W/port" & SRV=$!
@@ -90,26 +90,26 @@ GS_CLI_TOKEN=secret "$HERE/publish_pack.sh" relock --id heldpack --lock "$W/held
 chk "relock with no --version reads it from the lock and keeps into" "[ $? -eq 0 ] && grep -q '\.stores/h' held.lock.json"
 env -u GS_CLI_TOKEN HOME="$W/nohome" GS_CLI_TOKEN_FILE="$W/none" "$HERE/publish_pack.sh" --source "$W/src" --id demo --version 9.0.0 --out "$W/dry" --dry-run > "$W/out" 2>&1
 chk "--dry-run builds with no token and sends nothing" "[ $? -eq 0 ] && [ -f '$W/dry/manifest.json' ] && ! grep -q '9.0.0' log"
-# (d) --host-addons: addons/dot_core is host-owned and left out, addons/zz_x stays; without the flag both ship
-mkdir -p "$W/h/addons/dot_core" "$W/h/addons/zz_x" "$W/hostdir/dot_core" "$W/hostdir/other"; echo c > "$W/h/addons/dot_core/c.gd"; echo x > "$W/h/addons/zz_x/x.gd"; echo r > "$W/h/root.txt"
-printf '# lock\ndot-core\tv1\n' > "$W/addons.lock"
+# (d) --host-addons: addons/gs_core is host-owned and left out, addons/zz_x stays; without the flag both ship
+mkdir -p "$W/h/addons/gs_core" "$W/h/addons/zz_x" "$W/hostdir/gs_core" "$W/hostdir/other"; echo c > "$W/h/addons/gs_core/c.gd"; echo x > "$W/h/addons/zz_x/x.gd"; echo r > "$W/h/root.txt"
+printf '# lock\ngs-core\tv1\n' > "$W/addons.lock"
 hp() { "$HERE/publish_pack.sh" --source "$W/h" --id hostdemo --version 1.0.0 --out "$W/ho" --dry-run "$@" > "$W/out" 2>&1; }
-hp --pack-addon dot_core
-chk "no --host-addons packs both and says so" "[ $? -eq 0 ] && grep -q dot_core ho/manifest.json && grep -q zz_x ho/manifest.json && grep -q 'no --host-addons' out"
+hp --pack-addon gs_core
+chk "no --host-addons packs both and says so" "[ $? -eq 0 ] && grep -q gs_core ho/manifest.json && grep -q zz_x ho/manifest.json && grep -q 'no --host-addons' out"
 rm -rf ho; hp --host-addons "$W/addons.lock"
-chk "lock: dot_core left out, zz_x kept, logged" "[ $? -eq 0 ] && ! grep -q dot_core ho/manifest.json && grep -q zz_x ho/manifest.json && grep -q 'left out 1 host-owned addon(s): dot_core' out"
+chk "lock: gs_core left out, zz_x kept, logged" "[ $? -eq 0 ] && ! grep -q gs_core ho/manifest.json && grep -q zz_x ho/manifest.json && grep -q 'left out 1 host-owned addon(s): gs_core' out"
 rm -rf ho; hp --host-addons "$W/hostdir"
-chk "directory form excludes dot_core" "[ $? -eq 0 ] && ! grep -q dot_core ho/manifest.json && grep -q zz_x ho/manifest.json"
-rm -rf ho; printf 'dot-core\n' > "$W/names.txt"; hp --host-addons "$W/names.txt"
-chk "name-list form excludes dot_core" "[ $? -eq 0 ] && ! grep -q dot_core ho/manifest.json && grep -q zz_x ho/manifest.json"
-# a linked addon whose folder differs from its repository (zee-dot-weapons ships addons/zee_weapons)
-mkdir -p "$W/zee-dot-weapons/addons/zee_weapons" "$W/h/addons"; echo z > "$W/zee-dot-weapons/addons/zee_weapons/z.gd"; ln -sfn ../../zee-dot-weapons/addons/zee_weapons "$W/h/addons/zee_weapons"
-printf 'zee-dot-weapons\tv1\n' > "$W/zee.lock"
-mkdir -p "$W/h/cfg/addon/zee_weapons" "$W/h/cfg/game/g/dot_core"; echo a > "$W/h/cfg/addon/zee_weapons/ads.yml"; echo m > "$W/h/cfg/game/g/dot_core/ph_%.yml"
+chk "directory form excludes gs_core" "[ $? -eq 0 ] && ! grep -q gs_core ho/manifest.json && grep -q zz_x ho/manifest.json"
+rm -rf ho; printf 'gs-core\n' > "$W/names.txt"; hp --host-addons "$W/names.txt"
+chk "name-list form excludes gs_core" "[ $? -eq 0 ] && ! grep -q gs_core ho/manifest.json && grep -q zz_x ho/manifest.json"
+# a linked addon whose folder differs from its repository (zee-gs-weapons ships addons/zee_weapons)
+mkdir -p "$W/zee-gs-weapons/addons/zee_weapons" "$W/h/addons"; echo z > "$W/zee-gs-weapons/addons/zee_weapons/z.gd"; ln -sfn ../../zee-gs-weapons/addons/zee_weapons "$W/h/addons/zee_weapons"
+printf 'zee-gs-weapons\tv1\n' > "$W/zee.lock"
+mkdir -p "$W/h/cfg/addon/zee_weapons" "$W/h/cfg/game/g/gs_core"; echo a > "$W/h/cfg/addon/zee_weapons/ads.yml"; echo m > "$W/h/cfg/game/g/gs_core/ph_%.yml"
 rm -rf ho; hp --host-addons "$W/zee.lock" --host-addons "$W/hostdir"
 chk "a linked addon is matched by its repository" "[ $? -eq 0 ] && ! grep -q zee_weapons/z.gd ho/manifest.json && grep -q zz_x ho/manifest.json"
 # only addons/<name> is left out: a game's settings for that addon elsewhere (cfg/addon/zee_weapons/ads.yml) still ship
-chk "a host addon's name elsewhere in the tree still ships" "grep -q 'cfg/addon/zee_weapons/ads.yml' ho/manifest.json && grep -q 'cfg/game/g/dot_core/ph_%.yml' ho/manifest.json && ! grep -q 'dot_core/c.gd' ho/manifest.json"
+chk "a host addon's name elsewhere in the tree still ships" "grep -q 'cfg/addon/zee_weapons/ads.yml' ho/manifest.json && grep -q 'cfg/game/g/gs_core/ph_%.yml' ho/manifest.json && ! grep -q 'gs_core/c.gd' ho/manifest.json"
 rm -f "$W/h/addons/zee_weapons"
 hp --host-addons "$W/missing"
 chk "missing --host-addons argument fails" "[ $? -ne 0 ]"
@@ -122,11 +122,11 @@ mkdir -p "$W/h/tex"; echo png > "$W/h/tex/t.png"; echo 'path="res://.godot/impor
 rm -rf ho; hp
 chk "no project: raw image kept, .import marker dropped" "[ $? -eq 0 ] && grep -q 'tex/t.png\"' ho/manifest.json && ! grep -q 't.png.import' ho/manifest.json"
 # resolved family addons (what a copy with links resolved looks like) are left out; a pile of other addons is refused
-mkdir -p "$W/h/addons/dot_core" "$W/h/addons/pg_timer"; echo a > "$W/h/addons/dot_core/x.gd"; echo b > "$W/h/addons/pg_timer/y.gd"
+mkdir -p "$W/h/addons/gs_core" "$W/h/addons/pg_timer"; echo a > "$W/h/addons/gs_core/x.gd"; echo b > "$W/h/addons/pg_timer/y.gd"
 rm -rf ho; hp
-chk "dot_* addon left out, own adapter kept" "[ $? -eq 0 ] && ! grep -q 'dot_core/x.gd' ho/manifest.json && grep -q 'pg_timer/y.gd' ho/manifest.json"
-rm -rf ho; hp --pack-addon dot_core
-chk "--pack-addon packs a dot_ addon on purpose" "[ $? -eq 0 ] && grep -q 'dot_core/x.gd' ho/manifest.json"
+chk "gs_* addon left out, own adapter kept" "[ $? -eq 0 ] && ! grep -q 'gs_core/x.gd' ho/manifest.json && grep -q 'pg_timer/y.gd' ho/manifest.json"
+rm -rf ho; hp --pack-addon gs_core
+chk "--pack-addon packs a dot_ addon on purpose" "[ $? -eq 0 ] && grep -q 'gs_core/x.gd' ho/manifest.json"
 for i in 1 2 3 4 5 6; do mkdir -p "$W/h/addons/own$i"; echo z > "$W/h/addons/own$i/z.gd"; done
 rm -rf ho; hp
 chk "more than 5 packed addons is refused" "[ $? -ne 0 ] && grep -q Refusing out"
@@ -139,14 +139,14 @@ printf '[remap]\nimported_formats=["s3tc_bptc","etc2_astc"]\n' > "$W/h/vr/d.png.
 rm -rf ho; hp
 chk "both-format import is silent" "[ $? -eq 0 ] && ! grep -q 'desktop-only' out"
 rm -rf "$W/h/vr"
-# (e) requires.json: derived (GameSpice Core's dot_requires.gd) and capped at the host lock's level; a committed one above it is refused
-DC="$(readlink -f "$HERE/../addons/dot_core" 2>/dev/null || true)"; [ -d "$DC" ] || DC="$(readlink -f "$HERE/../../dot-core/addons/dot_core" 2>/dev/null || true)"
-if [ -f "$DC/tools/dot_requires.gd" ]; then
+# (e) requires.json: derived (GameSpice Core's gs_requires.gd) and capped at the host lock's level; a committed one above it is refused
+DC="$(readlink -f "$HERE/../addons/gs_core" 2>/dev/null || true)"; [ -d "$DC" ] || DC="$(readlink -f "$HERE/../../gs-core/addons/gs_core" 2>/dev/null || true)"
+if [ -f "$DC/tools/gs_requires.gd" ]; then
     mkdir -p "$W/zz-lv/addons/zz_lv" "$W/rq/addons"
     printf 'const LEVEL := 3\n' > "$W/zz-lv/addons/zz_lv/zz_lv_api.gd"; printf 'class_name ZzLv\nextends RefCounted\n' > "$W/zz-lv/addons/zz_lv/zz_lv.gd"
     git -C "$W/zz-lv" init -q && git -C "$W/zz-lv" add -A && git -C "$W/zz-lv" -c user.name=t -c user.email=t@t commit -qm l3 && git -C "$W/zz-lv" tag v1
     printf 'const LEVEL := 5\n' > "$W/zz-lv/addons/zz_lv/zz_lv_api.gd"
-    ln -s "$DC" "$W/rq/addons/dot_core"; ln -s ../../zz-lv/addons/zz_lv "$W/rq/addons/zz_lv"
+    ln -s "$DC" "$W/rq/addons/gs_core"; ln -s ../../zz-lv/addons/zz_lv "$W/rq/addons/zz_lv"
     printf 'config_version=5\n[application]\nconfig/name="rq"\n' > "$W/rq/project.godot"; printf 'extends Node\nvar x := ZzLv.new()\n' > "$W/rq/main.gd"
     printf 'zz-lv\tv1\n' > "$W/rq.lock"
     rq() { "$HERE/publish_pack.sh" --source "$W/rq" --id rqdemo --version 1.0.0 --out "$W/ro" --dry-run --pack-addon zz_lv "$@" > "$W/out" 2>&1; }
@@ -184,11 +184,11 @@ if [ -f "$DC/tools/dot_requires.gd" ]; then
     rm -rf "$W/ro"; rq --host-addons "$W/rq.lock"
     chk "an unresolvable lock ref fails and names --host-level" "[ $? -ne 0 ] && grep -q -- '--host-level zz_lv=N' out"
 else
-    echo "skip: requires.json checks need dot-core (addons/dot_core link or ../dot-core)"
+    echo "skip: requires.json checks need gs-core (addons/gs_core link or ../gs-core)"
 fi
 # (f) publish_pack.ps1 parity (no PowerShell here: a static check that it carries the same requires.json steps as the bash script)
 PS1="$HERE/publish_pack.ps1"
-chk "ps1 derives requires.json with dot_requires.gd and ships it as an extra file" "grep -q 'dot_requires.gd' '$PS1' && grep -q \"requires.json=\" '$PS1'"
+chk "ps1 derives requires.json with gs_requires.gd and ships it as an extra file" "grep -q 'gs_requires.gd' '$PS1' && grep -q \"requires.json=\" '$PS1'"
 chk "ps1 passes the host lock's levels to the floor audit like the bash script (--pin)" "grep -q 'requires.floor.json' '$PS1' && grep -q \"'--pin'\" '$PS1' && grep -q 'HostLevelOf \$h \$pp \$n' '$PS1'"
 chk "ps1 takes -HostAddons and -HostLevel" "grep -q '\[string\[\]\]\$HostAddons' '$PS1' && grep -q '\[string\[\]\]\$HostLevel' '$PS1'"
 chk "ps1 leaves out host-owned addons anchored at addons/ like the bash script" "grep -q 'function HostNames' '$PS1' && grep -q 'addons/\$n' '$PS1' && grep -q 'host-owned addon' '$PS1'"

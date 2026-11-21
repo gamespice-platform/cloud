@@ -10,18 +10,18 @@
 # --member-of ASSET publishes a map (or any) pack as a member of that collection asset: it keeps its own id, is listed in the asset's
 # collection.json and gets no Workshop page of its own (a bare publish of a map pack creates one).
 # --host-addons leaves out the addons/<name> folders the host already owns (a duplicate class_name breaks the pack). The argument is an
-# addons.lock (repo<TAB>ref), a directory of addon folders (dot-server-deploy/addons) or a directory holding addons.lock or addons/, or a
+# addons.lock (repo<TAB>ref), a directory of addon folders (gs-server-deploy/addons) or a directory holding addons.lock or addons/, or a
 # plain list of names, one per line. Names match with - and _ alike. Without it every addon under the source's addons/ is packed.
 # A derived requires.json ships at the pack root, capped at the lock's levels (see the requires.json step below).
-# Family addons (dot_*) are the host's and are never packed, whatever the tree looks like: heavy runs the per-game publish.sh on another box
+# Family addons (gs_*) are the host's and are never packed, whatever the tree looks like: heavy runs the per-game publish.sh on another box
 # from a copy with links resolved, where a wrapper that finds linked addons by symlink sees none. --pack-addon NAME packs one on purpose.
 # Valve-origin files (.vpk .vtf .vmt .mdl .vvd .vtx .phy, textures/orig, an _orig id, content matching the stock index) are refused: tools/check_valve_files.py.
 # More than 5 addon folders left in the pack is refused (a game ships a handful of its own adapters at most).
-# Token: GS_CLI_TOKEN (a creator token), else the file in --token-file / GS_CLI_TOKEN_FILE / ~/.config/dot/cli-token. Never an argument;
+# Token: GS_CLI_TOKEN (a creator token), else the file in --token-file / GS_CLI_TOKEN_FILE / ~/.config/gs/cli-token. Never an argument;
 # an env token is copied to a mode-600 temp file that is removed on exit. Site: --site, GS_SITE, else https://tmcdev.net (dev.dotgames.org is the dev CDN and answers no API).
 # The source's project is imported first (--no-import skips it): a fresh clone has .import markers but no .godot/imported outputs.
 # A game pack (game.yml) is boot-tested on the lock's host before upload (tools/pack_boot_test.sh; see the boot gate below).
-# Everything else is dot_cloud_cli.gd's `publish --upload` (docs/cdn-publish.md). A re-run resumes: only missing objects are sent.
+# Everything else is gs_cloud_cli.gd's `publish --upload` (docs/cdn-publish.md). A re-run resumes: only missing objects are sent.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CMD=publish
@@ -30,7 +30,7 @@ case "${1:-}" in
     -*|"") ;;
     *) echo "publish_pack: unknown verb '$1' (publish, versions, relock or member; flags start with --)" >&2; exit 2 ;;
 esac
-GODOT="${GODOT:-godot}"; SITE="${GS_SITE:-${DOT_SITE:-}}"; TOKEN_FILE="${GS_CLI_TOKEN_FILE:-${DOT_CLI_TOKEN_FILE:-$HOME/.config/dot/cli-token}}"
+GODOT="${GODOT:-godot}"; SITE="${GS_SITE:-}"; TOKEN_FILE="${GS_CLI_TOKEN_FILE:-$HOME/.config/gs/cli-token}"
 # Godot is not on PATH under `sudo -u gamedev heavy` (sudo's secure PATH): fall back to the user's ~/.local/bin/godot.
 command -v "$GODOT" >/dev/null 2>&1 || ! [ -x "$HOME/.local/bin/godot" ] || GODOT="$HOME/.local/bin/godot"
 SRC=""; HOST=(); HOSTLV=(); PACKADD=(); OUT=""; LOCK="content.lock.json"; DRY=""; IMPORT=1; ARGS=()
@@ -91,7 +91,7 @@ host_level() {
     line="$(git -C "$root" show "$ref:addons/$a/${a}_api.gd" 2>/dev/null | sed -n 's/^const LEVEL *:= *\([0-9][0-9]*\).*/\1/p' | head -1)"
     printf '%s\n' "${line:-1}"
 }
-# Game addon links are relative (addons/dot_x -> ../../dot-x/addons/dot_x), which resolve beside a ~/godot checkout but dangle in a
+# Game addon links are relative (addons/gs_x -> ../../gs-x/addons/gs_x), which resolve beside a ~/godot checkout but dangle in a
 # worktree under ~/wt. Point a dangling one at the same repository in the family directory: GS_FAMILY_DIR, else the directory holding
 # the project's main checkout (git common dir), else /home/gamedev/godot. A link that resolves is never touched.
 relink_broken_addons() {
@@ -102,7 +102,7 @@ relink_broken_addons() {
         [ -n "$repo" ] || { echo "publish_pack: $l -> $t is dangling and names no repository" >&2; continue; }
         fam=""
         c="$(git -C "$proj" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
-        for d in "${GS_FAMILY_DIR:-${DOT_FAMILY_DIR:-}}" "${c:+$(dirname "$(dirname "$c")")}" /home/gamedev/godot; do
+        for d in "${GS_FAMILY_DIR:-}" "${c:+$(dirname "$(dirname "$c")")}" /home/gamedev/godot; do
             [ -n "$d" ] && [ -e "$d/$repo/addons/$(basename "$l")" ] && { fam="$d"; break; }
         done
         if [ -n "$fam" ]; then ln -sfn "$fam/$repo/addons/$(basename "$l")" "$l"; echo "publish_pack: relinked $l -> $fam/$repo/addons/$(basename "$l")" >&2
@@ -121,13 +121,13 @@ if [ "$CMD" = publish ] && [ -n "$SRC" ] && [ -d "$SRC/addons" ]; then
         LEFT=(); KEPT=()
         for d in "$SRC"/addons/*/; do
             n="$(basename "$d")"
-            # A repo's name is not always its addon folder (zee-dot-weapons ships addons/zee_weapons): a linked
+            # A repo's name is not always its addon folder (zee-gs-weapons ships addons/zee_weapons): a linked
             # addon is also matched by the repository it links into.
             repo="$(readlink -f "${d%/}" | sed -n 's|.*/\([^/]*\)/addons/[^/]*$|\1|p' | tr - _)"
             if printf '%s\n' "$NAMES" | grep -qxF "$n" || { [ -n "$repo" ] && printf '%s\n' "$NAMES" | grep -qxF "$repo"; }; then LEFT+=("$n"); ARGS+=(--exclude-dir "addons/$n"); else KEPT+=("$n"); fi
         done
         # Anchored at addons/: a bare name drops every folder so named, and cfg/addon/zee_weapons/ads.yml or
-        # cfg/game/<id>/dot_map/... are the game's own settings for that addon, not the addon.
+        # cfg/game/<id>/gs_map/... are the game's own settings for that addon, not the addon.
         echo "publish_pack: --host-addons left out ${#LEFT[@]} host-owned addon(s): ${LEFT[*]:-none}" >&2
         echo "publish_pack: packing ${#KEPT[@]} other addon(s): ${KEPT[*]:-none}" >&2
     fi
@@ -139,7 +139,7 @@ if [ "$CMD" = publish ] && [ -n "$SRC" ] && [ -d "$SRC/addons" ]; then
         [ -d "$d" ] || continue
         n="$(basename "$d")"
         case "$EXC" in *" $n "*) continue ;; esac
-        if [[ $n == dot_* ]] && ! printf '%s\n' "${PACKADD[@]:-}" | grep -qxF "$n"; then
+        if [[ $n == gs_* ]] && ! printf '%s\n' "${PACKADD[@]:-}" | grep -qxF "$n"; then
             ARGS+=(--exclude-dir "addons/$n"); EXC+="$n "; echo "publish_pack: addons/$n is a family addon, left out (--pack-addon $n to pack it)" >&2; continue
         fi
         NPACK=$((NPACK+1))
@@ -167,8 +167,8 @@ fi
 # No `exec` below: it replaces the shell, so the EXIT trap never ran and every call leaked $TMP
 # (token file, import log, and the whole <out>/bundles + objects tree, GBs on tmpfs).
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-if [ -n "${GS_CLI_TOKEN:-${DOT_CLI_TOKEN:-}}" ]; then
-    ( umask 077; printf %s "${GS_CLI_TOKEN:-${DOT_CLI_TOKEN:-}}" > "$TMP/token" ); TOKEN_FILE="$TMP/token"
+if [ -n "${GS_CLI_TOKEN:-}" ]; then
+    ( umask 077; printf %s "${GS_CLI_TOKEN:-}" > "$TMP/token" ); TOKEN_FILE="$TMP/token"
 fi
 [ -s "$TOKEN_FILE" ] || { [ "$DRY" ] && [ "$CMD" = publish ]; } || { echo "publish_pack: no token (set GS_CLI_TOKEN or write one to $TOKEN_FILE)" >&2; exit 2; }
 [ -n "$SITE" ] && ARGS+=(--site "$SITE")
@@ -181,13 +181,13 @@ if [ "$CMD" = publish ] && [ -n "$SRC" ] && [ "$IMPORT" ]; then
 fi
 # requires.json: what the pack needs of the host's addons. The solo shell fetches a game's addon packs from it and
 # GameSpice Cloud refuses a pack above the host's levels before mounting, so a game without one misses its addons (Prop Hunt
-# 0.1.16 had no zee_weapons and failed to parse). Derived like dot-ci's package.sh (dot-core's dot_requires.gd, which
+# 0.1.16 had no zee_weapons and failed to parse). Derived like gs-ci's package.sh (gs-core's gs_requires.gd, which
 # applies requires.floor.json, judged against the lock's levels), then capped at the levels the host's addons.lock pins: the checkout's own addons are
 # usually newer than the shell players run. A committed requires.json is the game's word and is only checked: a level
 # above the host's is refused. --host-level NAME=N names a host level by hand (one the lock cannot resolve).
 if [ "$CMD" = publish ] && [ -n "$SRC" ]; then
     P="$SRC"; while [ "$P" != / ] && [ ! -f "$P/project.godot" ]; do P="$(dirname "$P")"; done
-    if [ -f "$P/project.godot" ] && [ -f "$P/addons/dot_core/tools/dot_requires.gd" ]; then
+    if [ -f "$P/project.godot" ] && [ -f "$P/addons/gs_core/tools/gs_requires.gd" ]; then
         REQ="$SRC/requires.json"
         if [ ! -f "$REQ" ]; then
             REQ="$TMP/requires.json"; PINS=()
@@ -203,7 +203,7 @@ if [ "$CMD" = publish ] && [ -n "$SRC" ]; then
                     done
                 done
             fi
-            "$GODOT" --headless --path "$P" --script res://addons/dot_core/tools/dot_requires.gd -- --out "$REQ" "${PINS[@]}" >"$TMP/req.log" 2>&1 \
+            "$GODOT" --headless --path "$P" --script res://addons/gs_core/tools/gs_requires.gd -- --out "$REQ" "${PINS[@]}" >"$TMP/req.log" 2>&1 \
                 && [ -s "$REQ" ] || { tail -20 "$TMP/req.log" >&2; echo "publish_pack: could not derive requires.json for $P" >&2
                     for h in "${HOST[@]}"; do [ -d "$h" ] || h="$(dirname "$h")"; grep -q 'pinned shell has' "$TMP/req.log" && [ -x "$h/tools/pack_ready.sh" ] \
                         && echo "publish_pack: a floor is above the lock; $h/tools/pack_ready.sh $P --prepare names the tags and pushes the lock bump branch" >&2; done; exit 1; }
@@ -239,7 +239,7 @@ print("publish_pack: requires.json (%s): %s" % ("derived" if mode == "cap" else 
       ", ".join("%s %s" % (k, addons[k]) for k in sorted(addons))), file=sys.stderr)
 PY
     elif [ -f "$P/project.godot" ]; then
-        echo "publish_pack: note: $P has no addons/dot_core/tools/dot_requires.gd; the pack ships without requires.json" >&2
+        echo "publish_pack: note: $P has no addons/gs_core/tools/gs_requires.gd; the pack ships without requires.json" >&2
     fi
 fi
 # The CLI runs from this checkout's own class cache, so a cache older than any of its scripts (a pull that added a
@@ -248,7 +248,7 @@ CACHE="$HERE/.godot/global_script_class_cache.cfg"
 if [ ! -f "$CACHE" ] || [ -n "$(find "$HERE/addons" -name '*.gd' -newer "$CACHE" -print -quit 2>/dev/null)" ]; then
     "$GODOT" --headless --path "$HERE" --import >/dev/null 2>&1 || true
 fi
-RUN=("$GODOT" --headless --path "$HERE" --script addons/dot_cloud/publish/dot_cloud_cli.gd --)
+RUN=("$GODOT" --headless --path "$HERE" --script addons/gs_cloud/publish/gs_cloud_cli.gd --)
 if [ "$CMD" = versions ]; then
     "${RUN[@]}" versions --token-file "$(abs "$TOKEN_FILE")" "${ARGS[@]}"; exit $?
 fi
@@ -264,19 +264,19 @@ fi
 # game.yml's module and scenes load, the module makes its netcode bridge. Hungario 0.1.19 went up through a wrapper without
 # this gate, and after the lock moved to GameSpice Net v0.1.36 its module no longer compiled and every server refused it. A game
 # pack needs a lock to be judged against: the --host-addons addons.lock (the checkout, its addons/ folder or the lock itself),
-# else the sibling ../dot-server-deploy/addons.lock; with neither it is not judged and not sent (exit 2, not a verdict).
+# else the sibling ../gs-server-deploy/addons.lock; with neither it is not judged and not sent (exit 2, not a verdict).
 # Scope: this gate covers uploads through this script. The website's release-sync "publish" and its pack uploads do not
 # pass through here; the published_packs_boot.sh sweep (GameSpice Server Deploy) re-boots every game pack's latest after the fact.
 if [ -z "$DRY" ] && [ -n "$SRC" ] && [ -f "$SRC/game.yml" ]; then
     BOOTLOCK=""
-    for h in "${HOST[@]}" "$HERE/../dot-server-deploy"; do
+    for h in "${HOST[@]}" "$HERE/../gs-server-deploy"; do
         for c in "$h" "$h/addons.lock" "$(dirname "$h")/addons.lock"; do
             if [ -f "$c" ] && [ "$(basename "$c")" = addons.lock ] && grep -q $'\t' "$c" && [ -f "$(dirname "$c")/project.godot" ]; then
                 BOOTLOCK="$c"; break 2
             fi
         done
     done
-    [ -n "$BOOTLOCK" ] || { echo "publish_pack: refusing: $SRC is a game pack (game.yml) and no dot-server-deploy addons.lock was found to boot it against (--host-addons, or ../dot-server-deploy beside dot-cloud). The pack was not judged and nothing was sent." >&2; exit 2; }
+    [ -n "$BOOTLOCK" ] || { echo "publish_pack: refusing: $SRC is a game pack (game.yml) and no gs-server-deploy addons.lock was found to boot it against (--host-addons, or ../gs-server-deploy beside gs-cloud). The pack was not judged and nothing was sent." >&2; exit 2; }
     # The judged build mounts at the version being published when it is given (a pack may read its own res:// path);
     # with --bump the server picks it, so 0.0.0 stands in and the post-upload boot of the uploaded build covers the rest.
     DARGS=(); skip=""; GATEV=0.0.0

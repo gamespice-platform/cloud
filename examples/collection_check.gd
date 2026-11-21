@@ -44,7 +44,7 @@ func _check(name: String, ok: bool, detail: String = "") -> void:
 
 func _run(args: Dictionary) -> void:
 	var pem := Marshalls.base64_to_utf8(str(args["key-b64"])) if args.has("key-b64") else FileAccess.get_file_as_string(str(args.get("key", "")))
-	var cache := OS.get_temp_dir().path_join("dot_cloud_collection_check_%d" % OS.get_process_id())
+	var cache := OS.get_temp_dir().path_join("gs_cloud_collection_check_%d" % OS.get_process_id())
 	var config := GSCloudConfig.new()
 	config.cache_dir = cache
 	config.require_signed_manifests = true

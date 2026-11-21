@@ -15,7 +15,7 @@ Everything downstream trusts it: the hashes decide what counts as a valid downlo
 **Signatures live outside the document they sign.** A published manifest is a `GSCloudEnvelope`:
 
 ```json
-{ "dot_cloud_signed": 1, "algorithm": "RS256", "key_id": "default",
+{ "gs_cloud_signed": 1, "algorithm": "RS256", "key_id": "default",
   "signature": "<base64>", "payload": "<base64url of the manifest JSON>" }
 ```
 

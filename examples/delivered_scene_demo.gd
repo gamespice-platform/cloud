@@ -20,8 +20,8 @@ extends Node
 ## godot --headless --path . res://examples/delivered_scene_demo.tscn
 ## [/codeblock]
 
-const WORK := "user://dot_cloud_delivered_scene"
-const _Warm := preload("res://addons/dot_cloud/client/dot_cloud_client_warm.gd")
+const WORK := "user://gs_cloud_delivered_scene"
+const _Warm := preload("res://addons/gs_cloud/client/gs_cloud_client_warm.gd")
 
 var _failures := 0
 var _checks := 0
@@ -130,7 +130,7 @@ script = ExtResource("1")
 		"it mounted anyway" if refused is GSResult and (refused as GSResult).ok else ""
 	)
 	_check(
-		not ResourceLoader.exists("res://dot_cloud/delivered_scene/1.0.0/scenes/world.tscn"),
+		not ResourceLoader.exists("res://gs_cloud/delivered_scene/1.0.0/scenes/world.tscn"),
 		"and nothing of it was mounted"
 	)
 
@@ -151,7 +151,7 @@ script = ExtResource("1")
 	)
 
 	# --- the whole point
-	var scene_path := "res://dot_cloud/delivered_scene/1.0.0/scenes/world.tscn"
+	var scene_path := "res://gs_cloud/delivered_scene/1.0.0/scenes/world.tscn"
 	_check(ResourceLoader.exists(scene_path), "the scene is at the mounted path")
 
 	var warm_keys := PackedStringArray(cloud.acquired_keys())
@@ -161,9 +161,9 @@ script = ExtResource("1")
 	_check(not ticks.is_empty() and ticks.back()[0] == ticks.back()[1],
 		"warm_content reports progress up to done == total", str(ticks))
 	var scripts := warmed.loaded.filter(func(r: Resource) -> bool: return r is Script)
-	_check(scripts.any(func(s: Script) -> bool: return s.resource_path.begins_with("res://dot_cloud/delivered_scene/")),
+	_check(scripts.any(func(s: Script) -> bool: return s.resource_path.begins_with("res://gs_cloud/delivered_scene/")),
 		"warm_content compiles the pack's script and holds it", str(warm_keys))
-	var prefix := "res://dot_cloud/delivered_scene/1.0.0/"
+	var prefix := "res://gs_cloud/delivered_scene/1.0.0/"
 	var listed := _Warm.listed_scripts(cloud, warm_keys)
 	_check(listed.keys() == [prefix + "game/thing.gd"],
 		"a pack's warm.txt lists its .gd lines inside the pack, skipping comments, other files and escapes", str(listed.keys()))
@@ -180,7 +180,7 @@ script = ExtResource("1")
 	_check(recorded.has("game/thing.gd") and recorded.has("game/extra.gd"),
 		"cached_scripts lists the loaded scripts relative to the root it was given", str(recorded))
 	ProjectSettings.set_setting(_Warm.SET_LIST, "")
-	_check(_Warm.listed_scripts(cloud, warm_keys).is_empty(), "an empty dot_cloud/warm/list_file turns the list off")
+	_check(_Warm.listed_scripts(cloud, warm_keys).is_empty(), "an empty gs_cloud/warm/list_file turns the list off")
 	ProjectSettings.set_setting(_Warm.SET_LIST, null)
 
 	var stopped := GSCloudSliceLoader.new()
@@ -276,7 +276,7 @@ func _check_imported_outputs(key_pem: String) -> void:
 		WORK.path_join("pub_root"), from_root.get("textures/tile.png.import", "")
 	)
 	_check(
-		marker.contains("res://dot_cloud/from_root/1.0.0/" + landed),
+		marker.contains("res://gs_cloud/from_root/1.0.0/" + landed),
 		"and the marker points at where the output landed, not at where it came from",
 		marker.strip_edges()
 	)
@@ -292,7 +292,7 @@ func _check_imported_outputs(key_pem: String) -> void:
 	_check(from_root.has("textures/raw.bin") and from_root.has("textures/raw.bin.import"),
 		"but an asset imported as keep, which has no output, ships its file")
 	var scene := _published_text(WORK.path_join("pub_root"), from_root.get("textures/uses.tscn", ""))
-	_check(scene.contains("res://dot_cloud/from_root/1.0.0/textures/tile.png"),
+	_check(scene.contains("res://gs_cloud/from_root/1.0.0/textures/tile.png"),
 		"and a scene naming the left-out source is still rebased onto the mount",
 		scene.strip_edges())
 	var with_src := _publish_paths(root, WORK.path_join("pub_src"), "with_src", key_pem, true)
@@ -362,7 +362,7 @@ func _check_unimported_refused(key_pem: String, ctex: String) -> void:
 ## [b]A pack that needs a newer addon than this build has is refused BEFORE it mounts.[/b]
 ##
 ## Its scripts would compile against this build's addons, and a pack using an API this
-## build lacks fails to parse with nothing a person can read -- so dot-cloud reads the
+## build lacks fails to parse with nothing a person can read -- so gs-cloud reads the
 ## pack's `requires.json` out of the store between download and mount, and says it in a
 ## sentence instead. "Before it mounts" is checked as well as the sentence, because a
 ## mounted pack can never be unmounted: a refusal after the mount would leave its files in
@@ -372,14 +372,14 @@ func _check_requirements(key_pem: String, cloud: GSCloudClient) -> void:
 	var out := WORK.path_join("needs_published")
 	GSPaths.ensure_dir(src.path_join("game"))
 	GSPaths.write_text(src.path_join("game/thing.gd"), "extends Node\n\nfunc who() -> String:\n\treturn \"NEWER\"\n")
-	GSPaths.write_text(src.path_join(GSAddonApi.REQUIREMENTS_FILE), GSAddonApi.encode({"dot_core": 99}))
+	GSPaths.write_text(src.path_join(GSAddonApi.REQUIREMENTS_FILE), GSAddonApi.encode({"gs_core": 99}))
 
 	var pub := GSCloudPublisher.new()
 	pub.content_id = "delivered_needs"
 	pub.version = "1.0.0"
 	pub.signing_key_pem = key_pem
 	var published := pub.publish(src, out)
-	_check(published.ok, "a pack needing dot-core level 99 publishes", str(published.error) if not published.ok else "")
+	_check(published.ok, "a pack needing gs-core level 99 publishes", str(published.error) if not published.ok else "")
 	if not published.ok:
 		return
 
@@ -387,16 +387,16 @@ func _check_requirements(key_pem: String, cloud: GSCloudClient) -> void:
 	var refused: Variant = await cloud.acquire(out.path_join("manifest.json"))
 	var err: GSError = (refused as GSResult).error if refused is GSResult and not (refused as GSResult).ok else null
 	_check(err != null and err.code == GSError.CODE_VERSION, "this build refuses it as a version problem", str(err))
-	# This build's own level, read rather than written down: dot-core went from 1 to 2 on
+	# This build's own level, read rather than written down: gs-core went from 1 to 2 on
 	# 2026-10-08, and the sentence was right while this check said it was wrong.
-	var have := int((load("res://addons/dot_core/dot_core_api.gd") as GDScript).get_script_constant_map()["LEVEL"])
+	var have := int((load("res://addons/gs_core/gs_core_api.gd") as GDScript).get_script_constant_map()["LEVEL"])
 	_check(
-		err != null and err.message == "This game needs dot-core API level 99 or newer; this client has level %d." % have,
+		err != null and err.message == "This game needs gs-core API level 99 or newer; this client has level %d." % have,
 		"in a sentence naming the addon, both levels, and which side is behind",
 		err.message if err != null else ""
 	)
 	_check(
-		not FileAccess.file_exists("res://dot_cloud/delivered_needs/1.0.0/game/thing.gd"),
+		not FileAccess.file_exists("res://gs_cloud/delivered_needs/1.0.0/game/thing.gd"),
 		"and refuses it before mounting anything"
 	)
 	# Level 3: refused before the payload is downloaded, not just before it mounts.
@@ -415,11 +415,11 @@ func _check_requirements(key_pem: String, cloud: GSCloudClient) -> void:
 	)
 
 	# The same pack on a build that has what it asks for.
-	cloud.addon_api.overrides["dot_core"] = 99
+	cloud.addon_api.overrides["gs_core"] = 99
 	var got: Variant = await cloud.acquire(out.path_join("manifest.json"))
 	_check(got is GSResult and (got as GSResult).ok, "a build that has the level mounts it",
 		"" if got is GSResult and (got as GSResult).ok else str((got as GSResult).error))
-	var script := load("res://dot_cloud/delivered_needs/1.0.0/game/thing.gd") as GDScript
+	var script := load("res://gs_cloud/delivered_needs/1.0.0/game/thing.gd") as GDScript
 	var node: Node = script.new() if script != null else null
 	_check(node != null and node.call("who") == "NEWER", "and its script runs")
 	if node != null:
@@ -429,7 +429,7 @@ func _check_requirements(key_pem: String, cloud: GSCloudClient) -> void:
 
 ## [b]A file in the pack that is not under the source: [member GSCloudPublisher.extra_files].[/b]
 ##
-## dot-server-deploy's packer derives `requires.json` outside the game's checkout and used
+## gs-server-deploy's packer derives `requires.json` outside the game's checkout and used
 ## to reach the pack by overriding the private `_imported_outputs_for`. This is the public
 ## seam that replaces it, so each half of its contract is checked: the file lands at the
 ## pack path with its own bytes, it replaces a source file at the same path, and a missing
@@ -495,7 +495,7 @@ func _check_republish(key_pem: String) -> void:
 	var src := WORK.path_join("republish_source")
 	GSPaths.ensure_dir(src.path_join("game"))
 	GSPaths.write_text(src.path_join("game/thing.gd"), "extends Node\n")
-	var old := "res://dot_cloud/republished/0.1.24/game/thing.gd"
+	var old := "res://gs_cloud/republished/0.1.24/game/thing.gd"
 	GSPaths.write_text(src.path_join("w.tscn"), "[gd_scene format=3]\n\n[ext_resource type=\"Script\" path=\"%s\" id=\"1\"]\n\n[node name=\"W\" type=\"Node\"]\nscript = ExtResource(\"1\")\n" % old)
 	var pub := GSCloudPublisher.new()
 	pub.content_id = "republished"
@@ -512,9 +512,9 @@ func _check_republish(key_pem: String) -> void:
 			for entry in (manifest.value as GSCloudManifest).files:
 				if entry.path == "w.tscn":
 					scene = _published_text(out, entry.sha256)
-	_check(scene.contains("res://dot_cloud/republished/0.1.25/game/thing.gd"), "its reference is rebased to the new version")
+	_check(scene.contains("res://gs_cloud/republished/0.1.25/game/thing.gd"), "its reference is rebased to the new version")
 	_check(not scene.contains("0.1.24"), "and nothing in the built scene names another version")
-	GSPaths.write_text(src.path_join("w.tscn"), "[ext_resource path=\"res://dot_cloud/republished/0.1.24/gone.gd\"]\n")
+	GSPaths.write_text(src.path_join("w.tscn"), "[ext_resource path=\"res://gs_cloud/republished/0.1.24/gone.gd\"]\n")
 	var bad := pub.publish(src, WORK.path_join("republish_bad"))
 	_check(not bad.ok, "a reference to another version that cannot be rebased fails the build", str(bad.error))
 

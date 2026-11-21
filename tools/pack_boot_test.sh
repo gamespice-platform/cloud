@@ -1,13 +1,13 @@
 #!/bin/bash
 # Mounted-pack boot test: mounts a pack (a publish dry-run's --out, or a published version fetched by tools/pack_fetch.py) in a
-# host project built at the exact tags of dot-server-deploy's addons.lock, the way a server mounts it, and fails when a script
+# host project built at the exact tags of gs-server-deploy's addons.lock, the way a server mounts it, and fails when a script
 # does not compile there, game.yml's module or scenes do not load, the module will not make its netcode bridge, or
 # requires.json names an addon or level the host lacks. tools/publish_pack.sh runs it before every upload of a game pack
-# whose --host-addons is an addons.lock; dot-server-deploy's tools/published_packs_boot.sh runs it over every game's
+# whose --host-addons is an addons.lock; gs-server-deploy's tools/published_packs_boot.sh runs it over every game's
 # published versions against a candidate lock.
 # Why: Airdrift and Playlot 0.1.33 and Zombie Zone 0.1.40 (stale trees, a renamed addon) booted nothing on servers, and
 # Hungario 0.1.19, published without this gate, stopped compiling once the lock moved to GameSpice Net v0.1.36 (identity typed Node).
-#   tools/pack_boot_test.sh OUT_DIR HOST_LOCK     (HOST_LOCK: a dot-server-deploy checkout's addons.lock, or a candidate lock beside it)
+#   tools/pack_boot_test.sh OUT_DIR HOST_LOCK     (HOST_LOCK: a gs-server-deploy checkout's addons.lock, or a candidate lock beside it)
 # The host is built once per lock and GameSpice Server Deploy commit under ${GS_PACK_BOOT_CACHE:-~/.cache/pack-boot}.
 # GODOT names the engine (as for publish_pack.sh). Exit 0 boots, 1 does not boot, 2 could not judge (no engine, host or mount).
 set -euo pipefail
@@ -28,7 +28,7 @@ fi
 command -v "$GODOT" >/dev/null 2>&1 || { echo "pack_boot: no engine at GODOT=$GODOT" >&2; exit 2; }
 DEPLOY="$(dirname "$LOCK")"
 SIB="$(cd "$DEPLOY/.." && pwd)"
-[ -f "$DEPLOY/project.godot" ] || { echo "pack_boot: $DEPLOY is not a dot-server-deploy checkout" >&2; exit 2; }
+[ -f "$DEPLOY/project.godot" ] || { echo "pack_boot: $DEPLOY is not a gs-server-deploy checkout" >&2; exit 2; }
 # The engine is part of the key: a host imported by another Godot build is not reused.
 ENGINE="$("$GODOT" --headless --version 2>/dev/null | tail -1)"
 [ -n "$ENGINE" ] || { echo "pack_boot: $GODOT --version printed nothing" >&2; exit 2; }
