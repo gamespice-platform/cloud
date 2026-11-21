@@ -1,11 +1,11 @@
 @tool
-class_name DotCloudDownloader
+class_name GSCloudDownloader
 extends Node
 
 ## Fetches everything a manifest needs, in parallel, from whichever sources work.
 ## Owns concurrency, retry-and-failover, the bandwidth throttle and aggregate progress; sources own the how of one file.
 ## [codeblock]
-## var dl := DotCloudDownloader.new()
+## var dl := GSCloudDownloader.new()
 ## add_child(dl)
 ## dl.config = config
 ## dl.store = store
@@ -19,35 +19,35 @@ extends Node
 
 const CHANNEL := "cloud.dl"
 
-## Aggregate progress, emitted at most every [member DotCloudConfig.progress_interval_sec] (chunk events arrive thousands a second).
+## Aggregate progress, emitted at most every [member GSCloudConfig.progress_interval_sec] (chunk events arrive thousands a second).
 ## The payload is [code]{fraction, done_files, total_files, done_bytes, total_bytes, bytes_per_sec, eta_sec, active}[/code].
 signal progress_changed(progress: Dictionary)
 
 ## One file finished, successfully or not.
-signal file_finished(file: DotCloudFile, result: DotResult)
+signal file_finished(file: GSCloudFile, result: GSResult)
 
 ## Everything finished. The result carries [code]{fetched, skipped, failed}[/code].
-signal sync_finished(result: DotResult)
+signal sync_finished(result: GSResult)
 
 ## The bundle's objects are in the store, while larger objects may still be downloading.
-signal bundle_unpacked(manifest: DotCloudManifest)
+signal bundle_unpacked(manifest: GSCloudManifest)
 
 ## Internal: one pool worker has drained the queue and returned.
 ## GDScript cannot await a coroutine you did not await at the call site. Paired with
 ## [member _workers_finished]; see the fan-out comment in [method sync] for why the count is authoritative.
 signal _worker_done()
 
-var config: DotCloudConfig
-var store: DotCloudStore
-var scheduler: DotScheduler
+var config: GSCloudConfig
+var store: GSCloudStore
+var scheduler: GSScheduler
 
-## Sources in preference order. Sorted by [member DotCloudSource.priority] on use.
-var sources: Array[DotCloudSource] = []
+## Sources in preference order. Sorted by [member GSCloudSource.priority] on use.
+var sources: Array[GSCloudSource] = []
 
-## The HTTP node handed to any [DotCloudSourceHttp] in [member sources].
-var _http: DotHttp = null
+## The HTTP node handed to any [GSCloudSourceHttp] in [member sources].
+var _http: GSHttp = null
 
-## Most files fetched at once by this downloader; 0 = [member DotCloudConfig.parallel_downloads].
+## Most files fetched at once by this downloader; 0 = [member GSCloudConfig.parallel_downloads].
 var slots_cap := 0
 
 var _active: int = 0
@@ -69,15 +69,15 @@ var _total_files: int = 0
 var _done_files: int = 0
 var _failed_files: int = 0
 
-## Why the first required file failed, kept for the summary [DotResult].
+## Why the first required file failed, kept for the summary [GSResult].
 ## What [method _fetch_with_failover] learned about why must reach the caller of
-## [method DotCloudClient.acquire_manifest]: "every source is in cooldown" and "the host 404s" want opposite responses.
-var _first_required_failure: DotResult = null
+## [method GSCloudClient.acquire_manifest]: "every source is in cooldown" and "the host 404s" want opposite responses.
+var _first_required_failure: GSResult = null
 
 ## One entry per required file this sync could not produce, latest sync only.
 ## `[{ "path": String, "code": String, "message": String, "detail": String }]`.
-## A failed [DotResult] carries only a code and a string (a payload would be a GameSpice Core change), so the
-## per-file shape lives here, on [member DotCloudClient.downloader]; callers branch on codes, not message text.
+## A failed [GSResult] carries only a code and a string (a payload would be a GameSpice Core change), so the
+## per-file shape lives here, on [member GSCloudClient.downloader]; callers branch on codes, not message text.
 ## See [method failure_codes]. Empty after a success or a cancel (a cancel says nothing about any file).
 var last_failure_causes: Array[Dictionary] = []
 
@@ -103,7 +103,7 @@ func _ensure_http() -> void:
 	if _http != null:
 		return
 
-	_http = DotHttp.new()
+	_http = GSHttp.new()
 	_http.name = "CloudHttp"
 	if config != null:
 		_http.timeout_sec = config.file_timeout_sec
@@ -116,15 +116,15 @@ func _ensure_http() -> void:
 
 ## Downloads everything in [param manifest] that is not already cached.
 ## [param groups] selects optional content groups; empty fetches only ungrouped (required) files.
-## Returns [code]{fetched, skipped, failed, bytes}[/code]. Succeeds when every [member DotCloudFile.required]
+## Returns [code]{fetched, skipped, failed, bytes}[/code]. Succeeds when every [member GSCloudFile.required]
 ## file is present; optional failures are counted, not fatal.
 func sync(
-	manifest: DotCloudManifest,
+	manifest: GSCloudManifest,
 	groups: PackedStringArray = PackedStringArray()
-) -> DotResult:
+) -> GSResult:
 	if _running:
-		return DotResult.fail(
-			DotError.CODE_STATE, "This downloader is already syncing."
+		return GSResult.fail(
+			GSError.CODE_STATE, "This downloader is already syncing."
 		)
 
 	var ready_check := _check_ready()
@@ -146,11 +146,11 @@ func sync(
 		if not by_hash.has(f.sha256):
 			by_hash[f.sha256] = f
 
-	var todo: Array[DotCloudFile] = []
+	var todo: Array[GSCloudFile] = []
 	var skipped := 0
 
 	for h in by_hash:
-		var f: DotCloudFile = by_hash[h]
+		var f: GSCloudFile = by_hash[h]
 		if store.has(h):
 			skipped += 1
 			continue
@@ -160,20 +160,20 @@ func sync(
 	_total_files = todo.size()
 	_started_ms = Time.get_ticks_msec()
 
-	DotLog.info(
+	GSLog.info(
 		CHANNEL,
 		"sync starting",
 		{
 			"content": manifest.key(),
 			"fetch": todo.size(),
 			"cached": skipped,
-			"bytes": DotPaths.format_bytes(_total_bytes),
+			"bytes": GSPaths.format_bytes(_total_bytes),
 		}
 	)
 
 	if todo.is_empty():
 		_running = false
-		var done := DotResult.success({
+		var done := GSResult.success({
 			"fetched": 0, "skipped": skipped, "failed": 0, "bytes": 0,
 		})
 		sync_finished.emit(done)
@@ -182,8 +182,8 @@ func sync(
 	# The bundle (one request, CPU-bound unpack) and the objects too big for it share the join's time:
 	# the big ones download while the bundle unpacks.
 	var plan := _bundle_plan(manifest, todo)
-	var big: Array[DotCloudFile] = []
-	var small: Array[DotCloudFile] = []
+	var big: Array[GSCloudFile] = []
+	var small: Array[GSCloudFile] = []
 	for f in todo:
 		(small if plan.has(f.sha256) else big).append(f)
 
@@ -191,14 +191,14 @@ func sync(
 	# byte 900,000,000. A shortfall we cannot meet is reported now, while the
 	# player can still be told something useful.
 	var pruned := store.prune(_total_bytes)
-	if not pruned.ok and pruned.error.code == DotError.CODE_QUOTA and store.has_measured_free():
+	if not pruned.ok and pruned.error.code == GSError.CODE_QUOTA and store.has_measured_free():
 		# The ceiling is a share of the quota counted against everything already stored, so it
 		# refuses downloads the browser would accept. Only the measured free space may refuse.
 		var free := await store.free_bytes()
 		if free < 0 or free >= _total_bytes:
-			DotLog.info(CHANNEL, "over the cache ceiling but the browser has room; going on",
+			GSLog.info(CHANNEL, "over the cache ceiling but the browser has room; going on",
 				{"needed": _total_bytes, "free": free})
-			pruned = DotResult.success(0)
+			pruned = GSResult.success(0)
 		else:
 			var report := await store.quota_report()
 			var hint := {
@@ -206,10 +206,10 @@ func sync(
 				"near-full": " The browser's storage is nearly full. Delete downloaded content you no longer need.",
 				"unreadable": " The browser would not say how much room is left.",
 			}.get(report["quota_cause"], " Use \"Clear downloaded content\" in the menu to make room.")
-			pruned = DotResult.fail(
-				DotError.CODE_QUOTA,
+			pruned = GSResult.fail(
+				GSError.CODE_QUOTA,
 				"Not enough room for this content: it needs %s and the browser has %s free.%s"
-					% [DotPaths.format_bytes(_total_bytes), DotPaths.format_bytes(free), hint],
+					% [GSPaths.format_bytes(_total_bytes), GSPaths.format_bytes(free), hint],
 				str(report["quota_cause"])
 			)
 	if not pruned.ok:
@@ -228,7 +228,7 @@ func sync(
 	var started_workers := _start_pool(big, results, manifest, slots)
 	if not plan.is_empty():
 		skipped += await _run_bundle(manifest, plan)
-		var left: Array[DotCloudFile] = []
+		var left: Array[GSCloudFile] = []
 		for f in small:
 			if store.has(f.sha256):
 				_done_files += 1
@@ -244,7 +244,7 @@ func sync(
 
 	var fetched := 0
 	for h in results:
-		if (results[h] as DotResult).ok:
+		if (results[h] as GSResult).ok:
 			fetched += 1
 
 	_running = false
@@ -261,11 +261,11 @@ func sync(
 		"bytes": _done_bytes,
 	}
 
-	var outcome: DotResult
+	var outcome: GSResult
 
 	if _cancelled:
-		outcome = DotResult.fail(
-			DotError.CODE_CANCELLED, "The download was cancelled."
+		outcome = GSResult.fail(
+			GSError.CODE_CANCELLED, "The download was cancelled."
 		)
 	elif not missing_required.is_empty():
 		# The cause goes in the detail and the code stays CODE_NETWORK, so the result does not change with
@@ -276,12 +276,12 @@ func sync(
 			if not f.required or store.has(f.sha256):
 				continue
 
-			var res: DotResult = results.get(f.sha256, null)
-			var err: DotError = res.error if res != null and not res.ok else null
+			var res: GSResult = results.get(f.sha256, null)
+			var err: GSError = res.error if res != null and not res.ok else null
 
 			last_failure_causes.append({
 				"path": f.path,
-				"code": err.code if err != null else DotError.CODE_STATE,
+				"code": err.code if err != null else GSError.CODE_STATE,
 				"message": (
 					err.message if err != null
 					else "The file was never attempted."
@@ -301,8 +301,8 @@ func sync(
 		if codes.size() > 1:
 			detail += " [codes: %s]" % ", ".join(codes)
 
-		outcome = DotResult.fail(
-			DotError.CODE_NETWORK,
+		outcome = GSResult.fail(
+			GSError.CODE_NETWORK,
 			"Some required content could not be downloaded.",
 			detail
 		)
@@ -310,7 +310,7 @@ func sync(
 		# Claim the objects so eviction leaves them alone while they are mounted.
 		store.add_refs(manifest.key(), manifest.unique_hashes())
 		store.flush_index()
-		outcome = DotResult.success(payload)
+		outcome = GSResult.success(payload)
 
 	if outcome.ok:
 		# Not awaited: the flush settles a fixed second per attempt, which every sync of a web join paid
@@ -318,14 +318,14 @@ func sync(
 		# in user:// and this run reads them from there; only a tab closed within that second loses them.
 		_flush_after_sync(manifest.key())
 
-	DotLog.info(
+	GSLog.info(
 		CHANNEL,
 		"sync finished" if outcome.ok else "sync failed",
 		{
 			"content": manifest.key(),
 			"fetched": fetched,
 			"failed": _failed_files,
-			"bytes": DotPaths.format_bytes(_done_bytes),
+			"bytes": GSPaths.format_bytes(_done_bytes),
 			"seconds": "%.1f" % (float(Time.get_ticks_msec() - _started_ms) / 1000.0),
 		}
 	)
@@ -339,10 +339,10 @@ func sync(
 ## A pool, not a batch barrier: one 400 MB file would hold up five idle slots. GDScript has no task
 ## handle, so each worker is a bare call running to its first `await`; completions are counted in a
 ## member because a synchronous source never suspends and its signals fire before anything awaits.
-func _start_pool(files: Array[DotCloudFile], results: Dictionary, manifest: DotCloudManifest, slots: int) -> int:
+func _start_pool(files: Array[GSCloudFile], results: Dictionary, manifest: GSCloudManifest, slots: int) -> int:
 	# Largest first. Long tasks started last are what makes a parallel download
 	# finish long after it looks nearly done.
-	files.sort_custom(func(a: DotCloudFile, b: DotCloudFile) -> bool:
+	files.sort_custom(func(a: GSCloudFile, b: GSCloudFile) -> bool:
 		return a.size > b.size
 	)
 	var count := mini(slots, files.size())
@@ -353,7 +353,7 @@ func _start_pool(files: Array[DotCloudFile], results: Dictionary, manifest: DotC
 
 ## The hashes the bundle would carry, or empty when it is not used: no usable bundle, or it
 ## would not carry enough of what is missing.
-func _bundle_plan(manifest: DotCloudManifest, todo: Array[DotCloudFile]) -> Dictionary:
+func _bundle_plan(manifest: GSCloudManifest, todo: Array[GSCloudFile]) -> Dictionary:
 	var decl := manifest.usable_bundle()
 	if decl.is_empty() or not config.use_bundles:
 		return {}
@@ -372,20 +372,20 @@ func _bundle_plan(manifest: DotCloudManifest, todo: Array[DotCloudFile]) -> Dict
 
 ## Fetches the bundle for [param wanted] and returns how many objects it put in the store (0:
 ## it failed and per-file takes over).
-func _run_bundle(manifest: DotCloudManifest, wanted: Dictionary) -> int:
+func _run_bundle(manifest: GSCloudManifest, wanted: Dictionary) -> int:
 	_active_files.append("content bundle")
 	_emit_progress(true)
 	var got := 0
 	for s in _ordered_sources(manifest, [] as Array[String]):
 		if not s.has_method("fetch_bundle"):
 			continue
-		var res: DotResult = await s.fetch_bundle(manifest, store, scheduler, wanted)
+		var res: GSResult = await s.fetch_bundle(manifest, store, scheduler, wanted)
 		if res.ok:
 			got = int(res.value["objects"])
 			break
-		DotLog.warn(CHANNEL, "bundle failed; fetching files one by one", {"why": str(res.error)})
+		GSLog.warn(CHANNEL, "bundle failed; fetching files one by one", {"why": str(res.error)})
 	_active_files.erase("content bundle")
-	DotLog.info(CHANNEL, "bundle", {"content": manifest.key(), "objects": got, "of": wanted.size()})
+	GSLog.info(CHANNEL, "bundle", {"content": manifest.key(), "objects": got, "of": wanted.size()})
 	if got > 0:
 		bundle_unpacked.emit(manifest)
 	return got
@@ -394,9 +394,9 @@ func _run_bundle(manifest: DotCloudManifest, wanted: Dictionary) -> int:
 ## One pool worker: takes the next queued file until the queue is empty.
 ## Every return path must emit [signal _worker_done]; [method sync] counts them, and a silent return hangs it.
 func _worker(
-	queue: Array[DotCloudFile],
+	queue: Array[GSCloudFile],
 	results: Dictionary,
-	manifest: DotCloudManifest
+	manifest: GSCloudManifest
 ) -> void:
 	while true:
 		if _cancelled:
@@ -404,7 +404,7 @@ func _worker(
 			_worker_done.emit()
 			return
 
-		var file: DotCloudFile = null
+		var file: GSCloudFile = null
 		# Single-threaded coroutines, so popping is atomic with respect to the
 		# other workers: no lock is needed and none would help.
 		if not queue.is_empty():
@@ -438,13 +438,13 @@ func _worker(
 			if file.required:
 				if _first_required_failure == null:
 					_first_required_failure = res
-				DotLog.warn(
+				GSLog.warn(
 					CHANNEL,
 					"required content failed",
 					{"file": file.path, "why": res.error.message}
 				)
 			else:
-				DotLog.debug(
+				GSLog.debug(
 					CHANNEL,
 					"optional content failed",
 					{"file": file.path, "why": res.code()}
@@ -458,28 +458,28 @@ func _worker(
 
 ## Tries every available source, in priority order, with retries.
 func _fetch_with_failover(
-	file: DotCloudFile,
-	manifest: DotCloudManifest
-) -> DotResult:
+	file: GSCloudFile,
+	manifest: GSCloudManifest
+) -> GSResult:
 	var skipped: Array[String] = []
 	var ordered := _ordered_sources(manifest, skipped)
 	if ordered.is_empty():
 		# Name each source and its reason: unsupported-or-cooldown hides opposite problems (a deployment
 		# mistake vs. one that resolves in `cooldown_sec`).
-		return DotResult.fail(
-			DotError.CODE_STATE,
+		return GSResult.fail(
+			GSError.CODE_STATE,
 			"No content source is available.",
 			"; ".join(skipped) if not skipped.is_empty() else "no sources are configured"
 		)
 
 	var attempts := 0
-	var last: DotResult = null
+	var last: GSResult = null
 
 	for source in ordered:
 		while attempts < config.max_attempts_per_file:
 			if _cancelled:
-				return DotResult.fail(
-					DotError.CODE_CANCELLED, "Cancelled."
+				return GSResult.fail(
+					GSError.CODE_CANCELLED, "Cancelled."
 				)
 
 			attempts += 1
@@ -490,7 +490,7 @@ func _fetch_with_failover(
 
 			# An integrity failure means this source served wrong bytes. Retrying
 			# it gets the same wrong bytes; move on immediately.
-			if last.code() == DotError.CODE_INTEGRITY:
+			if last.code() == GSError.CODE_INTEGRITY:
 				break
 
 			# Nothing retryable left — a 404 is a 404 on every attempt.
@@ -501,8 +501,8 @@ func _fetch_with_failover(
 			break
 
 	if last == null:
-		return DotResult.fail(
-			DotError.CODE_NETWORK, "No source could provide this content."
+		return GSResult.fail(
+			GSError.CODE_NETWORK, "No source could provide this content."
 		)
 
 	# A skipped source is invisible in `last`, which carries only the last-tried source's complaint,
@@ -519,11 +519,11 @@ func _fetch_with_failover(
 ## Excludes unsupported or collaborator-less sources, those in circuit-breaker cooldown, and healthy ones
 ## with no way to reach [param manifest]'s content, appending a sentence to [param skipped] for each.
 ## The third is why this takes a manifest: an always-built HTTP source with no base URLs would sit ahead of
-## the netchan source that can serve, wasting an attempt per file. See [method DotCloudSource.can_serve].
+## the netchan source that can serve, wasting an attempt per file. See [method GSCloudSource.can_serve].
 func _ordered_sources(
-	manifest: DotCloudManifest, skipped: Array[String]
-) -> Array[DotCloudSource]:
-	var out: Array[DotCloudSource] = []
+	manifest: GSCloudManifest, skipped: Array[String]
+) -> Array[GSCloudSource]:
+	var out: Array[GSCloudSource] = []
 
 	for s in sources:
 		if s == null:
@@ -542,7 +542,7 @@ func _ordered_sources(
 
 		out.append(s)
 
-	out.sort_custom(func(a: DotCloudSource, b: DotCloudSource) -> bool:
+	out.sort_custom(func(a: GSCloudSource, b: GSCloudSource) -> bool:
 		return a.priority < b.priority
 	)
 	return out
@@ -550,21 +550,21 @@ func _ordered_sources(
 
 func _wire_sources() -> void:
 	for s in sources:
-		var http_source := s as DotCloudSourceHttp
+		var http_source := s as GSCloudSourceHttp
 		if http_source != null and http_source.http == null:
 			http_source.http = _http
 
 
-func _check_ready() -> DotResult:
+func _check_ready() -> GSResult:
 	if config == null:
-		return DotResult.fail(DotError.CODE_STATE, "Downloader has no config.")
+		return GSResult.fail(GSError.CODE_STATE, "Downloader has no config.")
 	if store == null:
-		return DotResult.fail(DotError.CODE_STATE, "Downloader has no store.")
+		return GSResult.fail(GSError.CODE_STATE, "Downloader has no store.")
 	if sources.is_empty():
-		return DotResult.fail(
-			DotError.CODE_STATE, "Downloader has no sources."
+		return GSResult.fail(
+			GSError.CODE_STATE, "Downloader has no sources."
 		)
-	return DotResult.success(true)
+	return GSResult.success(true)
 
 
 ## Stops the sync. In-flight files finish or fail on their own.
@@ -572,15 +572,15 @@ func cancel() -> void:
 	if not _running:
 		return
 	_cancelled = true
-	DotLog.info(CHANNEL, "sync cancelled")
+	GSLog.info(CHANNEL, "sync cancelled")
 
 
 func is_running() -> bool:
 	return _running
 
 
-## Waits long enough to keep under [member DotCloudConfig.throttle_bytes_per_sec].
-## Per file, since [method DotHttp.download_to_file] has no chunk callbacks, so coarse: a large file
+## Waits long enough to keep under [member GSCloudConfig.throttle_bytes_per_sec].
+## Per file, since [method GSHttp.download_to_file] has no chunk callbacks, so coarse: a large file
 ## overshoots its second and the next waits it off. Enough to leave a playable connection, not precise shaping.
 func _apply_throttle(bytes: int) -> void:
 	if config.throttle_bytes_per_sec <= 0 or bytes <= 0:
@@ -703,13 +703,13 @@ func progress_text() -> String:
 		return "Content is up to date."
 
 	var s := "%s / %s" % [
-		DotPaths.format_bytes(int(p["done_bytes"])),
-		DotPaths.format_bytes(int(p["total_bytes"])),
+		GSPaths.format_bytes(int(p["done_bytes"])),
+		GSPaths.format_bytes(int(p["total_bytes"])),
 	]
 
 	var rate := float(p["bytes_per_sec"])
 	if rate > 1.0:
-		s += "  (%s/s" % DotPaths.format_bytes(int(rate))
+		s += "  (%s/s" % GSPaths.format_bytes(int(rate))
 		var eta := float(p["eta_sec"])
 		if eta >= 0.0:
 			s += ", %s left" % _format_duration(eta)
@@ -726,12 +726,12 @@ static func _format_duration(seconds: float) -> String:
 	return "%dh %dm" % [int(seconds / 3600.0), int(fmod(seconds, 3600.0) / 60.0)]
 
 
-## The distinct [DotError] codes across [member last_failure_causes], sorted so log lines and demo
+## The distinct [GSError] codes across [member last_failure_causes], sorted so log lines and demo
 ## assertions are stable.
 func failure_codes() -> PackedStringArray:
 	var seen := {}
 	for c in last_failure_causes:
-		seen[c.get("code", DotError.CODE_STATE)] = true
+		seen[c.get("code", GSError.CODE_STATE)] = true
 
 	var out := PackedStringArray(seen.keys())
 	out.sort()
@@ -754,6 +754,6 @@ func describe() -> Dictionary:
 func _flush_after_sync(key: String) -> void:
 	if not is_inside_tree():
 		return
-	var flushed := await DotWeb.flush_filesystem(get_tree())
+	var flushed := await GSWeb.flush_filesystem(get_tree())
 	if not flushed.ok:
-		DotLog.warn(CHANNEL, "browser storage did not keep the download; it will be fetched again next visit", {"content": key})
+		GSLog.warn(CHANNEL, "browser storage did not keep the download; it will be fetched again next visit", {"content": key})

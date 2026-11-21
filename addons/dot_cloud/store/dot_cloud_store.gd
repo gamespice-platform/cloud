@@ -1,4 +1,4 @@
-class_name DotCloudStore
+class_name GSCloudStore
 extends RefCounted
 
 ## The content-addressed cache: objects on disk, keyed by SHA-256.
@@ -16,7 +16,7 @@ const _Report := preload("dot_cloud_store_report.gd")
 ## Index schema version.
 const INDEX_VERSION := 1
 
-var config: DotCloudConfig
+var config: GSCloudConfig
 
 ## hash -> {size:int, used:int (unix secs), refs:Array[String]}
 var _index: Dictionary = {}
@@ -29,38 +29,38 @@ var _total_bytes: int = 0
 var _limit_bytes: int = 0
 
 ## Returns the bytes the browser would still let us write, or -1 when unknown; empty means ask
-## [method DotWeb.estimate_storage]. A test sets it to stand in for a browser.
+## [method GSWeb.estimate_storage]. A test sets it to stand in for a browser.
 var free_bytes_provider: Callable = Callable()
 
 ## What packs the cache holds, for [method inventory].
-var packs: DotCloudPackBook
+var packs: GSCloudPackBook
 
-## Takes a content key, true while it is mounted (set by [DotCloudClient]); [method delete] refuses those.
+## Takes a content key, true while it is mounted (set by [GSCloudClient]); [method delete] refuses those.
 var in_use_fn: Callable = Callable()
 
 ## -1 ask the page, 0 top-level, 1 embedded in another site; a test or the shell may set it. Decides [code]partitioned[/code] in [method quota_report].
 var embedded: int = -1
 
 
-func _init(p_config: DotCloudConfig) -> void:
+func _init(p_config: GSCloudConfig) -> void:
 	config = p_config
-	packs = DotCloudPackBook.new(config.cache_dir.path_join("inventory.json"))
+	packs = GSCloudPackBook.new(config.cache_dir.path_join("inventory.json"))
 
 
 ## Creates the cache directories, loads the index, and resolves the size limit.
-## Must be awaited: on web the limit comes from the promise [method DotWeb.estimate_storage].
-func open() -> DotResult:
+## Must be awaited: on web the limit comes from the promise [method GSWeb.estimate_storage].
+func open() -> GSResult:
 	for dir in [config.cache_dir, config.objects_dir(), config.partials_dir()]:
-		var made := DotPaths.ensure_dir(dir)
+		var made := GSPaths.ensure_dir(dir)
 		if not made.ok:
 			return made.wrap("Could not create the content cache.")
 	# Partials an older build left in the persisted cache on web: nothing resumes them from there, and
 	# each is as large as the file it was downloading.
 	if not config.partials_persisted():
-		DotPaths.remove_tree(config.persisted_partials_dir())
+		GSPaths.remove_tree(config.persisted_partials_dir())
 
-	if config.request_persistent_storage and DotPlatform.is_web():
-		DotWeb.request_persistent_storage()
+	if config.request_persistent_storage and GSPlatform.is_web():
+		GSWeb.request_persistent_storage()
 
 	_load_index()
 	packs.load_file()
@@ -68,31 +68,31 @@ func open() -> DotResult:
 	if packs.any_pinned():
 		_request_persist()
 
-	DotLog.info(
+	GSLog.info(
 		CHANNEL,
 		"cache open",
 		{
 			"objects": _index.size(),
-			"size": DotPaths.format_bytes(_total_bytes),
-			"limit": DotPaths.format_bytes(_limit_bytes) if _limit_bytes > 0 else "unlimited",
+			"size": GSPaths.format_bytes(_total_bytes),
+			"limit": GSPaths.format_bytes(_limit_bytes) if _limit_bytes > 0 else "unlimited",
 		}
 	)
 
-	return DotResult.success(self)
+	return GSResult.success(self)
 
 
 ## Works out how much space we may use.
 ## On web an unavailable estimate falls back to the configured ceiling, not unlimited, which would
 ## surface as a failed write halfway through a download.
 func _resolve_limit() -> void:
-	if not DotPlatform.is_web():
+	if not GSPlatform.is_web():
 		_limit_bytes = config.effective_cache_bytes()
 		return
 
-	var est := await DotWeb.estimate_storage()
+	var est := await GSWeb.estimate_storage()
 	if not est.ok:
 		_limit_bytes = config.effective_cache_bytes()
-		DotLog.debug(
+		GSLog.debug(
 			CHANNEL,
 			"no browser quota estimate; using the configured ceiling",
 			{"reason": est.error.message}
@@ -109,12 +109,12 @@ func _resolve_limit() -> void:
 	if config.cache_bytes > 0:
 		_limit_bytes = mini(_limit_bytes, config.cache_bytes)
 
-	DotLog.info(
+	GSLog.info(
 		CHANNEL,
 		"browser storage",
 		{
-			"quota": DotPaths.format_bytes(quota),
-			"our_limit": DotPaths.format_bytes(_limit_bytes),
+			"quota": GSPaths.format_bytes(quota),
+			"our_limit": GSPaths.format_bytes(_limit_bytes),
 		}
 	)
 
@@ -156,15 +156,15 @@ func touch(sha256: String) -> void:
 func size_of(sha256: String) -> int:
 	if _index.has(sha256):
 		return int(_index[sha256]["size"])
-	return DotPaths.file_size(path_for(sha256))
+	return GSPaths.file_size(path_for(sha256))
 
 
-func read(sha256: String) -> DotResult:
+func read(sha256: String) -> GSResult:
 	if not has(sha256):
-		return DotResult.fail(
-			DotError.CODE_IO, "Object is not cached.", sha256.substr(0, 16)
+		return GSResult.fail(
+			GSError.CODE_IO, "Object is not cached.", sha256.substr(0, 16)
 		)
-	return DotPaths.read_bytes(path_for(sha256))
+	return GSPaths.read_bytes(path_for(sha256))
 
 
 ## Path of the in-progress download for an object.
@@ -178,7 +178,7 @@ func partial_size(sha256: String) -> int:
 	var path := partial_path(sha256)
 	if not FileAccess.file_exists(path):
 		return 0
-	return maxi(0, DotPaths.file_size(path))
+	return maxi(0, GSPaths.file_size(path))
 
 
 func discard_partial(sha256: String) -> void:
@@ -186,37 +186,37 @@ func discard_partial(sha256: String) -> void:
 	if FileAccess.file_exists(path):
 		DirAccess.remove_absolute(path)
 		if config.partials_persisted():
-			DotWeb.sync_filesystem()
+			GSWeb.sync_filesystem()
 
 
 ## Promotes a verified partial into the object store; the hash is checked here and nowhere else,
 ## and a mismatch is discarded, not retried. [param scheduler] slices the hashing (null: synchronous).
 func commit_partial(
 	sha256: String,
-	scheduler: DotScheduler = null
-) -> DotResult:
+	scheduler: GSScheduler = null
+) -> GSResult:
 	var src := partial_path(sha256)
 	if not FileAccess.file_exists(src):
-		return DotResult.fail(
-			DotError.CODE_IO, "There is no partial download to commit.", sha256
+		return GSResult.fail(
+			GSError.CODE_IO, "There is no partial download to commit.", sha256
 		)
 
-	var verified: DotResult
+	var verified: GSResult
 	if scheduler != null:
-		verified = await scheduler.run(DotHashJob.new(src, sha256))
+		verified = await scheduler.run(GSHashJob.new(src, sha256))
 	else:
-		var hashed := DotHash.sha256_file(src)
+		var hashed := GSHash.sha256_file(src)
 		if not hashed.ok:
 			verified = hashed
-		elif not DotHash.constant_time_equal_hex(hashed.value, sha256):
-			verified = DotResult.fail(
-				DotError.CODE_INTEGRITY,
+		elif not GSHash.constant_time_equal_hex(hashed.value, sha256):
+			verified = GSResult.fail(
+				GSError.CODE_INTEGRITY,
 				"Downloaded content does not match its expected hash.",
 				"expected %s, got %s"
 					% [sha256.substr(0, 16), str(hashed.value).substr(0, 16)]
 			)
 		else:
-			verified = DotResult.success(sha256)
+			verified = GSResult.success(sha256)
 
 	if not verified.ok:
 		# Corrupt bytes are useless and actively harmful to keep: a resume would
@@ -225,18 +225,18 @@ func commit_partial(
 		return verified
 
 	var dest := path_for(sha256)
-	var parent := DotPaths.ensure_parent_dir(dest)
+	var parent := GSPaths.ensure_parent_dir(dest)
 	if not parent.ok:
 		return parent
 
-	var size := DotPaths.file_size(src)
+	var size := GSPaths.file_size(src)
 
 	# A concurrent download of the same hash may have already committed it. Both
 	# copies are byte-identical by construction, so the loser just drops its own.
 	if FileAccess.file_exists(dest):
 		discard_partial(sha256)
 		_record(sha256, size)
-		return DotResult.success(dest)
+		return GSResult.success(dest)
 
 	var moved := _move_file(src, dest)
 	if not moved.ok:
@@ -244,41 +244,41 @@ func commit_partial(
 
 	# Sync per object, not once per sync: on web an unflushed write is lost with the tab, and a player
 	# closing it mid-download should keep the finished objects.
-	DotWeb.sync_filesystem()
+	GSWeb.sync_filesystem()
 
 	_record(sha256, size)
 
-	DotLog.debug(
+	GSLog.debug(
 		CHANNEL,
 		"object committed",
-		{"hash": sha256.substr(0, 12), "size": DotPaths.format_bytes(size)}
+		{"hash": sha256.substr(0, 12), "size": GSPaths.format_bytes(size)}
 	)
 
-	return DotResult.success(dest)
+	return GSResult.success(dest)
 
 
 ## Renames [param src] to [param dest], or copies and removes it when they are on different
 ## filesystems (web partials are in memory, objects in the IndexedDB mirror) and the rename refuses.
-func _move_file(src: String, dest: String) -> DotResult:
+func _move_file(src: String, dest: String) -> GSResult:
 	if DirAccess.rename_absolute(src, dest) == OK:
-		return DotResult.success(dest)
+		return GSResult.success(dest)
 	var err := DirAccess.copy_absolute(src, dest)
 	if err != OK:
 		DirAccess.remove_absolute(dest)
-		return DotResult.failure(
-			DotError.from_engine(err, "moving '%s' into the cache" % src)
+		return GSResult.failure(
+			GSError.from_engine(err, "moving '%s' into the cache" % src)
 		)
 	DirAccess.remove_absolute(src)
-	return DotResult.success(dest)
+	return GSResult.success(dest)
 
 
 ## Writes bytes directly as an object, verifying them first.
 ## For content that arrived by another route: the in-band netchan source, or a local import.
-func put_bytes(bytes: PackedByteArray, expected_sha256: String) -> DotResult:
-	var actual := DotHash.sha256_bytes(bytes)
-	if not DotHash.constant_time_equal_hex(actual, expected_sha256):
-		return DotResult.fail(
-			DotError.CODE_INTEGRITY,
+func put_bytes(bytes: PackedByteArray, expected_sha256: String) -> GSResult:
+	var actual := GSHash.sha256_bytes(bytes)
+	if not GSHash.constant_time_equal_hex(actual, expected_sha256):
+		return GSResult.fail(
+			GSError.CODE_INTEGRITY,
 			"Content does not match its expected hash.",
 			"expected %s, got %s"
 				% [expected_sha256.substr(0, 16), actual.substr(0, 16)]
@@ -288,9 +288,9 @@ func put_bytes(bytes: PackedByteArray, expected_sha256: String) -> DotResult:
 	if FileAccess.file_exists(dest):
 		discard_partial(expected_sha256)
 		_record(expected_sha256, bytes.size())
-		return DotResult.success(dest)
+		return GSResult.success(dest)
 
-	var written := DotPaths.write_bytes(dest, bytes)
+	var written := GSPaths.write_bytes(dest, bytes)
 	if not written.ok:
 		return written
 
@@ -299,7 +299,7 @@ func put_bytes(bytes: PackedByteArray, expected_sha256: String) -> DotResult:
 	discard_partial(expected_sha256)
 
 	_record(expected_sha256, bytes.size())
-	return DotResult.success(dest)
+	return GSResult.success(dest)
 
 
 ## Records that [param content_key] needs these objects, so they survive eviction.
@@ -322,7 +322,7 @@ func release_refs(content_key: String) -> void:
 		refs.erase(content_key)
 	_index_dirty = true
 
-	DotLog.debug(CHANNEL, "refs released", {"content": content_key})
+	GSLog.debug(CHANNEL, "refs released", {"content": content_key})
 
 
 func ref_count(sha256: String) -> int:
@@ -346,10 +346,10 @@ func shortfall(incoming: int = 0) -> int:
 ## Evicts unreferenced objects, least recently used first; returns the bytes freed.
 ## Referenced objects are never evicted, so a cache full of them cannot shrink: [method prune] reports
 ## the shortfall and the caller decides whether to proceed or refuse the download.
-func prune(need_bytes: int = 0) -> DotResult:
+func prune(need_bytes: int = 0) -> GSResult:
 	var target := shortfall(need_bytes)
 	if target <= 0:
-		return DotResult.success(0)
+		return GSResult.success(0)
 
 	var pinned := packs.pinned_hashes()
 	var candidates: Array = []
@@ -369,7 +369,7 @@ func prune(need_bytes: int = 0) -> DotResult:
 		var size := int(_index[h]["size"])
 		var err := DirAccess.remove_absolute(path_for(h))
 		if err != OK and FileAccess.file_exists(path_for(h)):
-			DotLog.warn(
+			GSLog.warn(
 				CHANNEL, "could not evict object", {"hash": h.substr(0, 12)}
 			)
 			continue
@@ -377,27 +377,27 @@ func prune(need_bytes: int = 0) -> DotResult:
 		_forget(h)
 		freed += size
 
-	DotWeb.sync_filesystem()
+	GSWeb.sync_filesystem()
 	flush_index()
 
-	DotLog.info(
+	GSLog.info(
 		CHANNEL,
 		"pruned cache",
 		{
-			"freed": DotPaths.format_bytes(freed),
-			"wanted": DotPaths.format_bytes(target),
+			"freed": GSPaths.format_bytes(freed),
+			"wanted": GSPaths.format_bytes(target),
 			"objects": candidates.size(),
 		}
 	)
 
 	if freed < target:
-		return DotResult.fail(
-			DotError.CODE_QUOTA,
-			"The content cache is full (its %s limit) and everything in it is in use." % DotPaths.format_bytes(_limit_bytes),
+		return GSResult.fail(
+			GSError.CODE_QUOTA,
+			"The content cache is full (its %s limit) and everything in it is in use." % GSPaths.format_bytes(_limit_bytes),
 			_Report.quota_detail(self, freed, target, _index.size() - candidates.size())
 		)
 
-	return DotResult.success(freed)
+	return GSResult.success(freed)
 
 
 ## Bytes the origin can still write now (quota minus usage), or -1 when unmeasurable. Only this
@@ -405,10 +405,10 @@ func prune(need_bytes: int = 0) -> DotResult:
 func free_bytes() -> int:
 	if free_bytes_provider.is_valid():
 		return int(await free_bytes_provider.call())
-	if not DotPlatform.is_web():
+	if not GSPlatform.is_web():
 		return -1
 
-	var est := await DotWeb.estimate_storage()
+	var est := await GSWeb.estimate_storage()
 	if not est.ok:
 		return -1
 	var quota := int((est.value as Dictionary).get("quota", 0))
@@ -419,18 +419,18 @@ func free_bytes() -> int:
 
 ## Whether [method free_bytes] is meaningful here, so a full ceiling can be second-guessed.
 func has_measured_free() -> bool:
-	return free_bytes_provider.is_valid() or DotPlatform.is_web()
+	return free_bytes_provider.is_valid() or GSPlatform.is_web()
 
 
 ## Deletes everything, including referenced objects, for a "clear downloaded content" button.
 ## Unsafe while content is mounted: mounted paths keep resolving to deleted files and look like corruption.
 ## Restart after calling it.
-func clear_all() -> DotResult:
-	var removed := DotPaths.remove_tree(config.objects_dir())
-	DotPaths.remove_tree(config.partials_dir())
-	# And the packs: [DotCloudMounter] keeps a `.pck` per mounted set under `<cache_dir>/packs/`, a second
+func clear_all() -> GSResult:
+	var removed := GSPaths.remove_tree(config.objects_dir())
+	GSPaths.remove_tree(config.partials_dir())
+	# And the packs: [GSCloudMounter] keeps a `.pck` per mounted set under `<cache_dir>/packs/`, a second
 	# copy of everything played; they are rebuilt from the objects on the next mount.
-	DotPaths.remove_tree(config.cache_dir.path_join("packs"))
+	GSPaths.remove_tree(config.cache_dir.path_join("packs"))
 
 	_index.clear()
 	_total_bytes = 0
@@ -439,13 +439,13 @@ func clear_all() -> DotResult:
 	packs.dirty = true
 	flush_index()
 
-	DotPaths.ensure_dir(config.objects_dir())
-	DotPaths.ensure_dir(config.partials_dir())
+	GSPaths.ensure_dir(config.objects_dir())
+	GSPaths.ensure_dir(config.partials_dir())
 
 	# Synced like every commit: on web the filesystem is an IndexedDB mirror and an unsynced clear comes back on reload.
-	DotWeb.sync_filesystem()
+	GSWeb.sync_filesystem()
 
-	DotLog.info(CHANNEL, "cache cleared")
+	GSLog.info(CHANNEL, "cache cleared")
 	return removed
 
 
@@ -456,7 +456,7 @@ func sweep_partials(max_age_sec: float = 86400.0) -> int:
 	var now := int(Time.get_unix_time_from_system())
 	var removed := 0
 
-	for name in DotPaths.list_files_recursive(config.partials_dir()):
+	for name in GSPaths.list_files_recursive(config.partials_dir()):
 		var path := config.partials_dir().path_join(name)
 		var hash_of := String(name).get_file().get_basename()
 		if hash_of.length() == 64 and FileAccess.file_exists(path_for(hash_of)):
@@ -472,21 +472,21 @@ func sweep_partials(max_age_sec: float = 86400.0) -> int:
 
 	if removed > 0:
 		if config.partials_persisted():
-			DotWeb.sync_filesystem()
-		DotLog.debug(CHANNEL, "swept stale partials", {"count": removed})
+			GSWeb.sync_filesystem()
+		GSLog.debug(CHANNEL, "swept stale partials", {"count": removed})
 
 	return removed
 
 
 ## Re-hashes every cached object and drops any that no longer match.
-## Slow, so opt-in via [member DotCloudConfig.verify_cache_on_start]; catches storage that changed
+## Slow, so opt-in via [member GSCloudConfig.verify_cache_on_start]; catches storage that changed
 ## underneath us (evicted IndexedDB, trimmed mobile sandbox, failing disk).
-func verify_all(scheduler: DotScheduler) -> DotResult:
+func verify_all(scheduler: GSScheduler) -> GSResult:
 	var checked := 0
 	var dropped := 0
 
 	var hashes: Array[String] = []
-	var jobs: Array[DotJob] = []
+	var jobs: Array[GSJob] = []
 	for h in _index.keys():
 		var path := path_for(h)
 		if not FileAccess.file_exists(path):
@@ -494,10 +494,10 @@ func verify_all(scheduler: DotScheduler) -> DotResult:
 			dropped += 1
 			continue
 		hashes.append(h)
-		jobs.append(DotHashJob.new(path, h))
+		jobs.append(GSHashJob.new(path, h))
 
 	# Submitted together: one await per object costs a frame each when the jobs
-	# run on worker threads (DotCloudMounter._verify_objects says more).
+	# run on worker threads (GSCloudMounter._verify_objects says more).
 	var results := await scheduler.run_all(jobs)
 	for i in results.size():
 		var h := hashes[i]
@@ -506,7 +506,7 @@ func verify_all(scheduler: DotScheduler) -> DotResult:
 		checked += 1
 
 		if not res.ok:
-			DotLog.warn(
+			GSLog.warn(
 				CHANNEL,
 				"cached object failed verification; dropping it",
 				{"hash": h.substr(0, 12), "why": res.error.code}
@@ -517,11 +517,11 @@ func verify_all(scheduler: DotScheduler) -> DotResult:
 
 	flush_index()
 
-	DotLog.info(
+	GSLog.info(
 		CHANNEL, "cache verified", {"checked": checked, "dropped": dropped}
 	)
 
-	return DotResult.success({"checked": checked, "dropped": dropped})
+	return GSResult.success({"checked": checked, "dropped": dropped})
 
 
 func _record(sha256: String, size: int) -> void:
@@ -551,7 +551,7 @@ func _load_index() -> void:
 	_index.clear()
 	_total_bytes = 0
 
-	var res := DotPaths.read_json(config.index_path())
+	var res := GSPaths.read_json(config.index_path())
 	if not res.ok:
 		# No index, or an unreadable one. Rebuilding from the directory is always
 		# possible because the filenames *are* the hashes — the index is a cache
@@ -566,7 +566,7 @@ func _load_index() -> void:
 
 	var d := data as Dictionary
 	if int(d.get("version", 0)) != INDEX_VERSION:
-		DotLog.info(
+		GSLog.info(
 			CHANNEL, "index format changed; rebuilding", {"had": d.get("version")}
 		)
 		_rebuild_index()
@@ -604,11 +604,11 @@ func _load_index() -> void:
 ## One directory walk at open, which a missing index costs anyway.
 func _reconcile_with_disk() -> void:
 	var on_disk := {}
-	for rel in DotPaths.list_files_recursive(config.objects_dir()):
+	for rel in GSPaths.list_files_recursive(config.objects_dir()):
 		var name := rel.get_file()
 		if name.length() != 64:
 			continue
-		on_disk[name] = DotPaths.file_size(config.objects_dir().path_join(rel))
+		on_disk[name] = GSPaths.file_size(config.objects_dir().path_join(rel))
 
 	var now := int(Time.get_unix_time_from_system())
 	var adopted := 0
@@ -647,12 +647,12 @@ func _reconcile_with_disk() -> void:
 
 	if adopted > 0 or dropped > 0:
 		_index_dirty = true
-		DotLog.info(
+		GSLog.info(
 			CHANNEL,
 			"reconciled the cache index with the object directory",
 			{
 				"adopted": adopted,
-				"adopted_bytes": DotPaths.format_bytes(adopted_bytes),
+				"adopted_bytes": GSPaths.format_bytes(adopted_bytes),
 				"dropped": dropped,
 			}
 		)
@@ -671,10 +671,10 @@ func _rebuild_index() -> void:
 	_reconcile_with_disk()
 	_index_dirty = true
 
-	DotLog.info(
+	GSLog.info(
 		CHANNEL,
 		"rebuilt cache index",
-		{"objects": _index.size(), "size": DotPaths.format_bytes(_total_bytes)}
+		{"objects": _index.size(), "size": GSPaths.format_bytes(_total_bytes)}
 	)
 
 
@@ -687,7 +687,7 @@ func flush_index() -> void:
 	for h in _index:
 		objects[h] = _index[h]
 
-	var written := DotPaths.write_json(
+	var written := GSPaths.write_json(
 		config.index_path(),
 		{"version": INDEX_VERSION, "objects": objects},
 		false
@@ -696,7 +696,7 @@ func flush_index() -> void:
 	if written.ok:
 		_index_dirty = false
 	else:
-		DotLog.warn(
+		GSLog.warn(
 			CHANNEL,
 			"could not write the cache index",
 			{"detail": written.error.detail}
@@ -731,8 +731,8 @@ func describe_lines() -> PackedStringArray:
 	return _Report.describe_lines(self)
 
 
-## Notes a pack as held (and just used). Called by [DotCloudClient] once its objects are in.
-func record_pack(manifest: DotCloudManifest) -> void:
+## Notes a pack as held (and just used). Called by [GSCloudClient] once its objects are in.
+func record_pack(manifest: GSCloudManifest) -> void:
 	packs.record(manifest, int(Time.get_unix_time_from_system()))
 	flush_index()
 
@@ -744,22 +744,22 @@ func inventory() -> Array[Dictionary]:
 
 
 ## Pins every version of [param id]: eviction skips its objects. Pinning on web also asks the browser for persistent storage.
-func set_pinned(id: String, pinned: bool) -> DotResult:
+func set_pinned(id: String, pinned: bool) -> GSResult:
 	return _Inventory.set_pinned(self, id, pinned)
 
 
 ## "Keep content downloaded" for a game: pins its packs now and those it downloads later.
-func set_game_pinned(game: String, pinned: bool) -> DotResult:
+func set_game_pinned(game: String, pinned: bool) -> GSResult:
 	return _Inventory.set_game_pinned(self, game, pinned)
 
 
 ## Deletes a pack's objects, except those another pack still needs. Refuses a pack mounted in this process (its files cannot be unmounted): [code]CODE_STATE[/code].
-func delete(id: String, version: String = "", force: bool = false) -> DotResult:
+func delete(id: String, version: String = "", force: bool = false) -> GSResult:
 	return _Inventory.delete(self, id, version, force)
 
 
 ## Deletes every pack that is not pinned and not in use; returns the bytes freed. [method clear_all] is the one that takes pinned packs too.
-func clear_unpinned() -> DotResult:
+func clear_unpinned() -> GSResult:
 	return _Inventory.clear_unpinned(self)
 
 
@@ -773,9 +773,9 @@ func quota_report() -> Dictionary:
 func _is_embedded() -> bool:
 	if embedded >= 0:
 		return embedded == 1
-	if not DotPlatform.is_web():
+	if not GSPlatform.is_web():
 		return false
-	var loc: Variant = DotWeb.get_global("location")
+	var loc: Variant = GSWeb.get_global("location")
 	if loc == null:
 		return false
 	var ancestors: Variant = loc.ancestorOrigins
@@ -783,5 +783,5 @@ func _is_embedded() -> bool:
 
 
 func _request_persist() -> void:
-	if DotPlatform.is_web():
-		DotWeb.request_persistent_storage()
+	if GSPlatform.is_web():
+		GSWeb.request_persistent_storage()

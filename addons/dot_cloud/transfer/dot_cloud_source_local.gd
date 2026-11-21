@@ -1,6 +1,6 @@
 @tool
-class_name DotCloudSourceLocal
-extends DotCloudSource
+class_name GSCloudSourceLocal
+extends GSCloudSource
 
 ## Fetches content from a directory already on this machine.
 ##
@@ -42,20 +42,20 @@ func source_name() -> String:
 	return "local"
 
 
-func is_supported() -> DotResult:
+func is_supported() -> GSResult:
 	if search_dirs.is_empty():
-		return DotResult.fail(
-			DotError.CODE_STATE, "DotCloudSourceLocal has no search_dirs."
+		return GSResult.fail(
+			GSError.CODE_STATE, "GSCloudSourceLocal has no search_dirs."
 		)
-	return DotResult.success(true)
+	return GSResult.success(true)
 
 
 func fetch(
-	file: DotCloudFile,
-	_manifest: DotCloudManifest,
-	store: DotCloudStore,
-	_scheduler: DotScheduler
-) -> DotResult:
+	file: GSCloudFile,
+	_manifest: GSCloudManifest,
+	store: GSCloudStore,
+	_scheduler: GSScheduler
+) -> GSResult:
 	var supported := is_supported()
 	if not supported.ok:
 		return supported
@@ -73,13 +73,13 @@ func fetch(
 		# source=local` on the first map a server downloaded, in the middle of a
 		# download that was going fine, with a warning naming a source nobody had
 		# configured wrong. Failover already moves on without being told twice.
-		return DotResult.fail(
-			DotError.CODE_IO,
+		return GSResult.fail(
+			GSError.CODE_IO,
 			"Content is not in any local source directory.",
 			file.path
 		)
 
-	var bytes := DotPaths.read_bytes(found)
+	var bytes := GSPaths.read_bytes(found)
 	if not bytes.ok:
 		note_failure()
 		return bytes.wrap("Could not read local content '%s'." % found)
@@ -99,7 +99,7 @@ func fetch(
 
 
 ## Finds a file in the search directories, by hash first and path second.
-func _locate(file: DotCloudFile) -> String:
+func _locate(file: GSCloudFile) -> String:
 	for dir in search_dirs:
 		var root := dir.trim_suffix("/")
 
@@ -128,7 +128,7 @@ func _locate(file: DotCloudFile) -> String:
 			# hash, and `put_bytes` verifies regardless.
 			var by_path := "%s/%s" % [root, file.path]
 			if FileAccess.file_exists(by_path):
-				var hashed := DotHash.sha256_file(by_path)
+				var hashed := GSHash.sha256_file(by_path)
 				if hashed.ok and String(hashed.value) == file.sha256:
 					return by_path
 

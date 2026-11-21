@@ -1,9 +1,9 @@
 extends Control
 
-## Drives [DotCloudSourceHttp] against a real HTTP server, over a real socket.
+## Drives [GSCloudSourceHttp] against a real HTTP server, over a real socket.
 ##
 ## [b]Why this exists.[/b] [code]sync_demo[/code] covers the pipeline but routes
-## every byte through [DotCloudSourceLocal], which resolves synchronously,
+## every byte through [GSCloudSourceLocal], which resolves synchronously,
 ## builds no URL, parses no response and resumes nothing. HTTP is the source
 ## every shipped game uses and it had no executable coverage at all: mirror
 ## failover, the sticky preferred base, the content-addressed URL layout, range
@@ -60,7 +60,7 @@ var _sections_completed: int = 0
 
 
 func _ready() -> void:
-	DotLog.set_level(DotLog.Level.INFO)
+	GSLog.set_level(GSLog.Level.INFO)
 	await _run()
 
 
@@ -68,13 +68,13 @@ func _run() -> void:
 	_line("[b]dot-cloud over HTTP[/b]")
 	_line("")
 
-	DotPaths.remove_tree(WORK)
+	GSPaths.remove_tree(WORK)
 
 	var source_dir := WORK.path_join("source")
 	var publish_dir := WORK.path_join("published")
 
 	# publish
-	var keys := DotCloudSignature.generate_keypair(2048)
+	var keys := GSCloudSignature.generate_keypair(2048)
 	if not keys.ok:
 		await _fail("keygen", keys)
 		return
@@ -85,7 +85,7 @@ func _run() -> void:
 		await _fail("writing content", made)
 		return
 
-	var pub := DotCloudPublisher.new()
+	var pub := GSCloudPublisher.new()
 	pub.content_id = "http_fc"
 	pub.version = "1.0.0"
 	pub.display_name = "HTTP FC"
@@ -102,16 +102,16 @@ func _run() -> void:
 		int(pd["files"]), int(pd["objects"])
 	])
 
-	var manifest_bytes := DotPaths.read_bytes(str(pd["manifest_path"]))
+	var manifest_bytes := GSPaths.read_bytes(str(pd["manifest_path"]))
 	if not manifest_bytes.ok:
 		await _fail("reading manifest", manifest_bytes)
 		return
 
-	var reparsed := DotCloudManifest.from_json_bytes(manifest_bytes.value)
+	var reparsed := GSCloudManifest.from_json_bytes(manifest_bytes.value)
 	if not reparsed.ok:
 		await _fail("parsing manifest", reparsed)
 		return
-	var manifest: DotCloudManifest = reparsed.value
+	var manifest: GSCloudManifest = reparsed.value
 
 	# serve
 	_server = TestServer.new()
@@ -119,7 +119,7 @@ func _run() -> void:
 	_server.root = publish_dir
 	add_child(_server)
 
-	var listening: DotResult = _server.start(0)
+	var listening: GSResult = _server.start(0)
 	if not listening.ok:
 		await _fail("starting the test server", listening)
 		return
@@ -168,9 +168,9 @@ func _run() -> void:
 ## and comes back as "Error parsing URL", naming no setting an operator wrote. The
 ## origin has to go on before the request is made.
 ##
-## Tested through [method DotCloudClient.join_origin] rather than through
-## [method DotCloudClient.resolve_base_url], because the second asks
-## [method DotWeb.origin], which off-web is empty and on-web cannot be reached from a
+## Tested through [method GSCloudClient.join_origin] rather than through
+## [method GSCloudClient.resolve_base_url], because the second asks
+## [method GSWeb.origin], which off-web is empty and on-web cannot be reached from a
 ## headless run. Splitting the pure half out is what makes the rule testable at all.
 func _test_base_url_resolution() -> void:
 	_sections_entered += 1
@@ -178,44 +178,44 @@ func _test_base_url_resolution() -> void:
 
 	_check(
 		"a root-relative base becomes a URL",
-		DotCloudClient.join_origin("https://games.example.net", "/content")
+		GSCloudClient.join_origin("https://games.example.net", "/content")
 			== "https://games.example.net/content"
 	)
 	_check(
 		"a trailing slash on the origin does not double",
-		DotCloudClient.join_origin("https://games.example.net/", "/content")
+		GSCloudClient.join_origin("https://games.example.net/", "/content")
 			== "https://games.example.net/content"
 	)
 	_check(
 		"an absolute URL is left alone",
-		DotCloudClient.join_origin("https://cdn.example.net", "https://other.example/c")
+		GSCloudClient.join_origin("https://cdn.example.net", "https://other.example/c")
 			== "https://other.example/c"
 	)
 	_check(
 		"res:// is left alone",
-		DotCloudClient.join_origin("https://games.example.net", "res://content")
+		GSCloudClient.join_origin("https://games.example.net", "res://content")
 			== "res://content"
 	)
 	_check(
 		"an absolute filesystem path is left alone",
-		DotCloudClient.join_origin("", "/srv/tmc/content") == "/srv/tmc/content",
+		GSCloudClient.join_origin("", "/srv/tmc/content") == "/srv/tmc/content",
 		"off-web there is no origin and this is a directory"
 	)
 	_check(
 		"and so is a relative directory name",
-		DotCloudClient.join_origin("https://games.example.net", "content") == "content"
+		GSCloudClient.join_origin("https://games.example.net", "content") == "content"
 	)
 
 	# The end of it: the URL the client would actually ask for.
-	var client := DotCloudClient.new()
+	var client := GSCloudClient.new()
 	client.http_base_urls = PackedStringArray(["/content"])
 	client.manifest_url_template = "{base}/{id}/manifest.json"
 	_check(
 		"off-web the root-relative base is still refused rather than mangled",
 		Array(client.manifest_urls_for(&"surf_mesa")) == ["/content/surf_mesa/manifest.json"],
-		"DotWeb.origin() is empty here"
+		"GSWeb.origin() is empty here"
 	)
-	var absolute := DotCloudClient.new()
+	var absolute := GSCloudClient.new()
 	absolute.http_base_urls = PackedStringArray(["https://games.example.net/content"])
 	absolute.manifest_url_template = "{base}/{id}/manifest.json"
 	_check(
@@ -271,7 +271,7 @@ func _test_probe(base: String, key_pair: Dictionary) -> void:
 
 ## Mirror failover, the URL layout, and the sticky preference afterwards.
 func _test_failover(
-	base: String, key_pair: Dictionary, manifest: DotCloudManifest
+	base: String, key_pair: Dictionary, manifest: GSCloudManifest
 ) -> void:
 	_sections_entered += 1
 	_line("")
@@ -332,7 +332,7 @@ func _test_failover(
 	# The layout is a contract with every CDN this ever points at: objects live
 	# at <base>/objects/<first two hex>/<full hash>. Asserting on the URL the
 	# server actually saw is the only way to catch a change to it.
-	var first: DotCloudFile = manifest.files[0]
+	var first: GSCloudFile = manifest.files[0]
 	var want := "GET /objects/%s" % first.object_path()
 	_check("objects use content-addressed URLs", _served(want), want)
 
@@ -369,7 +369,7 @@ func _test_failover(
 
 ## Range resume: a partial file on disk must be continued, not re-fetched.
 func _test_resume(
-	base: String, key_pair: Dictionary, manifest: DotCloudManifest
+	base: String, key_pair: Dictionary, manifest: GSCloudManifest
 ) -> void:
 	_sections_entered += 1
 	_line("")
@@ -391,7 +391,7 @@ func _test_resume(
 	)
 	var half := whole.slice(0, whole.size() / 2)
 
-	var seeded := DotPaths.write_bytes(
+	var seeded := GSPaths.write_bytes(
 		client.store.partial_path(target.sha256), half
 	)
 	if not seeded.ok:
@@ -432,7 +432,7 @@ func _test_resume(
 	# restart-from-zero path below, and passes every check above it.
 	#
 	# It was a printed line and not an assertion until 2026-08-28, on the
-	# grounds that it measures DotHttp rather than anything dot-cloud decides.
+	# grounds that it measures GSHttp rather than anything dot-cloud decides.
 	# It was also, for that whole time, printing "re-sent the object" —
 	# HTTPRequest has no append mode and download_to_file wrote the ranged body
 	# at offset zero, so resume across the family was inert and this was the one
@@ -461,7 +461,7 @@ func _test_resume(
 ## retried from zero before the mirror is written off. With a single mirror —
 ## the normal deployment — the alternative is content that can never arrive.
 func _test_poisoned_partial(
-	base: String, key_pair: Dictionary, manifest: DotCloudManifest
+	base: String, key_pair: Dictionary, manifest: GSCloudManifest
 ) -> void:
 	_sections_entered += 1
 	_line("")
@@ -481,7 +481,7 @@ func _test_poisoned_partial(
 	for i in junk.size():
 		junk[i] = 0x5A
 
-	DotPaths.write_bytes(client.store.partial_path(target.sha256), junk)
+	GSPaths.write_bytes(client.store.partial_path(target.sha256), junk)
 
 	_server.log.clear()
 	_server.support_ranges = true
@@ -508,7 +508,7 @@ func _test_poisoned_partial(
 
 ## A host that will not do ranges. The source must restart, not give up.
 func _test_no_range_support(
-	base: String, key_pair: Dictionary, manifest: DotCloudManifest
+	base: String, key_pair: Dictionary, manifest: GSCloudManifest
 ) -> void:
 	_sections_entered += 1
 	_line("")
@@ -524,7 +524,7 @@ func _test_no_range_support(
 		return
 
 	var whole := FileAccess.get_file_as_bytes(_object_file(base, target))
-	DotPaths.write_bytes(
+	GSPaths.write_bytes(
 		client.store.partial_path(target.sha256), whole.slice(0, whole.size() / 2)
 	)
 
@@ -549,7 +549,7 @@ func _test_no_range_support(
 
 ## A mirror serving the wrong bytes must be caught by the hash, not trusted.
 func _test_corrupt_mirror(
-	base: String, key_pair: Dictionary, manifest: DotCloudManifest
+	base: String, key_pair: Dictionary, manifest: GSCloudManifest
 ) -> void:
 	_sections_entered += 1
 	_line("")
@@ -598,8 +598,8 @@ func _test_corrupt_mirror(
 ## A started client with its own cache directory, or null after reporting why.
 func _make_client(
 	tag: String, key_pair: Dictionary, bases: PackedStringArray
-) -> DotCloudClient:
-	var config := DotCloudConfig.new()
+) -> GSCloudClient:
+	var config := GSCloudConfig.new()
 	config.cache_dir = WORK.path_join("cache_%s" % tag)
 	config.require_signed_manifests = true
 	config.trusted_keys = {"demo": str(key_pair["public"])}
@@ -609,7 +609,7 @@ func _make_client(
 	config.parallel_downloads = 1
 	config.file_timeout_sec = 10.0
 
-	var client := DotCloudClient.new()
+	var client := GSCloudClient.new()
 	client.name = "CloudClient_%s" % tag
 	client.config = config
 	client.config_file = ""
@@ -628,14 +628,14 @@ func _make_client(
 
 ## Removes a client from the tree. Each section uses its own cache, and a client
 ## left behind would keep its pack mounted and its store open.
-func _drop(client: DotCloudClient) -> void:
+func _drop(client: GSCloudClient) -> void:
 	remove_child(client)
 	client.queue_free()
 
 
-func _http_source(client: DotCloudClient) -> DotCloudSourceHttp:
+func _http_source(client: GSCloudClient) -> GSCloudSourceHttp:
 	for s in client.sources:
-		var http := s as DotCloudSourceHttp
+		var http := s as GSCloudSourceHttp
 		if http != null:
 			return http
 	return null
@@ -662,8 +662,8 @@ func _object_requests() -> int:
 
 ## The biggest file in the manifest — the one whose halves are far enough apart
 ## for a byte count to prove anything.
-func _largest_file(manifest: DotCloudManifest) -> DotCloudFile:
-	var best: DotCloudFile = null
+func _largest_file(manifest: GSCloudManifest) -> GSCloudFile:
+	var best: GSCloudFile = null
 	for f in manifest.files:
 		if best == null or f.size > best.size:
 			best = f
@@ -671,15 +671,15 @@ func _largest_file(manifest: DotCloudManifest) -> DotCloudFile:
 
 
 func _other_file(
-	manifest: DotCloudManifest, not_this: DotCloudFile
-) -> DotCloudFile:
+	manifest: GSCloudManifest, not_this: GSCloudFile
+) -> GSCloudFile:
 	for f in manifest.files:
 		if f.sha256 != not_this.sha256:
 			return f
 	return null
 
 
-func _total_object_bytes(manifest: DotCloudManifest) -> int:
+func _total_object_bytes(manifest: GSCloudManifest) -> int:
 	var seen := {}
 	var total := 0
 	for f in manifest.files:
@@ -690,13 +690,13 @@ func _total_object_bytes(manifest: DotCloudManifest) -> int:
 	return total
 
 
-func _object_file(_base: String, file: DotCloudFile) -> String:
+func _object_file(_base: String, file: GSCloudFile) -> String:
 	return WORK.path_join("published/objects/%s" % file.object_path())
 
 
 ## Content with one file big enough that half of it is a meaningful saving.
-func _write_source_content(dir: String) -> DotResult:
-	var made := DotPaths.ensure_dir(dir)
+func _write_source_content(dir: String) -> GSResult:
+	var made := GSPaths.ensure_dir(dir)
 	if not made.ok:
 		return made
 
@@ -707,7 +707,7 @@ func _write_source_content(dir: String) -> DotResult:
 	for i in big.size():
 		big[i] = (i * 31 + (i >> 8)) & 0xFF
 
-	var wrote_big := DotPaths.write_bytes(dir.path_join("payload.bin"), big)
+	var wrote_big := GSPaths.write_bytes(dir.path_join("payload.bin"), big)
 	if not wrote_big.ok:
 		return wrote_big
 
@@ -717,14 +717,14 @@ func _write_source_content(dir: String) -> DotResult:
 	}
 
 	for rel in files:
-		var res := DotPaths.write_text(dir.path_join(rel), str(files[rel]))
+		var res := GSPaths.write_text(dir.path_join(rel), str(files[rel]))
 		if not res.ok:
 			return res
 
-	return DotResult.success(files.size() + 1)
+	return GSResult.success(files.size() + 1)
 
 
-func _fail(what: String, res: DotResult) -> void:
+func _fail(what: String, res: GSResult) -> void:
 	_line("")
 	_line("[b]FAILED at %s[/b]" % what)
 	_line("  %s" % str(res.error))
@@ -736,7 +736,7 @@ func _finish(code: int = 0) -> void:
 	if _server != null:
 		_server.stop()
 
-	if DotPlatform.is_headless():
+	if GSPlatform.is_headless():
 		await get_tree().process_frame
 		get_tree().quit(code)
 

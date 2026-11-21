@@ -1,6 +1,6 @@
 extends RefCounted
 
-## The side rules and `provides.json` steps of [DotCloudPublisher], in a file of their own so the publisher
+## The side rules and `provides.json` steps of [GSCloudPublisher], in a file of their own so the publisher
 ## stays inside the size budget. Nothing here is used on its own.
 
 const CHANNEL := "cloud.pub"
@@ -18,18 +18,18 @@ static func provides_for(
 	relatives: PackedStringArray,
 	extra: Dictionary,
 	dropped: Dictionary
-) -> DotResult:
+) -> GSResult:
 	var file := source_dir.path_join(PROVIDES_FILE)
 	if not FileAccess.file_exists(file):
-		return DotResult.success({})
+		return GSResult.success({})
 
-	var read := DotPaths.read_json(file)
+	var read := GSPaths.read_json(file)
 	if not read.ok:
 		return read.wrap("Could not read %s." % PROVIDES_FILE)
 	if not (read.value is Dictionary):
-		return DotResult.fail(DotError.CODE_PARSE, "%s must be a JSON object." % PROVIDES_FILE)
+		return GSResult.fail(GSError.CODE_PARSE, "%s must be a JSON object." % PROVIDES_FILE)
 
-	var parsed := DotCloudProvides.parse(read.value as Dictionary, true)
+	var parsed := GSCloudProvides.parse(read.value as Dictionary, true)
 	if not parsed.ok:
 		return parsed.wrap("%s is invalid." % PROVIDES_FILE)
 	var provides: Dictionary = parsed.value
@@ -45,81 +45,81 @@ static func provides_for(
 			if rel.begins_with(prefix):
 				return true
 		return false
-	var checked := DotCloudProvides.check_files(provides, exists, dir_exists)
+	var checked := GSCloudProvides.check_files(provides, exists, dir_exists)
 	if not checked.ok:
 		return checked.wrap("%s does not match the pack." % PROVIDES_FILE)
 
 	var reader := func(rel: String) -> PackedByteArray:
 		return FileAccess.get_file_as_bytes(str(extra.get(rel, source_dir.path_join(rel))))
-	var scanned := DotCloudScriptScan.scan(relatives, reader, provides)
+	var scanned := GSCloudScriptScan.scan(relatives, reader, provides)
 	if not scanned.ok:
 		return scanned
 	provides["runs_code"] = bool((scanned.value as Dictionary)["runs_code"])
 	if provides["runs_code"]:
-		DotLog.info(CHANNEL, "pack runs code", {
+		GSLog.info(CHANNEL, "pack runs code", {
 			"content": pub.content_id, "why": ", ".join((scanned.value as Dictionary)["reasons"]),
 		})
-	return DotResult.success(provides)
+	return GSResult.success(provides)
 
 
-## The side rules from [member DotCloudPublisher.side_rules] and the source's sides.json, as pattern -> side.
-static func _load_rules(pub: RefCounted, source_dir: String) -> DotResult:
+## The side rules from [member GSCloudPublisher.side_rules] and the source's sides.json, as pattern -> side.
+static func _load_rules(pub: RefCounted, source_dir: String) -> GSResult:
 	var rules := {}
 	for pattern: Variant in pub.side_rules:
 		rules[str(pattern)] = str(pub.side_rules[pattern])
 
 	var file := source_dir.path_join(SIDES_FILE)
 	if FileAccess.file_exists(file):
-		var read := DotPaths.read_json(file)
+		var read := GSPaths.read_json(file)
 		if not read.ok:
 			return read.wrap("Could not read %s." % SIDES_FILE)
 		if not (read.value is Dictionary):
-			return DotResult.fail(DotError.CODE_PARSE, "%s must be a JSON object." % SIDES_FILE)
+			return GSResult.fail(GSError.CODE_PARSE, "%s must be a JSON object." % SIDES_FILE)
 		var doc: Dictionary = read.value
 		for key: Variant in doc:
-			if not str(key) in [DotCloudFile.SIDE_CLIENT, DotCloudFile.SIDE_SERVER]:
-				return DotResult.fail(
-					DotError.CODE_INVALID,
+			if not str(key) in [GSCloudFile.SIDE_CLIENT, GSCloudFile.SIDE_SERVER]:
+				return GSResult.fail(
+					GSError.CODE_INVALID,
 					"%s: unknown key '%s'." % [SIDES_FILE, key],
 					"expected client and server, each a list of patterns"
 				)
 			if not (doc[key] is Array):
-				return DotResult.fail(
-					DotError.CODE_INVALID, "%s: '%s' must be a list." % [SIDES_FILE, key]
+				return GSResult.fail(
+					GSError.CODE_INVALID, "%s: '%s' must be a list." % [SIDES_FILE, key]
 				)
 			for pattern: Variant in (doc[key] as Array):
 				var p := str(pattern)
 				if rules.has(p) and rules[p] != str(key):
-					return DotResult.fail(
-						DotError.CODE_INVALID,
+					return GSResult.fail(
+						GSError.CODE_INVALID,
 						"%s: '%s' is listed for both sides." % [SIDES_FILE, p]
 					)
 				rules[p] = str(key)
-	return DotResult.success(rules)
+	return GSResult.success(rules)
 
 
 ## Refuses a rule with an unknown side or a pattern that is not a pack path.
-static func _validate_rules(rules: Dictionary) -> DotResult:
+static func _validate_rules(rules: Dictionary) -> GSResult:
 	for pattern: String in rules:
 		var want: String = rules[pattern]
-		if not want in [DotCloudFile.SIDE_CLIENT, DotCloudFile.SIDE_SERVER]:
-			return DotResult.fail(
-				DotError.CODE_INVALID,
+		if not want in [GSCloudFile.SIDE_CLIENT, GSCloudFile.SIDE_SERVER]:
+			return GSResult.fail(
+				GSError.CODE_INVALID,
 				"Side rule '%s' names side '%s'." % [pattern, want],
 				"a side is client or server; a file in no rule goes to both"
 			)
 		if pattern.strip_edges() == "" or pattern.begins_with("res://") or pattern.begins_with("/"):
-			return DotResult.fail(
-				DotError.CODE_INVALID,
+			return GSResult.fail(
+				GSError.CODE_INVALID,
 				"Side rule '%s' is not a pack path." % pattern,
 				"patterns are relative to the source root, like lightmaps/ or maps/*.res"
 			)
-	return DotResult.success()
+	return GSResult.success()
 
 
 ## Each pack path's side, from `side_rules` and the source's `sides.json`; a path in no rule is absent
 ## (both sides). [param owners] maps a relocated imported output to the source asset it stands for.
-static func sides_for(pub: RefCounted, source_dir: String, relatives: PackedStringArray, owners: Dictionary) -> DotResult:
+static func sides_for(pub: RefCounted, source_dir: String, relatives: PackedStringArray, owners: Dictionary) -> GSResult:
 	var loaded := _load_rules(pub, source_dir)
 	if not loaded.ok:
 		return loaded
@@ -127,7 +127,7 @@ static func sides_for(pub: RefCounted, source_dir: String, relatives: PackedStri
 
 	var out := {}
 	if rules.is_empty():
-		return DotResult.success(out)
+		return GSResult.success(out)
 
 	var valid := _validate_rules(rules)
 	if not valid.ok:
@@ -143,7 +143,7 @@ static func sides_for(pub: RefCounted, source_dir: String, relatives: PackedStri
 		if owners.has(rel):
 			names.append(str(owners[rel]))
 
-		var side := DotCloudFile.SIDE_BOTH
+		var side := GSCloudFile.SIDE_BOTH
 		for pattern: String in rules:
 			var matched := false
 			for n in names:
@@ -153,28 +153,28 @@ static func sides_for(pub: RefCounted, source_dir: String, relatives: PackedStri
 			if not matched:
 				continue
 			hits[pattern] = true
-			if side != DotCloudFile.SIDE_BOTH and side != rules[pattern]:
-				return DotResult.fail(
-					DotError.CODE_INVALID,
+			if side != GSCloudFile.SIDE_BOTH and side != rules[pattern]:
+				return GSResult.fail(
+					GSError.CODE_INVALID,
 					"'%s' is put on both sides by the side rules." % rel,
 					"pattern '%s' says %s" % [pattern, rules[pattern]]
 				)
 			side = rules[pattern]
 
-		if side == DotCloudFile.SIDE_BOTH:
+		if side == GSCloudFile.SIDE_BOTH:
 			continue
 
 		# Both sides read requires.json and provides.json before they mount; a client
 		# loads the entry scene; a packer names what its own loader opens.
 		var needs: Dictionary = pub.side_needs.duplicate()
-		needs[DotAddonApi.REQUIREMENTS_FILE] = "both"
+		needs[GSAddonApi.REQUIREMENTS_FILE] = "both"
 		needs[PROVIDES_FILE] = "both"
 		if pub.entry_scene != "" and not needs.has(pub.entry_scene):
-			needs[pub.entry_scene] = DotCloudFile.SIDE_CLIENT
+			needs[pub.entry_scene] = GSCloudFile.SIDE_CLIENT
 		var need := str(needs.get(rel, ""))
 		if need != "" and need != side:
-			return DotResult.fail(
-				DotError.CODE_INVALID,
+			return GSResult.fail(
+				GSError.CODE_INVALID,
 				"'%s' cannot be %s-only." % [rel, side],
 				("the client and the server read it" if need == "both"
 					else "the %s reads it" % need) + "; narrow the side rule"
@@ -183,14 +183,14 @@ static func sides_for(pub: RefCounted, source_dir: String, relatives: PackedStri
 
 	for pattern: String in rules:
 		if not hits.has(pattern):
-			return DotResult.fail(
-				DotError.CODE_INVALID,
+			return GSResult.fail(
+				GSError.CODE_INVALID,
 				"Side rule '%s' matches nothing in the pack." % pattern,
 				"a typo here ships those files to both sides and says nothing"
 			)
 
-	DotLog.debug(CHANNEL, "side rules applied", {"content": pub.content_id, "sided": out.size()})
-	return DotResult.success(out)
+	GSLog.debug(CHANNEL, "side rules applied", {"content": pub.content_id, "sided": out.size()})
+	return GSResult.success(out)
 
 
 static func pattern_matches(pattern: String, rel: String) -> bool:

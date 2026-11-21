@@ -6,7 +6,7 @@ extends Control
 ## 2. Writes a small content set to disk.
 ## 3. Publishes it — hashes, dedupes, writes objects, signs the manifest.
 ## 4. Configures a client that trusts the generated public key.
-## 5. Syncs from the published directory via [DotCloudSourceLocal].
+## 5. Syncs from the published directory via [GSCloudSourceLocal].
 ## 6. Mounts it and loads a file back out of the mounted pack.
 ## 7. Releases it, then re-acquires to prove the cache is warm.
 ##
@@ -23,7 +23,7 @@ const _Checks := preload("res://examples/selftest/sync_checks.gd")
 
 @onready var _output: RichTextLabel = $Output
 
-var _client: DotCloudClient
+var _client: GSCloudClient
 
 ## Assertions that came out the wrong way. Anything above zero exits non-zero.
 ##
@@ -40,7 +40,7 @@ const CHECKS := 14
 
 
 func _ready() -> void:
-	DotLog.set_level(DotLog.Level.INFO)
+	GSLog.set_level(GSLog.Level.INFO)
 	await _run()
 
 
@@ -49,13 +49,13 @@ func _run() -> void:
 	_line("")
 
 	# Start clean so re-runs measure the same thing.
-	DotPaths.remove_tree(WORK)
+	GSPaths.remove_tree(WORK)
 
 	var source_dir := WORK.path_join("source")
 	var publish_dir := WORK.path_join("published")
 
 	# 1. keys
-	var keys := DotCloudSignature.generate_keypair(2048)
+	var keys := GSCloudSignature.generate_keypair(2048)
 	if not keys.ok:
 		return _fail("keygen", keys)
 	var key_pair: Dictionary = keys.value
@@ -68,7 +68,7 @@ func _run() -> void:
 	_line("  source content   %d files" % int(made.value))
 
 	# 3. publish
-	var pub := DotCloudPublisher.new()
+	var pub := GSCloudPublisher.new()
 	pub.content_id = "demo_fc"
 	pub.version = "1.0.0"
 	pub.display_name = "Demo FC"
@@ -94,17 +94,17 @@ func _run() -> void:
 		_line("  [b]WARNING[/b]        expected deduplication, got none")
 
 	# 4. verify the signature independently
-	var manifest_bytes := DotPaths.read_bytes(str(pd["manifest_path"]))
+	var manifest_bytes := GSPaths.read_bytes(str(pd["manifest_path"]))
 	if not manifest_bytes.ok:
 		return _fail("reading manifest", manifest_bytes)
 
-	var reparsed := DotCloudManifest.from_json_bytes(manifest_bytes.value)
+	var reparsed := GSCloudManifest.from_json_bytes(manifest_bytes.value)
 	if not reparsed.ok:
 		return _fail("parsing manifest", reparsed)
 
-	var manifest: DotCloudManifest = reparsed.value
+	var manifest: GSCloudManifest = reparsed.value
 
-	var sig_ok := DotCloudSignature.verify(
+	var sig_ok := GSCloudSignature.verify(
 		manifest.raw_bytes, manifest.signature, str(key_pair["public"])
 	)
 	_check(
@@ -116,14 +116,14 @@ func _run() -> void:
 		return
 
 	# 5. client
-	var config := DotCloudConfig.new()
+	var config := GSCloudConfig.new()
 	config.cache_dir = WORK.path_join("cache")
 	config.require_signed_manifests = true
 	config.trusted_keys = {"demo": str(key_pair["public"])}
 	config.verify_before_mount = true
 	config.parallel_downloads = 4
 
-	_client = DotCloudClient.new()
+	_client = GSCloudClient.new()
 	_client.name = "CloudClient"
 	_client.config = config
 	# Empty so start() does not layer a stale file over the settings above.
@@ -132,7 +132,7 @@ func _run() -> void:
 	_client.allow_netchan_fallback = false
 	add_child(_client)
 
-	# Three other addons find this client through DotRegistry and none of them imports
+	# Three other addons find this client through GSRegistry and none of them imports
 	# GameSpice Cloud: GameSpice Server downloads a game's content with it, releases the previous
 	# game's with it and reports on it from the console, and GameSpice User Avatar turns a
 	# cosmetic's content id into a path with it. All four call sites treat an absent
@@ -141,11 +141,11 @@ func _run() -> void:
 	# registered.
 	_check(
 		"registers as a service",
-		DotRegistry.get_service(DotCloudClient.SERVICE) == _client
+		GSRegistry.get_service(GSCloudClient.SERVICE) == _client
 	)
 
-	_client.phase_changed.connect(func(p: DotCloudClient.Phase, _t: String) -> void:
-		DotLog.debug("demo", "phase", {"phase": DotCloudClient.phase_name(p)})
+	_client.phase_changed.connect(func(p: GSCloudClient.Phase, _t: String) -> void:
+		GSLog.debug("demo", "phase", {"phase": GSCloudClient.phase_name(p)})
 	)
 
 	var started := await _client.start()
@@ -174,7 +174,7 @@ func _run() -> void:
 
 	# 8. read content back out of the mount
 	var mounted_path := manifest.mount_prefix().path_join("fc.txt")
-	var read_back := DotPaths.read_text(mounted_path)
+	var read_back := GSPaths.read_text(mounted_path)
 
 	_check(
 		"read from mount", read_back.ok,
@@ -214,7 +214,7 @@ func _run() -> void:
 	])
 
 	# 11. a manifest signed by nobody we trust
-	var rogue := DotCloudManifest.new()
+	var rogue := GSCloudManifest.new()
 	rogue.content_id = "rogue"
 	rogue.version = "1.0.0"
 	rogue.raw_bytes = "{}".to_utf8_buffer()
@@ -223,12 +223,12 @@ func _run() -> void:
 
 	# 12. a ceiling smaller than the content: only the measured free space may refuse.
 	for case in [{"free": 64 * 1024 * 1024, "ok": true}, {"free": 1024, "ok": false}]:
-		var tiny := DotCloudConfig.new()
+		var tiny := GSCloudConfig.new()
 		tiny.cache_dir = WORK.path_join("tiny_%d" % int(case["free"]))
 		tiny.require_signed_manifests = true
 		tiny.trusted_keys = config.trusted_keys
 		tiny.cache_bytes = 1024 * 1024
-		var c2 := DotCloudClient.new()
+		var c2 := GSCloudClient.new()
 		c2.name = "TinyClient%d" % int(case["free"])
 		c2.config = tiny
 		c2.config_file = ""
@@ -260,7 +260,7 @@ func _run() -> void:
 
 
 ## Writes a content set with a deliberate duplicate and an optional file.
-func _write_source_content(dir: String) -> DotResult:
+func _write_source_content(dir: String) -> GSResult:
 	var shared := "the same bytes in two places\n"
 
 	var files := {
@@ -278,19 +278,19 @@ func _write_source_content(dir: String) -> DotResult:
 	for i in range(blob.size()):
 		blob[i] = i % 251
 
-	var written := DotPaths.write_bytes(dir.path_join("data/blob.bin"), blob)
+	var written := GSPaths.write_bytes(dir.path_join("data/blob.bin"), blob)
 	if not written.ok:
 		return written
 
 	for path in files:
-		var res := DotPaths.write_text(dir.path_join(str(path)), str(files[path]))
+		var res := GSPaths.write_text(dir.path_join(str(path)), str(files[path]))
 		if not res.ok:
 			return res
 
-	return DotResult.success(files.size() + 1)
+	return GSResult.success(files.size() + 1)
 
 
-func _fail(what: String, res: DotResult) -> void:
+func _fail(what: String, res: GSResult) -> void:
 	_line("")
 	_line("[b]FAILED at %s[/b]" % what)
 	_line("  %s" % str(res.error))
@@ -298,7 +298,7 @@ func _fail(what: String, res: DotResult) -> void:
 
 
 func _finish(code: int = 0) -> void:
-	if DotPlatform.is_headless():
+	if GSPlatform.is_headless():
 		await get_tree().process_frame
 		get_tree().quit(code)
 

@@ -17,13 +17,13 @@ var _checks := 0
 
 
 func _ready() -> void:
-	DotLog.set_level(DotLog.Level.WARN)
+	GSLog.set_level(GSLog.Level.WARN)
 	await _run()
 
 
 func _run() -> void:
 	_line("[b]dot-cloud inventory[/b]")
-	DotPaths.remove_tree(WORK)
+	GSPaths.remove_tree(WORK)
 
 	await _section_inventory()
 	await _section_pin_eviction()
@@ -86,7 +86,7 @@ func _section_pin_eviction() -> void:
 	store.record_pack(_manifest("drop", "1", "game", "drop", [hu, hn]))
 	var pinned := store.set_pinned("keep", true)
 	_check("pin ok", pinned.ok)
-	_check("pin unknown id fails", store.set_pinned("nope", true).error.code == DotError.CODE_INVALID)
+	_check("pin unknown id fails", store.set_pinned("nope", true).error.code == GSError.CODE_INVALID)
 
 	# The pinned object is the oldest, so plain LRU would take it first.
 	var freed := store.prune(2 * OBJ)
@@ -115,9 +115,9 @@ func _section_delete() -> void:
 	store.in_use_fn = func(key: String) -> bool: return key == "b@1"
 
 	var busy := store.delete("b")
-	_check("mounted pack refused", not busy.ok and busy.error.code == DotError.CODE_STATE)
+	_check("mounted pack refused", not busy.ok and busy.error.code == GSError.CODE_STATE)
 	_check("refused delete changed nothing", store.has(hb) and store.inventory().size() == 2)
-	_check("unknown id fails", store.delete("zzz").error.code == DotError.CODE_INVALID)
+	_check("unknown id fails", store.delete("zzz").error.code == GSError.CODE_INVALID)
 
 	var del := store.delete("a")
 	_check("delete ok", del.ok)
@@ -197,14 +197,14 @@ func _section_bridge() -> void:
 	store.record_pack(_manifest("p", "1", "game", "p", [h1]))
 	store.record_pack(_manifest("q", "1", "map", "p", [h2]))
 	var site := "https://moddingcommunity.com"
-	var bridge := DotCloudInventoryBridge.new(store, PackedStringArray([site]))
+	var bridge := GSCloudInventoryBridge.new(store, PackedStringArray([site]))
 
-	_check("is_request recognises the protocol", DotCloudInventoryBridge.is_request({"dot": "dot-inventory", "op": "list"}))
-	_check("is_request ignores other traffic", not DotCloudInventoryBridge.is_request({"type": "resize"}) and not DotCloudInventoryBridge.is_request("x"))
+	_check("is_request recognises the protocol", GSCloudInventoryBridge.is_request({"dot": "dot-inventory", "op": "list"}))
+	_check("is_request ignores other traffic", not GSCloudInventoryBridge.is_request({"type": "resize"}) and not GSCloudInventoryBridge.is_request("x"))
 
 	var denied := await bridge.handle({"dot": "dot-inventory", "op": "list", "id": 1}, "https://evil.example")
 	_check("unlisted origin gets no reply", denied.is_empty())
-	var star := DotCloudInventoryBridge.new(store, PackedStringArray(["*"]))
+	var star := GSCloudInventoryBridge.new(store, PackedStringArray(["*"]))
 	_check("star is never honoured", (await star.handle({"dot": "dot-inventory", "op": "list", "id": 1}, "*")).is_empty())
 	_check("empty origin refused", (await bridge.handle({"op": "list"}, "")).is_empty())
 
@@ -215,15 +215,15 @@ func _section_bridge() -> void:
 	var pin := await bridge.handle({"dot": "dot-inventory", "op": "pin", "id": 8, "pack": "p", "pinned": true}, site)
 	_check("pin ok", pin["ok"] == true and _find(store.inventory(), "p").get("pinned") == true)
 	var badpin := await bridge.handle({"dot": "dot-inventory", "op": "pin", "id": 9, "pack": "p"}, site)
-	_check("pin without flag is invalid", badpin["ok"] == false and badpin["error"]["code"] == DotError.CODE_INVALID)
+	_check("pin without flag is invalid", badpin["ok"] == false and badpin["error"]["code"] == GSError.CODE_INVALID)
 
 	var game := await bridge.handle({"dot": "dot-inventory", "op": "pin_game", "id": 10, "game": "p", "pinned": true}, site)
 	_check("pin_game ok", game["ok"] == true and store.packs.pinned_games.has("p"))
 
 	var unknown := await bridge.handle({"dot": "dot-inventory", "op": "format_disk", "id": 11}, site)
-	_check("unknown op invalid", unknown["ok"] == false and unknown["error"]["code"] == DotError.CODE_INVALID)
+	_check("unknown op invalid", unknown["ok"] == false and unknown["error"]["code"] == GSError.CODE_INVALID)
 	var future := await bridge.handle({"dot": "dot-inventory", "op": "list", "id": 12, "v": 99}, site)
-	_check("unknown version refused", future["ok"] == false and future["error"]["code"] == DotError.CODE_VERSION)
+	_check("unknown version refused", future["ok"] == false and future["error"]["code"] == GSError.CODE_VERSION)
 
 	var del := await bridge.handle({"dot": "dot-inventory", "op": "delete", "id": 13, "pack": "q", "force": true}, site)
 	_check("delete ok", del["ok"] == true and not store.has(h2))
@@ -237,9 +237,9 @@ func _section_bridge() -> void:
 	_check("clear spares pinned", clear["ok"] == true and store.has(h1))
 
 	var hit := [false]
-	bridge.clear_all_fn = func() -> DotResult:
+	bridge.clear_all_fn = func() -> GSResult:
 		hit[0] = true
-		return DotResult.success(0)
+		return GSResult.success(0)
 	var all := await bridge.handle({"dot": "dot-inventory", "op": "clear_all", "id": 17}, site)
 	_check("clear_all uses the host hook", all["ok"] == true and hit[0])
 	var json := JSON.stringify(list)
@@ -257,7 +257,7 @@ func _section_review() -> void:
 	store.record_pack(_manifest("pa", "2", "game", "pa", [h2]))
 	store.set_pinned("pa", true)
 	var r := store.delete("pa", "1")
-	_check("delete of a pinned pack refused", not r.ok and r.error.code == DotError.CODE_STATE and store.has(h1))
+	_check("delete of a pinned pack refused", not r.ok and r.error.code == GSError.CODE_STATE and store.has(h1))
 	var all_versions := store.delete("pa")
 	_check("delete without version refused when pinned", not all_versions.ok and store.inventory().size() == 2)
 	_check("force deletes a pinned pack", store.delete("pa", "1", true).ok and not store.has(h1))
@@ -267,23 +267,23 @@ func _section_review() -> void:
 	store.record_pack(_manifest("pa", "2", "game", "pa", [h2]))
 	_check("re-record keeps an unpin", _find(store.inventory(), "pa").get("pinned") == false)
 
-	var long_id := "g".repeat(DotCloudPackBook.MAX_GAME_ID + 1)
-	_check("overlong game id refused", store.set_game_pinned(long_id, true).error.code == DotError.CODE_INVALID)
-	for i in range(DotCloudPackBook.MAX_PINNED_GAMES):
+	var long_id := "g".repeat(GSCloudPackBook.MAX_GAME_ID + 1)
+	_check("overlong game id refused", store.set_game_pinned(long_id, true).error.code == GSError.CODE_INVALID)
+	for i in range(GSCloudPackBook.MAX_PINNED_GAMES):
 		store.set_game_pinned("cap%d" % i, true)
-	_check("pinned_games is capped", store.packs.pinned_games.size() <= DotCloudPackBook.MAX_PINNED_GAMES
+	_check("pinned_games is capped", store.packs.pinned_games.size() <= GSCloudPackBook.MAX_PINNED_GAMES
 		and not store.set_game_pinned("one-too-many", true).ok)
 
 	var book_path := store.packs.path
 	var good := "a".repeat(64)
-	DotPaths.write_json(book_path, {"version": DotCloudPackBook.VERSION, "pinned_games": [], "packs": {
+	GSPaths.write_json(book_path, {"version": GSCloudPackBook.VERSION, "pinned_games": [], "packs": {
 		"x@1": {"id": "x", "version": "1", "hashes": [good, "zz", 5, "../../etc"]}}}, false)
-	var book := DotCloudPackBook.new(book_path)
+	var book := GSCloudPackBook.new(book_path)
 	book.load_file()
 	_check("bad hashes dropped on load", (book.records["x@1"]["hashes"] as Array) == [good])
 
 	var site := "https://moddingcommunity.com"
-	var bridge := DotCloudInventoryBridge.new(store, PackedStringArray([site, "null"]))
+	var bridge := GSCloudInventoryBridge.new(store, PackedStringArray([site, "null"]))
 	_check("origin null refused", (await bridge.handle({"dot": "dot-inventory", "op": "list", "id": 1}, "null")).is_empty())
 	var odd := await bridge.handle({"dot": "dot-inventory", "op": "list", "id": 2, "v": [1]}, site)
 	_check("array version answered with an error", odd.get("ok") == false)
@@ -293,7 +293,7 @@ func _section_review() -> void:
 	store.record_pack(_manifest("bp", "1", "map", "bp", [h2]))
 	store.set_pinned("bp", true)
 	var nb := await bridge.handle({"dot": "dot-inventory", "op": "delete", "id": 4, "pack": "bp"}, site)
-	_check("bridge delete of pinned refused", nb["ok"] == false and nb["error"]["code"] == DotError.CODE_STATE)
+	_check("bridge delete of pinned refused", nb["ok"] == false and nb["error"]["code"] == GSError.CODE_STATE)
 	var fb := await bridge.handle({"dot": "dot-inventory", "op": "delete", "id": 5, "pack": "bp", "force": true}, site)
 	_check("bridge delete with force ok", fb["ok"] == true)
 
@@ -318,7 +318,7 @@ func _section_site_report() -> void:
 	store.record_pack(_manifest("sm", "2", "map", "sa", [h2]))
 	store.record_pack(_manifest("sw", "3", "weapon", "sa", [h3]))
 
-	var report := DotCloudInventoryReport.body(store.inventory())
+	var report := GSCloudInventoryReport.body(store.inventory())
 	var packs: Array = report["packs"]
 	_check("three packs reported", packs.size() == 3 and (report["ack"] as Array).is_empty(), str(packs.size()))
 	var first: Dictionary = packs[0]
@@ -327,21 +327,21 @@ func _section_site_report() -> void:
 	_check("lastUsed is a UTC datetime", str(first["lastUsed"]).ends_with("Z") and str(first["lastUsed"]).contains("T"), str(first["lastUsed"]))
 	_check("report is JSON-safe", JSON.parse_string(JSON.stringify(report)) is Dictionary)
 
-	var odd := DotCloudInventoryReport.body([
+	var odd := GSCloudInventoryReport.body([
 		{"id": "", "version": "1"}, {"id": "ok", "version": ""}, {"id": "x".repeat(161), "version": "1"},
 		"not a row", {"id": "fine", "version": "1", "bytes": -5, "last_used": 0, "name": "n".repeat(300)}])
 	var kept: Array = odd["packs"]
 	_check("unusable rows dropped", kept.size() == 1 and kept[0]["packId"] == "fine", str(kept.size()))
-	_check("negative bytes clamp, no use time is null, name cut", kept[0]["bytes"] == 0 and kept[0]["lastUsed"] == null and str(kept[0]["name"]).length() == DotCloudInventoryReport.MAX_NAME)
+	_check("negative bytes clamp, no use time is null, name cut", kept[0]["bytes"] == 0 and kept[0]["lastUsed"] == null and str(kept[0]["name"]).length() == GSCloudInventoryReport.MAX_NAME)
 
 	var big: Array = []
-	for i in DotCloudInventoryReport.MAX_PACKS + 5:
+	for i in GSCloudInventoryReport.MAX_PACKS + 5:
 		big.append({"id": "p%d" % i, "version": "1"})
-	_check("report cut at the site's limit", (DotCloudInventoryReport.body(big)["packs"] as Array).size() == DotCloudInventoryReport.MAX_PACKS)
-	var acks := DotCloudInventoryReport.body([], [{"packId": "a", "version": "1", "action": "delete"}, {"packId": "a", "version": "1", "action": "explode"}, {"packId": "", "action": "pin"}])
+	_check("report cut at the site's limit", (GSCloudInventoryReport.body(big)["packs"] as Array).size() == GSCloudInventoryReport.MAX_PACKS)
+	var acks := GSCloudInventoryReport.body([], [{"packId": "a", "version": "1", "action": "delete"}, {"packId": "a", "version": "1", "action": "explode"}, {"packId": "", "action": "pin"}])
 	_check("only well-formed acks pass through", (acks["ack"] as Array).size() == 1)
 
-	var out := DotCloudInventoryReport.apply_pending(store, [
+	var out := GSCloudInventoryReport.apply_pending(store, [
 		{"packId": "sa", "version": "1", "action": "pin"},
 		{"packId": "sm", "version": "2", "action": "delete"},
 		{"packId": "ghost", "version": "1", "action": "delete"},
@@ -351,62 +351,62 @@ func _section_site_report() -> void:
 	_check("unknown pack refused and acknowledged", out["refused"] == 1 and (out["ack"] as Array).size() == 1 and out["ack"][0]["packId"] == "ghost")
 	_check("unknown action skipped", store.has(h3) and not _find(store.inventory(), "sw").is_empty())
 
-	var pinned_delete := DotCloudInventoryReport.apply_pending(store, [{"packId": "sa", "version": "1", "action": "delete"}])
+	var pinned_delete := GSCloudInventoryReport.apply_pending(store, [{"packId": "sa", "version": "1", "action": "delete"}])
 	_check("delete of a pinned pack waits, not acknowledged", pinned_delete["refused"] == 1 and (pinned_delete["ack"] as Array).is_empty() and store.has(h1))
-	var unpin := DotCloudInventoryReport.apply_pending(store, [{"packId": "sa", "version": "1", "action": "unpin"}])
+	var unpin := GSCloudInventoryReport.apply_pending(store, [{"packId": "sa", "version": "1", "action": "unpin"}])
 	_check("unpin carried out", unpin["done"] == 1 and not bool(_find(store.inventory(), "sa")["pinned"]))
 
 	store.in_use_fn = func(key: String) -> bool: return key.begins_with("sw")
-	var mounted := DotCloudInventoryReport.apply_pending(store, [{"packId": "sw", "version": "3", "action": "delete"}])
+	var mounted := GSCloudInventoryReport.apply_pending(store, [{"packId": "sw", "version": "3", "action": "delete"}])
 	_check("delete of a mounted pack waits for a restart", mounted["refused"] == 1 and (mounted["ack"] as Array).is_empty() and store.has(h3))
 
 	var site := "https://moddingcommunity.com"
-	var bridge := DotCloudInventoryBridge.new(store, PackedStringArray([site]))
+	var bridge := GSCloudInventoryBridge.new(store, PackedStringArray([site]))
 	var sync := await bridge.handle({"dot": "dot-inventory", "op": "sync", "id": 30, "pending": [{"packId": "ghost", "version": "1", "action": "pin"}]}, site)
 	var value: Dictionary = sync.get("value", {})
 	_check("sync answers with the report body", sync.get("ok") == true and (value["packs"] as Array).size() == 2 and value["done"] == 0 and value["refused"] == 1)
 	_check("sync carries the acknowledgement", (value["ack"] as Array).size() == 1 and value["ack"][0]["action"] == "pin")
 	var bad := await bridge.handle({"dot": "dot-inventory", "op": "sync", "id": 31, "pending": "nope"}, site)
-	_check("sync refuses pending that is not a list", bad["ok"] == false and bad["error"]["code"] == DotError.CODE_INVALID)
+	_check("sync refuses pending that is not a list", bad["ok"] == false and bad["error"]["code"] == GSError.CODE_INVALID)
 	var plain := await bridge.handle({"dot": "dot-inventory", "op": "sync", "id": 32}, site)
 	_check("sync with nothing pending just reports", plain["ok"] == true and (plain["value"]["packs"] as Array).size() == 2)
 	store.close()
 	_done()
 
 
-func _open(sub: String, limit: int) -> DotCloudStore:
-	var cfg := DotCloudConfig.new()
+func _open(sub: String, limit: int) -> GSCloudStore:
+	var cfg := GSCloudConfig.new()
 	cfg.cache_dir = WORK.path_join(sub)
 	cfg.cache_bytes = limit
-	var store := DotCloudStore.new(cfg)
-	var opened: DotResult = await store.open()
+	var store := GSCloudStore.new(cfg)
+	var opened: GSResult = await store.open()
 	if not opened.ok:
 		_line("FAILED opening store %s: %s" % [sub, str(opened.error)])
 		_finish(1)
 	return store
 
 
-func _put(store: DotCloudStore, seed_byte: int) -> String:
+func _put(store: GSCloudStore, seed_byte: int) -> String:
 	var b := PackedByteArray()
 	b.resize(OBJ)
 	for i in range(OBJ):
 		b[i] = (seed_byte * 7 + i) % 251
-	var h := DotHash.sha256_bytes(b)
+	var h := GSHash.sha256_bytes(b)
 	var res := store.put_bytes(b, h)
 	if not res.ok:
 		_line("FAILED put_bytes: %s" % str(res.error))
 	return h
 
 
-func _manifest(id: String, version: String, kind: String, game: String, hashes: Array) -> DotCloudManifest:
-	var m := DotCloudManifest.new()
+func _manifest(id: String, version: String, kind: String, game: String, hashes: Array) -> GSCloudManifest:
+	var m := GSCloudManifest.new()
 	m.content_id = id
 	m.version = version
 	m.metadata = {"kind": kind}
 	if game != "" and game != id:
 		m.metadata["game"] = game
 	for h in hashes:
-		var f := DotCloudFile.new()
+		var f := GSCloudFile.new()
 		f.path = "f_%s" % str(h).substr(0, 8)
 		f.sha256 = h
 		f.size = OBJ
@@ -422,7 +422,7 @@ func _find(inv: Array[Dictionary], id: String) -> Dictionary:
 
 
 func _finish(code: int = 0) -> void:
-	if DotPlatform.is_headless():
+	if GSPlatform.is_headless():
 		await get_tree().process_frame
 		get_tree().quit(code)
 

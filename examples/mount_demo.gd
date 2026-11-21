@@ -1,6 +1,6 @@
 extends Control
 
-## Exercises [DotCloudMounter] directly — the last class in this addon that no
+## Exercises [GSCloudMounter] directly — the last class in this addon that no
 ## example named.
 ##
 ## The three pipeline demos all mount, but only along the one path a successful
@@ -32,9 +32,9 @@ const CHECKS := 128
 
 var _failures: int = 0
 var _checks: int = 0
-var _scheduler: DotScheduler
-var _config: DotCloudConfig
-var _store: DotCloudStore
+var _scheduler: GSScheduler
+var _config: GSCloudConfig
+var _store: GSCloudStore
 
 ## Sections are coroutines, and a coroutine that returns early takes its
 ## remaining assertions with it silently. Counting entries against exits is the
@@ -44,7 +44,7 @@ var _sections_finished: int = 0
 
 
 func _ready() -> void:
-	DotLog.set_level(DotLog.Level.INFO)
+	GSLog.set_level(GSLog.Level.INFO)
 	await _run()
 
 
@@ -52,18 +52,18 @@ func _run() -> void:
 	_line("[b]dot-cloud mounter[/b]")
 	_line("")
 
-	DotPaths.remove_tree(WORK)
+	GSPaths.remove_tree(WORK)
 
-	_scheduler = DotScheduler.new()
+	_scheduler = GSScheduler.new()
 	_scheduler.name = "MountScheduler"
 	add_child(_scheduler)
 
-	_config = DotCloudConfig.new()
+	_config = GSCloudConfig.new()
 	_config.cache_dir = WORK.path_join("cache")
 	_config.verify_before_mount = true
 	_config.enforce_mount_prefix = true
 
-	_store = DotCloudStore.new(_config)
+	_store = GSCloudStore.new(_config)
 	var opened := await _store.open()
 	if not opened.ok:
 		return _fail("opening the store", opened)
@@ -121,23 +121,23 @@ func _section_republished_version() -> void:
 	_line("[b]6. a version republished with different files[/b]")
 
 	var first := _blob("republish-a", 512)
-	_store.put_bytes(first, DotHash.sha256_bytes(first))
+	_store.put_bytes(first, GSHash.sha256_bytes(first))
 
 	var m1 := _manifest("republished", "1.0.0", [["a.txt", first, true]])
-	var r1: DotResult = await DotCloudMounter.new(_config).mount(m1, _store, _scheduler)
+	var r1: GSResult = await GSCloudMounter.new(_config).mount(m1, _store, _scheduler)
 	_check("the first publish mounts", r1.ok, str(r1.error) if not r1.ok else "")
 
 	# A SECOND mounter over the SAME cache: one process cannot mount a key twice, and
 	# the bug is about what the next process finds sitting in the pack cache.
 	var added := _blob("republish-b", 512)
-	_store.put_bytes(added, DotHash.sha256_bytes(added))
+	_store.put_bytes(added, GSHash.sha256_bytes(added))
 
 	var m2 := _manifest("republished", "1.0.0", [
 		["a.txt", first, true],
 		["b.txt", added, true],
 	])
 
-	var r2: DotResult = await DotCloudMounter.new(_config).mount(m2, _store, _scheduler)
+	var r2: GSResult = await GSCloudMounter.new(_config).mount(m2, _store, _scheduler)
 	_check("and the republished one mounts", r2.ok, str(r2.error) if not r2.ok else "")
 
 	# The whole point. Before the fix this is the file the cached pack does not have,
@@ -151,11 +151,11 @@ func _section_republished_version() -> void:
 	# A pack whose build was killed keeps its placeholder header (directory offset 0); the
 	# engine read that as ~1e9 entries and spun forever. It must be rebuilt, not reused.
 	var cut := _blob("cut-short", 512)
-	_store.put_bytes(cut, DotHash.sha256_bytes(cut))
+	_store.put_bytes(cut, GSHash.sha256_bytes(cut))
 	var m3 := _manifest("cutshort", "1.0.0", [["c.txt", cut, true]])
-	var m3_mounter := DotCloudMounter.new(_config)
+	var m3_mounter := GSCloudMounter.new(_config)
 	var stale: String = m3_mounter._pack_path(m3, m3.wanted_files())
-	DotPaths.ensure_parent_dir(stale)
+	GSPaths.ensure_parent_dir(stale)
 	var w := FileAccess.open(stale, FileAccess.WRITE)
 	w.store_buffer("GDPC".to_ascii_buffer())
 	for v in [4, 4, 7, 2, 2]:
@@ -164,14 +164,14 @@ func _section_republished_version() -> void:
 	w.store_64(0)
 	w.store_buffer(_blob("pad", 200))
 	w.close()
-	_check("a cut-short pack is not intact", not DotCloudMounter.pack_intact(stale))
-	var r3: DotResult = await m3_mounter.mount(m3, _store, _scheduler)
+	_check("a cut-short pack is not intact", not GSCloudMounter.pack_intact(stale))
+	var r3: GSResult = await m3_mounter.mount(m3, _store, _scheduler)
 	_check(
 		"and is rebuilt rather than mounted",
 		r3.ok and FileAccess.file_exists("res://dot_cloud/cutshort/1.0.0/c.txt"),
 		str(r3.error) if not r3.ok else ""
 	)
-	_check("the rebuilt pack is intact", DotCloudMounter.pack_intact(stale))
+	_check("the rebuilt pack is intact", GSCloudMounter.pack_intact(stale))
 
 	_line("")
 	_sections_finished += 1
@@ -195,7 +195,7 @@ func _section_traversal() -> void:
 		var res := m.validate()
 		_check(
 			"version '%s' refused" % bad,
-			not res.ok and res.error.code == DotError.CODE_INVALID,
+			not res.ok and res.error.code == GSError.CODE_INVALID,
 			"prefix would have been %s" % m.mount_prefix() if res.ok else ""
 		)
 
@@ -216,11 +216,11 @@ func _section_incomplete() -> void:
 	_sections_started += 1
 	_line("[b]2. a half-downloaded mount is refused whole[/b]")
 
-	var mounter := DotCloudMounter.new(_config)
+	var mounter := GSCloudMounter.new(_config)
 
 	var present := _blob("present", 512)
 	var absent := _blob("absent", 512)
-	var put := _store.put_bytes(present, DotHash.sha256_bytes(present))
+	var put := _store.put_bytes(present, GSHash.sha256_bytes(present))
 	_check("object stored", put.ok, str(put.error) if not put.ok else "")
 
 	var m := _manifest("incomplete", "1.0.0", [
@@ -228,10 +228,10 @@ func _section_incomplete() -> void:
 		["missing.txt", absent, true],
 	])
 
-	var res: DotResult = await mounter.mount(m, _store, _scheduler)
+	var res: GSResult = await mounter.mount(m, _store, _scheduler)
 	_check(
 		"required file missing -> refused",
-		not res.ok and res.error.code == DotError.CODE_STATE,
+		not res.ok and res.error.code == GSError.CODE_STATE,
 		str(res.error.code) if not res.ok else "MOUNTED"
 	)
 	_check("nothing recorded as mounted", mounter.mounted_keys().is_empty())
@@ -243,7 +243,7 @@ func _section_incomplete() -> void:
 		["ok.txt", present, true],
 		["missing.txt", absent, false],
 	])
-	var res2: DotResult = await mounter.mount(m2, _store, _scheduler)
+	var res2: GSResult = await mounter.mount(m2, _store, _scheduler)
 	_check("optional file missing -> mounts", res2.ok,
 		str(res2.error) if not res2.ok else "")
 	if res2.ok:
@@ -266,9 +266,9 @@ func _section_mount_and_read() -> void:
 	_sections_started += 1
 	_line("[b]3. mount, read back, and the namespace[/b]")
 
-	var mounter := DotCloudMounter.new(_config)
+	var mounter := GSCloudMounter.new(_config)
 	var body := _blob("fc-v1", 2048)
-	_store.put_bytes(body, DotHash.sha256_bytes(body))
+	_store.put_bytes(body, GSHash.sha256_bytes(body))
 
 	# A real .tscn, not a .txt standing in for one. entry_scene_of() gates on
 	# ResourceLoader.exists(), which answers "is there a loader registered for
@@ -279,7 +279,7 @@ func _section_mount_and_read() -> void:
 		"[gd_scene format=3]\n\n"
 		+ "[node name=\"Level\" type=\"Node\"]\n"
 	).to_utf8_buffer()
-	_store.put_bytes(scene_src, DotHash.sha256_bytes(scene_src))
+	_store.put_bytes(scene_src, GSHash.sha256_bytes(scene_src))
 
 	var m := _manifest("fc", "1.0.0", [
 		["level.txt", body, true],
@@ -287,7 +287,7 @@ func _section_mount_and_read() -> void:
 	])
 	m.entry_scene = "level.tscn"
 
-	var res: DotResult = await mounter.mount(m, _store, _scheduler)
+	var res: GSResult = await mounter.mount(m, _store, _scheduler)
 	_check("mounted", res.ok, str(res.error) if not res.ok else "")
 	if not res.ok:
 		_line("")
@@ -300,14 +300,14 @@ func _section_mount_and_read() -> void:
 		str(res.value) == "res://dot_cloud/fc/1.0.0", str(res.value)
 	)
 
-	var read := DotPaths.read_bytes(m.mount_prefix().path_join("level.txt"))
+	var read := GSPaths.read_bytes(m.mount_prefix().path_join("level.txt"))
 	_check("readable through res://", read.ok)
 	if read.ok:
 		_check("bytes are the cached object", (read.value as PackedByteArray) == body)
 
 	# Mounting the same key twice must be a cheap no-op, not a second
 	# load_resource_pack of a pack that is already merged in.
-	var again: DotResult = await mounter.mount(m, _store, _scheduler)
+	var again: GSResult = await mounter.mount(m, _store, _scheduler)
 	_check("second mount is a no-op", again.ok and str(again.value) == m.mount_prefix())
 	_check("still one mount", mounter.mounted_keys().size() == 1)
 
@@ -333,18 +333,18 @@ func _section_mount_and_read() -> void:
 	# success handing back a dead path.
 	var m_txt := _manifest("fc", "1.0.1", [["level.txt", body, true]])
 	m_txt.entry_scene = "level.txt"
-	var txt_mounted: DotResult = await mounter.mount(m_txt, _store, _scheduler)
+	var txt_mounted: GSResult = await mounter.mount(m_txt, _store, _scheduler)
 	if txt_mounted.ok:
 		var bad_entry := mounter.entry_scene_of(m_txt.key())
 		_check("an unloadable entry scene is refused as IO",
-			not bad_entry.ok and bad_entry.error.code == DotError.CODE_IO,
+			not bad_entry.ok and bad_entry.error.code == GSError.CODE_IO,
 			str(bad_entry.error.code) if not bad_entry.ok else "ACCEPTED")
 
 	# The store must be holding the content back from eviction while mounted.
 	_check(
 		"mount took a store ref",
-		_store.ref_count(DotHash.sha256_bytes(body)) > 0,
-		"%d" % _store.ref_count(DotHash.sha256_bytes(body))
+		_store.ref_count(GSHash.sha256_bytes(body)) > 0,
+		"%d" % _store.ref_count(GSHash.sha256_bytes(body))
 	)
 
 	_line("")
@@ -357,7 +357,7 @@ func _section_two_versions() -> void:
 	_sections_started += 1
 	_line("[b]4. two versions of one content set, mounted at once[/b]")
 
-	var mounter := DotCloudMounter.new(_config)
+	var mounter := GSCloudMounter.new(_config)
 
 	# Same *paths*, different bytes, different versions. On the naive design
 	# (mount both at res://game/) v1's bytes would answer for a file v2 also
@@ -368,7 +368,7 @@ func _section_two_versions() -> void:
 	var v2_shared := _blob("shared-v2", 300)
 
 	for b in [v1_shared, v1_only, v2_shared]:
-		_store.put_bytes(b, DotHash.sha256_bytes(b))
+		_store.put_bytes(b, GSHash.sha256_bytes(b))
 
 	var m1 := _manifest("dm_arena", "1.0.0", [
 		["shared.txt", v1_shared, true],
@@ -378,9 +378,9 @@ func _section_two_versions() -> void:
 		["shared.txt", v2_shared, true],
 	])
 
-	var r1: DotResult = await mounter.mount(m1, _store, _scheduler)
+	var r1: GSResult = await mounter.mount(m1, _store, _scheduler)
 	_check("v1 mounted", r1.ok, str(r1.error) if not r1.ok else "")
-	var r2: DotResult = await mounter.mount(m2, _store, _scheduler)
+	var r2: GSResult = await mounter.mount(m2, _store, _scheduler)
 	_check("v2 mounted alongside", r2.ok, str(r2.error) if not r2.ok else "")
 	if not (r1.ok and r2.ok):
 		_line("")
@@ -391,8 +391,8 @@ func _section_two_versions() -> void:
 		str(mounter.mounted_keys()))
 	_check("prefixes differ", m1.mount_prefix() != m2.mount_prefix())
 
-	var s1 := DotPaths.read_bytes(m1.mount_prefix().path_join("shared.txt"))
-	var s2 := DotPaths.read_bytes(m2.mount_prefix().path_join("shared.txt"))
+	var s1 := GSPaths.read_bytes(m1.mount_prefix().path_join("shared.txt"))
+	var s2 := GSPaths.read_bytes(m2.mount_prefix().path_join("shared.txt"))
 	_check("v1 shared.txt is v1's bytes", s1.ok and (s1.value as PackedByteArray) == v1_shared)
 	_check("v2 shared.txt is v2's bytes", s2.ok and (s2.value as PackedByteArray) == v2_shared)
 
@@ -418,13 +418,13 @@ func _section_unmount_and_remount() -> void:
 	_sections_started += 1
 	_line("[b]5. unmount, and re-entering the same version[/b]")
 
-	var mounter := DotCloudMounter.new(_config)
+	var mounter := GSCloudMounter.new(_config)
 	var body := _blob("rotation", 800)
-	var hash := DotHash.sha256_bytes(body)
+	var hash := GSHash.sha256_bytes(body)
 	_store.put_bytes(body, hash)
 
 	var m := _manifest("rotate", "1.0.0", [["map.txt", body, true]])
-	var mounted: DotResult = await mounter.mount(m, _store, _scheduler)
+	var mounted: GSResult = await mounter.mount(m, _store, _scheduler)
 	_check("mounted", mounted.ok, str(mounted.error) if not mounted.ok else "")
 
 	_check("ref held while mounted", _store.ref_count(hash) > 0)
@@ -452,14 +452,14 @@ func _section_unmount_and_remount() -> void:
 
 	var un_twice := mounter.unmount(m.key(), _store)
 	_check("unmounting twice is an error, not a crash",
-		not un_twice.ok and un_twice.error.code == DotError.CODE_INVALID)
+		not un_twice.ok and un_twice.error.code == GSError.CODE_INVALID)
 
 	# Map rotation: back to the same version later in the session. The pack file
 	# was cached by _pack_path, so this is a re-mount of a pack already built.
-	var re: DotResult = await mounter.mount(m, _store, _scheduler)
+	var re: GSResult = await mounter.mount(m, _store, _scheduler)
 	_check("re-mounted the same version", re.ok, str(re.error) if not re.ok else "")
 	_check("ref taken again", _store.ref_count(hash) > 0)
-	var reread := DotPaths.read_bytes(m.mount_prefix().path_join("map.txt"))
+	var reread := GSPaths.read_bytes(m.mount_prefix().path_join("map.txt"))
 	_check("still the right bytes", reread.ok and (reread.value as PackedByteArray) == body)
 
 	_line("")
@@ -472,7 +472,7 @@ func _section_queries() -> void:
 	_sections_started += 1
 	_line("[b]7. queries[/b]")
 
-	var mounter := DotCloudMounter.new(_config)
+	var mounter := GSCloudMounter.new(_config)
 
 	_check("nothing mounted yet", mounter.mounted_keys().is_empty())
 	_check("describe_lines says so",
@@ -483,13 +483,13 @@ func _section_queries() -> void:
 		not mounter.needs_restart_to_reclaim())
 
 	var body := _blob("queries", 128)
-	_store.put_bytes(body, DotHash.sha256_bytes(body))
+	_store.put_bytes(body, GSHash.sha256_bytes(body))
 
 	# Deliberately mounted out of alphabetical order: mounted_keys() sorts, and
 	# describe() is a bug-report surface that should be stable between runs.
 	for id in ["zulu", "alpha", "mike"]:
 		var m := _manifest(id, "1.0.0", [["f.txt", body, true]])
-		var r: DotResult = await mounter.mount(m, _store, _scheduler)
+		var r: GSResult = await mounter.mount(m, _store, _scheduler)
 		if not r.ok:
 			_check("mounting %s" % id, false, str(r.error))
 
@@ -506,21 +506,21 @@ func _section_queries() -> void:
 	# testing it. The decision is what a caller reads; the exec is one OS call
 	# behind it. See the note on the method.
 	_check("needs_restart_to_reclaim follows the platform while mounted",
-		mounter.needs_restart_to_reclaim() == (not DotPlatform.can_unmount_packs()),
+		mounter.needs_restart_to_reclaim() == (not GSPlatform.can_unmount_packs()),
 		"mounted=%d can_unmount=%s needs_restart=%s" % [
 			keys.size(),
-			DotPlatform.can_unmount_packs(),
+			GSPlatform.can_unmount_packs(),
 			mounter.needs_restart_to_reclaim(),
 		])
-	if DotPlatform.can_unmount_packs():
+	if GSPlatform.can_unmount_packs():
 		_check("nothing to reclaim where packs really unmount",
 			not mounter.needs_restart_to_reclaim())
 
 	var described := mounter.describe()
 	_check("describe reports the unmount capability",
-		described.get("can_unmount") == DotPlatform.can_unmount_packs())
+		described.get("can_unmount") == GSPlatform.can_unmount_packs())
 	_check("describe reports the restart capability",
-		described.get("can_restart") == DotPlatform.can_self_restart())
+		described.get("can_restart") == GSPlatform.can_self_restart())
 
 	var d := mounter.describe()
 	_check("describe lists all three", (d["mounted"] as Array).size() == 3)
@@ -534,7 +534,7 @@ func _section_queries() -> void:
 	# and must be told apart from one whose entry scene failed to mount.
 	var no_entry := mounter.entry_scene_of("alpha@1.0.0")
 	_check("no entry scene is INVALID, not IO",
-		not no_entry.ok and no_entry.error.code == DotError.CODE_INVALID,
+		not no_entry.ok and no_entry.error.code == GSError.CODE_INVALID,
 		str(no_entry.error.code) if not no_entry.ok else "")
 
 	_line("")
@@ -572,12 +572,12 @@ func _section_uid_refusal() -> void:
 	_line("[b]8. refused uids: identical content is quiet[/b]")
 
 	var dir := WORK.path_join("uidref")
-	DotPaths.remove_tree(dir)
+	GSPaths.remove_tree(dir)
 	DirAccess.make_dir_recursive_absolute(dir)
 	var cases := {"same": ["pixels", "pixels"], "diff": ["pixels", "other"], "gone": ["pixels", ""]}
 	var first_id := 0x5a17e0c10d01
 
-	DotLog.signals().record.connect(_on_record)
+	GSLog.signals().record.connect(_on_record)
 	var n := 0
 	for key in cases:
 		var held := dir.path_join("held_%s.bin" % key)
@@ -593,13 +593,13 @@ func _section_uid_refusal() -> void:
 			DirAccess.remove_absolute(held)
 		ResourceUID.add_id(id, held)
 
-		var f := DotCloudFile.new()
+		var f := GSCloudFile.new()
 		f.path = "pack_%s.bin.import" % key
-		var files: Array[DotCloudFile] = [f]
+		var files: Array[GSCloudFile] = [f]
 		_records.clear()
 		var count: int = Uids.register(files, dir, "mounted_elsewhere")
-		var errors := _records.filter(func(r): return int(r["level"]) >= DotLog.Level.ERROR)
-		var warns := _records.filter(func(r): return int(r["level"]) == DotLog.Level.WARN)
+		var errors := _records.filter(func(r): return int(r["level"]) >= GSLog.Level.ERROR)
+		var warns := _records.filter(func(r): return int(r["level"]) == GSLog.Level.WARN)
 
 		_check("%s: nothing registered" % key, count == 0, "%d" % count)
 
@@ -607,15 +607,15 @@ func _section_uid_refusal() -> void:
 			_check("same: no error or warning logged", errors.is_empty() and warns.is_empty(),
 				"%d errors, %d warnings" % [errors.size(), warns.size()])
 			_check("same: summary logged at info", _records.any(
-				func(r): return int(r["level"]) == DotLog.Level.INFO))
+				func(r): return int(r["level"]) == GSLog.Level.INFO))
 		else:
 			_check("%s: still reported as an error" % key, errors.size() == 1, "%d" % errors.size())
 			_check("%s: per-uid warning kept" % key, warns.size() == 1, "%d" % warns.size())
 
 		ResourceUID.remove_id(id)
 
-	DotLog.signals().record.disconnect(_on_record)
-	DotPaths.remove_tree(dir)
+	GSLog.signals().record.disconnect(_on_record)
+	GSPaths.remove_tree(dir)
 	_sections_finished += 1
 
 
@@ -625,18 +625,18 @@ func _write(path: String, text: String) -> void:
 	fa.close()
 
 
-func _manifest(id: String, version: String, entries: Array) -> DotCloudManifest:
-	var m := DotCloudManifest.new()
+func _manifest(id: String, version: String, entries: Array) -> GSCloudManifest:
+	var m := GSCloudManifest.new()
 	m.content_id = id
 	m.version = version
 	m.display_name = id
 	m.mount_root = "dot_cloud"
 
 	for e in entries:
-		var f := DotCloudFile.new()
+		var f := GSCloudFile.new()
 		f.path = str(e[0])
 		var bytes: PackedByteArray = e[1]
-		f.sha256 = DotHash.sha256_bytes(bytes)
+		f.sha256 = GSHash.sha256_bytes(bytes)
 		f.size = bytes.size()
 		f.required = bool(e[2])
 		m.files.append(f)
@@ -656,7 +656,7 @@ func _blob(seed_text: String, size: int) -> PackedByteArray:
 	return out
 
 
-func _fail(what: String, res: DotResult) -> void:
+func _fail(what: String, res: GSResult) -> void:
 	_line("")
 	_line("[b]FAILED at %s[/b]" % what)
 	_line("  %s" % str(res.error))
@@ -664,7 +664,7 @@ func _fail(what: String, res: DotResult) -> void:
 
 
 func _finish(code: int = 0) -> void:
-	if DotPlatform.is_headless():
+	if GSPlatform.is_headless():
 		await get_tree().process_frame
 		get_tree().quit(code)
 

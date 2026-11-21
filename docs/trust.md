@@ -4,24 +4,24 @@
 
 Everything downstream trusts it: the hashes decide what counts as a valid download, and the paths decide what gets mounted. Godot packs can contain scripts, so **a client that mounts content from an unsigned manifest runs whatever the server sent.** Per-file hashes do not help: they prove a file matches what the manifest said, and the manifest is the thing under attack.
 
-`DotCloudConfig.require_signed_manifests` defaults to `true` and `validate()` refuses to boot without a trusted key. Turning it off is legitimate for LAN play, first-party servers and development, and logs a warning every time.
+`GSCloudConfig.require_signed_manifests` defaults to `true` and `validate()` refuses to boot without a trusted key. Turning it off is legitimate for LAN play, first-party servers and development, and logs a warning every time.
 
 ## Both path components are checked
 
-`content_id` must equal its own slug. `version` cannot be held to that (`slugify("1.0.0")` is `1_0_0`, so equality would refuse every semver), and for a long time the only check was that it slugified to something non-empty. `slugify("../evil")` is `"evil"`, and `mount_prefix()` interpolates the raw string, so `version: "../.."` validated and mounted at `res://`: exactly the shadowing `mount_root` exists to prevent. A version now gets `safe_relative` plus a separator check, because it is one path **component**, not a path. `DotCloudMounter._check_prefix` simplifies both sides before comparing, so it is independent of the manifest check rather than agreeing with whatever it let through. `mount_demo`'s section 1 is the assertion.
+`content_id` must equal its own slug. `version` cannot be held to that (`slugify("1.0.0")` is `1_0_0`, so equality would refuse every semver), and for a long time the only check was that it slugified to something non-empty. `slugify("../evil")` is `"evil"`, and `mount_prefix()` interpolates the raw string, so `version: "../.."` validated and mounted at `res://`: exactly the shadowing `mount_root` exists to prevent. A version now gets `safe_relative` plus a separator check, because it is one path **component**, not a path. `GSCloudMounter._check_prefix` simplifies both sides before comparing, so it is independent of the manifest check rather than agreeing with whatever it let through. `mount_demo`'s section 1 is the assertion.
 
 ## The envelope
 
-**Signatures live outside the document they sign.** A published manifest is a `DotCloudEnvelope`:
+**Signatures live outside the document they sign.** A published manifest is a `GSCloudEnvelope`:
 
 ```json
 { "dot_cloud_signed": 1, "algorithm": "RS256", "key_id": "default",
   "signature": "<base64>", "payload": "<base64url of the manifest JSON>" }
 ```
 
-A signature inside the manifest over a canonical re-serialisation failed to verify every time, because the file on disk was pretty-printed and the signed bytes were not. Canonical JSON is a whole specification (RFC 8785); an opaque base64url payload means the verifier checks the exact bytes it received with no reformatting anywhere, the same reason JWS is shaped this way. `DotCloudManifest.from_json_bytes()` is the single entry point and unwraps the envelope transparently, so no caller can verify against the wrong bytes.
+A signature inside the manifest over a canonical re-serialisation failed to verify every time, because the file on disk was pretty-printed and the signed bytes were not. Canonical JSON is a whole specification (RFC 8785); an opaque base64url payload means the verifier checks the exact bytes it received with no reformatting anywhere, the same reason JWS is shaped this way. `GSCloudManifest.from_json_bytes()` is the single entry point and unwraps the envelope transparently, so no caller can verify against the wrong bytes.
 
-**RSA for manifests, Ed25519 for tokens.** Godot's `Crypto` exposes RSA sign/verify via mbedTLS and no EdDSA, so manifests are signed with RSA. `DotCloudSignature.verify_ed25519(bytes, signature, key_bytes)` checks an Ed25519 signature made elsewhere (the site's entitlement tokens; raw 64-byte signature, raw 32-byte key) with the pure-GDScript `DotCloudEd25519` (and `DotCloudSha512`), so it works on every export target. It is strict (RFC 8032: scalar below the group order, canonical key, point on the curve), fails with a code and a reason, and verifies only; it costs about a second of script time, so verify a token once and keep the verdict.
+**RSA for manifests, Ed25519 for tokens.** Godot's `Crypto` exposes RSA sign/verify via mbedTLS and no EdDSA, so manifests are signed with RSA. `GSCloudSignature.verify_ed25519(bytes, signature, key_bytes)` checks an Ed25519 signature made elsewhere (the site's entitlement tokens; raw 64-byte signature, raw 32-byte key) with the pure-GDScript `GSCloudEd25519` (and `GSCloudSha512`), so it works on every export target. It is strict (RFC 8032: scalar below the group order, canonical key, point on the curve), fails with a code and a reason, and verifies only; it costs about a second of script time, so verify a token once and keep the verdict.
 
 ## A key floor, enforced on verify
 
@@ -43,11 +43,11 @@ A bare PEM in `trusted_keys` is trusted for every content id there is. With two 
 
 `verify_for` does both halves and the failure says which ("The manifest is not signed by any trusted key" against "'community-alice' is not trusted to publish 'fc'"). **Verification first, entitlement second**: a scope check on an unverified manifest is a check on a claim the attacker wrote.
 
-`DotCloudConfig.validate()` warns about several keys with at least one unscoped, and says nothing about a single unscoped key. It warns rather than refuses: a client that will not start is worse than one that says so, and the content still has to be signed by a key in the set.
+`GSCloudConfig.validate()` warns about several keys with at least one unscoped, and says nothing about a single unscoped key. It warns rather than refuses: a client that will not start is worse than one that says so, and the content still has to be signed by a key in the set.
 
 ## Other boundaries
 
 - The in-band source's delegate must refuse hashes the client has no business requesting, or it is a way to read the server's cache ([sources.md](sources.md#the-in-band-source)).
-- A manifest entry's `side` (API 8) is inside the signed payload, and the side a process fetches as is its own `DotCloudConfig.side`, never something a server sends ([mounting.md](mounting.md#a-pack-can-leave-files-out-per-side)). A side value this build does not know is read as both, not refused: a side is a fetch hint, never access control, since every object is on the same public mirrors, and refusing would fail every released build the day a later level adds one.
+- A manifest entry's `side` (API 8) is inside the signed payload, and the side a process fetches as is its own `GSCloudConfig.side`, never something a server sends ([mounting.md](mounting.md#a-pack-can-leave-files-out-per-side)). A side value this build does not know is read as both, not refused: a side is a fetch hint, never access control, since every object is on the same public mirrors, and refusing would fail every released build the day a later level adds one.
 - A local source still verifies hashes: a development source is being edited, so it is not automatically trustworthy.
 - An addon overlay is admitted only signed, only upward and only from configured namespaces ([addon-packs.md](addon-packs.md#what-keeps-it-from-doing-harm)).

@@ -1,4 +1,4 @@
-class_name DotCloudWorkshopList
+class_name GSCloudWorkshopList
 extends RefCounted
 
 ## One game's resolved subscription list, as the site answered it: the items, the revision, the
@@ -10,8 +10,8 @@ extends RefCounted
 var response: Dictionary = {}
 
 
-static func from_response(p_response: Dictionary) -> DotCloudWorkshopList:
-	var l := DotCloudWorkshopList.new()
+static func from_response(p_response: Dictionary) -> GSCloudWorkshopList:
+	var l := GSCloudWorkshopList.new()
 	l.response = p_response
 	return l
 

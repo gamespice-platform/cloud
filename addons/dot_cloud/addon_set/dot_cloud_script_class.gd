@@ -1,4 +1,4 @@
-class_name DotCloudScriptClass
+class_name GSCloudScriptClass
 extends RefCounted
 
 ## Godot's global class list, rebuilt for scripts the editor never saw.
@@ -201,7 +201,7 @@ static func _base_of(header: Dictionary, headers: Dictionary, depth: int) -> Str
 		return str((parent as Dictionary)["class"])
 
 	# A class_name-less parent: by a res:// path the engine records that parent's own base
-	# (DotHttp: Node), by a relative path it records "" (dot_cloud_client.gd).
+	# (GSHttp: Node), by a relative path it records "" (dot_cloud_client.gd).
 	if by_path.begins_with("res://"):
 		return _base_of(parent, headers, depth + 1)
 	return ""

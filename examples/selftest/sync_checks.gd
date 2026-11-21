@@ -5,28 +5,28 @@ extends RefCounted
 
 
 ## Returns false after reporting a setup failure. A signed [param manifest] must still be refused when tampered, when its key is too weak, and when empty.
-static func signature_refusals(h: Node, manifest: DotCloudManifest, key_pair: Dictionary) -> bool:
+static func signature_refusals(h: Node, manifest: GSCloudManifest, key_pair: Dictionary) -> bool:
 	# A tampered manifest must fail. Without this check a signature routine that
 	# always returns true would pass every other test in this file.
 	var tampered := manifest.raw_bytes.duplicate()
 	tampered[tampered.size() - 2] = 0x20
-	var tamper_check := DotCloudSignature.verify(
+	var tamper_check := GSCloudSignature.verify(
 		tampered, manifest.signature, str(key_pair["public"])
 	)
 	h._check("tamper refused", not tamper_check.ok)
 
 	# A key too weak to mean anything must be refused before any crypto runs: 1024-bit RSA still verifies under mbedTLS, and a valid signature from a broken
-	# key looks good everywhere downstream, which is why MIN_KEY_BITS exists. Generated through Crypto directly because DotCloudSignature.generate_keypair
+	# key looks good everywhere downstream, which is why MIN_KEY_BITS exists. Generated through Crypto directly because GSCloudSignature.generate_keypair
 	# refuses this size: such a key comes from an old setup or a trusted_keys entry in a layered config file.
 	var weak_key := Crypto.new().generate_rsa(1024)
 	if weak_key == null:
 		h._fail(
 			"generating a 1024-bit key",
-			DotResult.fail(DotError.CODE_INTERNAL, "generate_rsa(1024) failed")
+			GSResult.fail(GSError.CODE_INTERNAL, "generate_rsa(1024) failed")
 		)
 		return false
 
-	var weak_sig := DotCloudSignature.sign(
+	var weak_sig := GSCloudSignature.sign(
 		manifest.raw_bytes, weak_key.save_to_string(false)
 	)
 	if not weak_sig.ok:
@@ -35,21 +35,21 @@ static func signature_refusals(h: Node, manifest: DotCloudManifest, key_pair: Di
 
 	# This signature is genuinely valid (128 bytes, and mbedTLS verifies it against its own key), yet must be refused as FORBIDDEN, too weak
 	# to consider, and not as INTEGRITY, which would mean the key was considered and only the bytes disagreed.
-	var weak_check := DotCloudSignature.verify(
+	var weak_check := GSCloudSignature.verify(
 		manifest.raw_bytes,
 		str(weak_sig.value),
 		weak_key.save_to_string(true)
 	)
 	h._check(
 		"weak key refused",
-		not weak_check.ok and weak_check.error.code == DotError.CODE_FORBIDDEN,
+		not weak_check.ok and weak_check.error.code == GSError.CODE_FORBIDDEN,
 		"" if not weak_check.ok else "ACCEPTED"
 	)
 
 	# A zero-byte manifest is what a truncated response looks like. This has to
-	# come back as a failed DotResult, not as an engine error out of
-	# HashingContext.update() with a DotResult that claims success.
-	var empty_check := DotCloudSignature.verify(
+	# come back as a failed GSResult, not as an engine error out of
+	# HashingContext.update() with a GSResult that claims success.
+	var empty_check := GSCloudSignature.verify(
 		PackedByteArray(), manifest.signature, str(key_pair["public"])
 	)
 	h._check("empty body refused", not empty_check.ok)

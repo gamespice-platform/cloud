@@ -1,5 +1,5 @@
-class_name DotCloudAutoUpdateConfig
-extends DotConfig
+class_name GSCloudAutoUpdateConfig
+extends GSConfig
 
 ## What a dedicated server does when a newer version of a pack it runs is published.
 ## Layers, weakest first: defaults < `autoupdate.yml` under `cfg/` < `DOT_CLOUD_AUTOUPDATE_*` < `--autoupdate-<key>=`;
@@ -48,35 +48,35 @@ func cli_prefix() -> String:
 	return "--autoupdate-"
 
 
-func validate() -> DotResult:
+func validate() -> GSResult:
 	if check_interval < 10.0:
-		return DotResult.fail(DotError.CODE_INVALID, "check_interval must be at least 10.")
+		return GSResult.fail(GSError.CODE_INVALID, "check_interval must be at least 10.")
 	if warn_seconds < 0 or max_wait < 0:
-		return DotResult.fail(DotError.CODE_INVALID, "warn_seconds and max_wait cannot be negative.")
+		return GSResult.fail(GSError.CODE_INVALID, "warn_seconds and max_wait cannot be negative.")
 	if restart_exit_code <= 0 or restart_exit_code > 255:
-		return DotResult.fail(DotError.CODE_INVALID, "restart_exit_code must be 1-255.")
-	return DotResult.success(null)
+		return GSResult.fail(GSError.CODE_INVALID, "restart_exit_code must be 1-255.")
+	return GSResult.success(null)
 
 
-## The yml layers of [DotAddonConfig] ([param file_path] alone when given), then env, CLI, validation.
-func load_cfg(file_path: String = "") -> DotResult:
+## The yml layers of [GSAddonConfig] ([param file_path] alone when given), then env, CLI, validation.
+func load_cfg(file_path: String = "") -> GSResult:
 	unknown_keys = PackedStringArray()
 	var layers := PackedStringArray([file_path]) if file_path != "" \
-		else DotAddonConfig.file_layers(CFG_ADDON, CFG_FILE)
+		else GSAddonConfig.file_layers(CFG_ADDON, CFG_FILE)
 	for path in layers:
-		var parsed := DotYaml.parse_file(path)
+		var parsed := GSYaml.parse_file(path)
 		if not parsed.ok:
 			return parsed.wrap("Could not read '%s'." % path)
 		if parsed.value is Dictionary:
 			apply_dictionary(parsed.value, path)
 		elif parsed.value != null:
-			return DotResult.fail(DotError.CODE_PARSE, "'%s' must hold a mapping at the top level." % path)
+			return GSResult.fail(GSError.CODE_PARSE, "'%s' must hold a mapping at the top level." % path)
 	apply_env()
 	apply_cli()
 	var valid := validate()
 	if not valid.ok:
 		return valid.wrap("The auto-update configuration is invalid.")
-	return DotResult.success(self)
+	return GSResult.success(self)
 
 
 ## [member warn_steps] as numbers, largest first, without zeros or duplicates.

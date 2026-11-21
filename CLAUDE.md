@@ -1,6 +1,6 @@
 # GameSpice Cloud
 
-Runtime content delivery for Godot 4: a game server hands a client a manifest, the client works out what it is missing, downloads it, verifies it, and mounts it, on desktop, mobile and in the browser. It also lays newer addon releases over a client build at its next start (`DotCloudAddonSet`), so an addon release does not need a new build.
+Runtime content delivery for Godot 4: a game server hands a client a manifest, the client works out what it is missing, downloads it, verifies it, and mounts it, on desktop, mobile and in the browser. It also lays newer addon releases over a client build at its next start (`GSCloudAddonSet`), so an addon release does not need a new build.
 
 **The distributable is `addons/dot_cloud/`.** It requires [GameSpice Core](../dot-core), which is a separate repository.
 
@@ -16,16 +16,16 @@ Read the family [CLAUDE.md](../../CLAUDE.md) first; this file is only what is sp
 | Read | Before |
 | --- | --- |
 | [docs/README.md](docs/README.md) | the index |
-| [docs/mounting.md](docs/mounting.md) | `DotCloudMounter`, mount paths, unloading, the addon-API check, UIDs at mount |
+| [docs/mounting.md](docs/mounting.md) | `GSCloudMounter`, mount paths, unloading, the addon-API check, UIDs at mount |
 | [docs/trust.md](docs/trust.md) | manifests, signatures, envelopes, trusted keys, anything a server or publisher supplies |
-| [docs/client.md](docs/client.md) | `DotCloudClient`: the registry name, `acquire` by URL, `ensure` by id and version |
-| [docs/store.md](docs/store.md) | `DotCloudStore`: content addressing, the index, partials, the web and mobile limits |
+| [docs/client.md](docs/client.md) | `GSCloudClient`: the registry name, `acquire` by URL, `ensure` by id and version |
+| [docs/store.md](docs/store.md) | `GSCloudStore`: content addressing, the index, partials, the web and mobile limits |
 | [docs/sources.md](docs/sources.md) | local, HTTP and in-band sources, failover, resume, the downloader, published mirrors, prefetch |
 | [docs/cdn-publish.md](docs/cdn-publish.md) | publishing through the site (`/api/app/v1/packs/upload`), the licence gate, `content.lock.json`, `publish_pack.sh --host-addons` (leave out addons the host owns) |
-| [docs/publishing.md](docs/publishing.md) | the CLI and `DotCloudPublisher`: imported assets, path rewriting, `DotCloudRegistry` |
+| [docs/publishing.md](docs/publishing.md) | the CLI and `GSCloudPublisher`: imported assets, path rewriting, `GSCloudRegistry` |
 | [docs/addon-packs.md](docs/addon-packs.md) | `addon_set/`, `boot/`: newer addons over the build |
-| [docs/workshop.md](docs/workshop.md) | `provides.json`, `DotContentIndex`, `workshop/`, session tags, anything a subscription mounts |
-| [docs/auto-update.md](docs/auto-update.md) | `server/`: `DotCloudAutoUpdate`, the exit-code-75 restart contract, `autoupdate.yml` and the `sv_autoupdate_*` cvars |
+| [docs/workshop.md](docs/workshop.md) | `provides.json`, `GSContentIndex`, `workshop/`, session tags, anything a subscription mounts |
+| [docs/auto-update.md](docs/auto-update.md) | `server/`: `GSCloudAutoUpdate`, the exit-code-75 restart contract, `autoupdate.yml` and the `sv_autoupdate_*` cvars |
 | [docs/testing.md](docs/testing.md) | the demos, the fan-out trap, adding a check |
 | [docs/history.md](docs/history.md) | a delivery bug that "cannot be happening"; how each looked |
 
@@ -34,17 +34,17 @@ Read the family [CLAUDE.md](../../CLAUDE.md) first; this file is only what is sp
 | Path | What |
 | --- | --- |
 | `addons/dot_cloud/dot_cloud_config.gd` | layered config; `validate()` refuses unsigned by default |
-| `addons/dot_cloud/dot_cloud_api.gd` | the API level (dot-core's `DotAddonApi` rule) and what each level added: 2 `DotCloudPublisher.extra_files`, 3 `acquire` refuses on `requires.json` before downloading the pack, 4 `ship_import_sources`, 5 `provides`, `DotCloudScriptScan`, `ensure_for_session`, 6 `DotCloudWorkshop`, 7 `client_platform`, 8 `DotCloudFile.side` / `DotCloudConfig.side` / `sides.json`, 9 `DotCloudManifest.bundle` (one signed ZIP of the small objects), `DotCloudPublisher.write_bundle`, `DotCloudConfig.use_bundles`, 10 `DotCloudSliceLoader.loaded` / `named_class_scripts`, `DotCloudClient.warm_content` (compiles a pack's scripts a slice per frame, reports progress), 11 `DotCloudPublisher.script_tokens_dir` (scripts as `.gdc` + `.gd.remap`, made by `publish/tokenize_scripts.sh`), 12 `DotCloudAutoUpdate` / `DotCloudAutoUpdateConfig`, 13 `DotCloudMirrorList` (signed published mirrors), per-base health, `DotCloudClient.load_mirror_list` / `mirror_alternatives` / `prefetch`, 14 `DotCloudMirrorList.parse_signed(..., newest_seen)` refuses a list older than the newest accepted, 15 `DotCloudManifest.dependencies`, `--depends`, 18 `DotCloudJobProgress` (`DotCloudClient.job_progress_changed`), 19 `DotCloudConfig.parallel_packs`, `DotCloudDownloaderPool` (dependencies download side by side; their manifests resolve under the same cap), 20 one total bar across a whole launch: `DotCloudClient.job_register` / `job_download` / `job_begin_unpack` / `read_pack_file`, `DotCloudWorkshop.defer_mount` / `mount_pending`, and the job snapshot's `phase`, `unpack_done`, `unpack_total`, 21 `DotCloudInventoryReport`, 22 groups are mounted, `"*"` selects every group, `DotCloudClient.ensure_groups_at`, 23 outer jobs take `groups`, 24 `DotCloudAddonSet.groups` (an overlay holds this side's files and the chosen groups), 25 `groups.json` rules match an `_imported/` output by its asset, 26 `DotCloudConfig.web_partials_dir` (web partials in memory, outside IndexedDB), 27 `DotCloudSourceHttp` waits out a 429 (Retry-After) or 5xx and retries the same base, 28 `DotCloudWorkshop` takes addon packs for a game that accepts kind `addon` (`summary.addons`, `addon_clash`, `workshop_max_addon_packs`), 32 `DotCloudSliceLoader.cached_scripts`, `dot_cloud/warm/list_file` (a pack's `warm.txt`: the cover waits for the listed scripts only) |
-| `addons/dot_cloud/manifest/` | `DotCloudFile` (refuses traversal and bad hashes), `DotCloudManifest` (`from_json_bytes()` is the only parser), `DotCloudEnvelope` (the signed wrapper), `DotCloudProvides` (the `provides` block, strict at publish, tolerant at mount), `DotCloudScriptScan` (`runs_code`) |
+| `addons/dot_cloud/dot_cloud_api.gd` | the API level (dot-core's `GSAddonApi` rule) and what each level added: 2 `GSCloudPublisher.extra_files`, 3 `acquire` refuses on `requires.json` before downloading the pack, 4 `ship_import_sources`, 5 `provides`, `GSCloudScriptScan`, `ensure_for_session`, 6 `GSCloudWorkshop`, 7 `client_platform`, 8 `GSCloudFile.side` / `GSCloudConfig.side` / `sides.json`, 9 `GSCloudManifest.bundle` (one signed ZIP of the small objects), `GSCloudPublisher.write_bundle`, `GSCloudConfig.use_bundles`, 10 `GSCloudSliceLoader.loaded` / `named_class_scripts`, `GSCloudClient.warm_content` (compiles a pack's scripts a slice per frame, reports progress), 11 `GSCloudPublisher.script_tokens_dir` (scripts as `.gdc` + `.gd.remap`, made by `publish/tokenize_scripts.sh`), 12 `GSCloudAutoUpdate` / `GSCloudAutoUpdateConfig`, 13 `GSCloudMirrorList` (signed published mirrors), per-base health, `GSCloudClient.load_mirror_list` / `mirror_alternatives` / `prefetch`, 14 `GSCloudMirrorList.parse_signed(..., newest_seen)` refuses a list older than the newest accepted, 15 `GSCloudManifest.dependencies`, `--depends`, 18 `GSCloudJobProgress` (`GSCloudClient.job_progress_changed`), 19 `GSCloudConfig.parallel_packs`, `GSCloudDownloaderPool` (dependencies download side by side; their manifests resolve under the same cap), 20 one total bar across a whole launch: `GSCloudClient.job_register` / `job_download` / `job_begin_unpack` / `read_pack_file`, `GSCloudWorkshop.defer_mount` / `mount_pending`, and the job snapshot's `phase`, `unpack_done`, `unpack_total`, 21 `GSCloudInventoryReport`, 22 groups are mounted, `"*"` selects every group, `GSCloudClient.ensure_groups_at`, 23 outer jobs take `groups`, 24 `GSCloudAddonSet.groups` (an overlay holds this side's files and the chosen groups), 25 `groups.json` rules match an `_imported/` output by its asset, 26 `GSCloudConfig.web_partials_dir` (web partials in memory, outside IndexedDB), 27 `GSCloudSourceHttp` waits out a 429 (Retry-After) or 5xx and retries the same base, 28 `GSCloudWorkshop` takes addon packs for a game that accepts kind `addon` (`summary.addons`, `addon_clash`, `workshop_max_addon_packs`), 32 `GSCloudSliceLoader.cached_scripts`, `dot_cloud/warm/list_file` (a pack's `warm.txt`: the cover waits for the listed scripts only) |
+| `addons/dot_cloud/manifest/` | `GSCloudFile` (refuses traversal and bad hashes), `GSCloudManifest` (`from_json_bytes()` is the only parser), `GSCloudEnvelope` (the signed wrapper), `GSCloudProvides` (the `provides` block, strict at publish, tolerant at mount), `GSCloudScriptScan` (`runs_code`) |
 | `addons/dot_cloud/store/` | the content-addressed cache: LRU eviction, refs, the index |
-| `addons/dot_cloud/transfer/` | source base with circuit breaker and `can_serve()`; HTTP, local, in-band sources; `DotCloudMirrorList` (the site's signed mirror list); the downloader (worker pool, failover, throttle, progress) |
+| `addons/dot_cloud/transfer/` | source base with circuit breaker and `can_serve()`; HTTP, local, in-band sources; `GSCloudMirrorList` (the site's signed mirror list); the downloader (worker pool, failover, throttle, progress) |
 | `addons/dot_cloud/verify/` | RSA-SHA256 sign/verify |
-| `addons/dot_cloud/mount/` | `DotCloudMounter`: PCK building and the unmount problem |
-| `addons/dot_cloud/client/` | `DotCloudClient`, the one node a game needs |
+| `addons/dot_cloud/mount/` | `GSCloudMounter`: PCK building and the unmount problem |
+| `addons/dot_cloud/client/` | `GSCloudClient`, the one node a game needs |
 | `addons/dot_cloud/addon_set/`, `boot/` | newer addons as packs; the boot scene that mounts the overlay (names no addon class, and must not) |
-| `addons/dot_cloud/publish/` | publisher, CLI, `DotCloudRegistry` (built ahead of its consumer) |
-| `addons/dot_cloud/server/` | `DotCloudAutoUpdate` (registry `dot_cloud_autoupdate`, server only, a no-op on web), `DotCloudAutoUpdateConfig` |
-| `addons/dot_cloud/workshop/` | `DotCloudWorkshop` (registry `dot_workshop`, the solo sync client), `DotCloudWorkshopConfig`, `DotCloudWorkshopList`, `DotCloudWorkshopDevice` (this device's overrides) |
+| `addons/dot_cloud/publish/` | publisher, CLI, `GSCloudRegistry` (built ahead of its consumer) |
+| `addons/dot_cloud/server/` | `GSCloudAutoUpdate` (registry `dot_cloud_autoupdate`, server only, a no-op on web), `GSCloudAutoUpdateConfig` |
+| `addons/dot_cloud/workshop/` | `GSCloudWorkshop` (registry `dot_workshop`, the solo sync client), `GSCloudWorkshopConfig`, `GSCloudWorkshopList`, `GSCloudWorkshopDevice` (this device's overrides) |
 | `examples/` | the demos, `http_test_server.gd`, `workshop_backbone.gd` (a fake site), the addon boot probe |
 
 ## Running and testing
@@ -66,21 +66,21 @@ Short forms; the reasoning is in the linked file.
 
 **Workshop**
 
-- `provides` is signed into the manifest from the source's `provides.json`; `runs_code` is computed by `DotCloudScriptScan`, never the author's. A manifest with `provides` whose stored files run code it did not declare is `CODE_FORBIDDEN` before the mount. [workshop](docs/workshop.md#runs_code)
+- `provides` is signed into the manifest from the source's `provides.json`; `runs_code` is computed by `GSCloudScriptScan`, never the author's. A manifest with `provides` whose stored files run code it did not declare is `CODE_FORBIDDEN` before the mount. [workshop](docs/workshop.md#runs_code)
 - A subscription mounts through `ensure_for_session(..., &"solo", &"subscription", {uid_policy: "add_only", allow_root: false})`: never online, never at the root, never re-pointing a UID the process knows. [workshop](docs/workshop.md#registering-on-mount)
 
 **Trust**
 
 - The manifest is the whole trust boundary; packs carry scripts. `require_signed_manifests` stays true outside LAN and development. [trust](docs/trust.md#the-manifest-is-the-entire-trust-boundary)
 - Both `content_id` and `version` are server-supplied path components: `version` goes through `safe_relative` plus a separator check, and `_check_prefix` simplifies both sides. [trust](docs/trust.md#both-path-components-are-checked)
-- Signatures live outside the signed bytes (`DotCloudEnvelope`); `DotCloudManifest.from_json_bytes()` is the only parser. Never sign a re-serialisation. [trust](docs/trust.md#the-envelope)
+- Signatures live outside the signed bytes (`GSCloudEnvelope`); `GSCloudManifest.from_json_bytes()` is the only parser. Never sign a re-serialisation. [trust](docs/trust.md#the-envelope)
 - `MIN_KEY_BITS` (2048) is enforced on verify, by signature length; a weak key is `CODE_FORBIDDEN`, never `CODE_INTEGRITY`. [trust](docs/trust.md#a-key-floor-enforced-on-verify)
 - `verify_for`: verification first, entitlement (`content_ids`) second. [trust](docs/trust.md#a-key-says-what-it-is-trusted-for)
 - The in-band delegate must refuse hashes the client has no business asking for. [sources](docs/sources.md#the-in-band-source)
 
 **Client**
 
-- `DotCloudClient` registers as `dot_cloud_client` in `_ready`, not `start()`: four addons find it there and treat its absence as "content ships in the build". [client](docs/client.md#the-registry-name)
+- `GSCloudClient` registers as `dot_cloud_client` in `_ready`, not `start()`: four addons find it there and treat its absence as "content ships in the build". [client](docs/client.md#the-registry-name)
 - `ensure(id, version)` checks the fetched manifest's own id and version before mounting; a local manifest is read, not requested. [client](docs/client.md#acquire-and-ensure)
 
 **Store and sources**
@@ -101,13 +101,13 @@ Short forms; the reasoning is in the linked file.
 - An imported asset's source is left out (`ship_import_sources` off, API 4): it was half of every game pack and nothing at runtime opens it. A file whose marker names no output (`keep`) still ships. [publishing](docs/publishing.md#the-source-of-an-imported-asset-stays-behind)
 - The publisher rewrites `res://` paths in `.tscn`/`.tres` onto the mount; binary `.scn`/`.res` it cannot, and the mount registers UIDs instead. [publishing](docs/publishing.md#a-scenes-references-move-with-the-pack)
 - A file in the pack that is not under the source goes in `extra_files` (API 2); never override `_imported_outputs_for`. [publishing](docs/publishing.md#a-file-that-is-not-under-the-source-extra_files)
-- A file only one side needs is declared in the source's `sides.json` (`{"client": [...], "server": [...]}`, API 8); the tag is signed into the entry, and the side a process fetches as is its own `DotCloudConfig.side` (`auto`: headless is server; web is always client). `wanted_files()` is the one filter. An unknown side value is read as both (a new side is a new level); a scene referencing the other side's file is refused at publish; a mount widens in place when the same process later wants more of it (`covers()`). [publishing](docs/publishing.md#a-file-only-one-side-needs-sidesjson), [mounting](docs/mounting.md#a-pack-can-leave-files-out-per-side)
-- `DotCloudRegistry` has no caller on purpose: it waits for its site endpoint. [publishing](docs/publishing.md#dotcloudregistry-is-written-and-nothing-calls-it)
+- A file only one side needs is declared in the source's `sides.json` (`{"client": [...], "server": [...]}`, API 8); the tag is signed into the entry, and the side a process fetches as is its own `GSCloudConfig.side` (`auto`: headless is server; web is always client). `wanted_files()` is the one filter. An unknown side value is read as both (a new side is a new level); a scene referencing the other side's file is refused at publish; a mount widens in place when the same process later wants more of it (`covers()`). [publishing](docs/publishing.md#a-file-only-one-side-needs-sidesjson), [mounting](docs/mounting.md#a-pack-can-leave-files-out-per-side)
+- `GSCloudRegistry` has no caller on purpose: it waits for its site endpoint. [publishing](docs/publishing.md#dotcloudregistry-is-written-and-nothing-calls-it)
 
 **Server auto-update**
 
-- An update is applied by exiting with code 75 (after `DotServer.shutdown`) for the supervisor to restart; the start installs the new version. A restart that did not install it is recorded and never repeated. [auto-update](docs/auto-update.md#applying-an-update-is-a-restart)
-- Only signed manifests count as an update; the check verifies through `DotCloudClient.resolve_manifest`. [auto-update](docs/auto-update.md#what-it-checks)
+- An update is applied by exiting with code 75 (after `GSServer.shutdown`) for the supervisor to restart; the start installs the new version. A restart that did not install it is recorded and never repeated. [auto-update](docs/auto-update.md#applying-an-update-is-a-restart)
+- Only signed manifests count as an update; the check verifies through `GSCloudClient.resolve_manifest`. [auto-update](docs/auto-update.md#what-it-checks)
 
 **Addon packs**
 
@@ -116,4 +116,4 @@ Short forms; the reasoning is in the linked file.
 
 ## Deliberately not here
 
-Delta patching (designed in [sources](docs/sources.md#delta-patches-designed-not-built), not built), stored compression (it would break "the filename is the hash of the content"; `Accept-Encoding: gzip` covers the wire), an editor dock (publishing is CLI-only), and a GDExtension Ed25519 (Godot's `Crypto` has no EdDSA; `DotCloudEd25519` is the pure-script verifier, verify only).
+Delta patching (designed in [sources](docs/sources.md#delta-patches-designed-not-built), not built), stored compression (it would break "the filename is the hash of the content"; `Accept-Encoding: gzip` covers the wire), an editor dock (publishing is CLI-only), and a GDExtension Ed25519 (Godot's `Crypto` has no EdDSA; `GSCloudEd25519` is the pure-script verifier, verify only).

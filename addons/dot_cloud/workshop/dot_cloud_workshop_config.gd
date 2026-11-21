@@ -1,15 +1,15 @@
 @tool
-class_name DotCloudWorkshopConfig
-extends DotConfig
+class_name GSCloudWorkshopConfig
+extends GSConfig
 
 ## Everything configurable about the Workshop sync client.
 ##
-## Layered like every [DotConfig]: exported defaults, then a JSON file, then
+## Layered like every [GSConfig]: exported defaults, then a JSON file, then
 ## [code]DOT_CLOUD_WORKSHOP_*[/code] environment variables, then [code]--cloud-workshop-*[/code]
 ## arguments. These are a device's settings; the site's subscription list is not configuration and
 ## is never read from here.
 
-## Off: [method DotCloudWorkshop.sync] succeeds with nothing mounted, and the panel says the
+## Off: [method GSCloudWorkshop.sync] succeeds with nothing mounted, and the panel says the
 ## Workshop is off on this build.
 @export var workshop_enabled: bool = true
 
@@ -22,7 +22,7 @@ extends DotConfig
 @export var workshop_script_packs: String = "approved"
 
 ## Narrows the [code]key_id[/code]s a subscription manifest may be signed with. The keys are the
-## content client's own [member DotCloudConfig.trusted_keys] ([method DotCloudWorkshop.trusted_key_ids]):
+## content client's own [member GSCloudConfig.trusted_keys] ([method GSCloudWorkshop.trusted_key_ids]):
 ## empty takes that whole keyring, and an id named here that the keyring lacks trusts nothing. So
 ## a subscription is never trusted beyond the build's own pack verification: a dev shell's keyring
 ## holds [code]tmc-dev[/code], a production one does not. Name ids here to keep a key trusted for
@@ -30,7 +30,7 @@ extends DotConfig
 @export var workshop_key_ids: PackedStringArray = PackedStringArray()
 
 ## [code]ask[/code], [code]allow[/code] or [code]never[/code]: what to do on a metered connection.
-## A device override (see [DotCloudWorkshopDevice]) wins over this.
+## A device override (see [GSCloudWorkshopDevice]) wins over this.
 @export var workshop_metered: String = "ask"
 
 ## Download size above which the player is asked on [code]ask[/code], metered or not.
@@ -47,7 +47,7 @@ extends DotConfig
 @export var workshop_max_addon_packs: int = 0
 
 ## Whether the game's suggested packs (its map packs) are mounted: [code]all[/code], [code]none[/code]
-## or a comma list of groups. See [DotCloudSuggested] for the full precedence.
+## or a comma list of groups. See [GSCloudSuggested] for the full precedence.
 @export var workshop_suggested: String = "all"
 
 
@@ -59,23 +59,23 @@ func cli_prefix() -> String:
 	return "--cloud-"
 
 
-func validate() -> DotResult:
+func validate() -> GSResult:
 	if not ["never", "approved", "any"].has(workshop_script_packs):
-		return DotResult.fail(
-			DotError.CODE_INVALID, "workshop_script_packs must be never, approved or any.",
+		return GSResult.fail(
+			GSError.CODE_INVALID, "workshop_script_packs must be never, approved or any.",
 			workshop_script_packs
 		)
 	if not ["ask", "allow", "never"].has(workshop_metered):
-		return DotResult.fail(
-			DotError.CODE_INVALID, "workshop_metered must be ask, allow or never.", workshop_metered
+		return GSResult.fail(
+			GSError.CODE_INVALID, "workshop_metered must be ask, allow or never.", workshop_metered
 		)
-	if not DotCloudSuggested.valid_mode(workshop_suggested):
-		return DotResult.fail(
-			DotError.CODE_INVALID, "workshop_suggested must be all, none or a comma list of groups.",
+	if not GSCloudSuggested.valid_mode(workshop_suggested):
+		return GSResult.fail(
+			GSError.CODE_INVALID, "workshop_suggested must be all, none or a comma list of groups.",
 			workshop_suggested
 		)
 	if workshop_max_packs < 0:
-		return DotResult.fail(DotError.CODE_INVALID, "workshop_max_packs must not be negative.")
+		return GSResult.fail(GSError.CODE_INVALID, "workshop_max_packs must not be negative.")
 	if workshop_max_addon_packs < 0:
-		return DotResult.fail(DotError.CODE_INVALID, "workshop_max_addon_packs must not be negative.")
-	return DotResult.success(null)
+		return GSResult.fail(GSError.CODE_INVALID, "workshop_max_addon_packs must not be negative.")
+	return GSResult.success(null)

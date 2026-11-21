@@ -1,4 +1,4 @@
-class_name DotCloudScriptScan
+class_name GSCloudScriptScan
 extends RefCounted
 
 ## Does a pack's content run code? A label for honest packs, not a sandbox.
@@ -24,9 +24,9 @@ const BINARY_MARKERS: Array[String] = ["GDScript", "CSharpScript", "GDExtension"
 ## returning its bytes as a PackedByteArray (empty when unreadable); it is only called for
 ## text and binary resources. [param provides] adds the kinds that always run code.
 ## Value: [code]{runs_code: bool, reasons: PackedStringArray}[/code], reasons capped at 8.
-static func scan(paths: PackedStringArray, reader: Callable, provides: Dictionary = {}) -> DotResult:
+static func scan(paths: PackedStringArray, reader: Callable, provides: Dictionary = {}) -> GSResult:
 	var reasons := PackedStringArray()
-	if DotCloudProvides.has_code_kind(provides):
+	if GSCloudProvides.has_code_kind(provides):
 		reasons.append("entries of kind entity, tool or script")
 	for p in paths:
 		if reasons.size() >= 8:
@@ -42,7 +42,7 @@ static func scan(paths: PackedStringArray, reader: Callable, provides: Dictionar
 			var bin: PackedByteArray = reader.call(p)
 			if _binary_runs_code(bin):
 				reasons.append("%s (script class in a binary resource)" % p)
-	return DotResult.success({"runs_code": reasons.size() > 0, "reasons": reasons})
+	return GSResult.success({"runs_code": reasons.size() > 0, "reasons": reasons})
 
 
 ## GDScript / C# sub-resources always count. A script ext_resource counts unless it names

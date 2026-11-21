@@ -51,7 +51,7 @@ def put(path, text):
     os.makedirs(os.path.join(dst, "objects", sha[:2]), exist_ok=True)
     open(os.path.join(dst, "objects", sha[:2], sha), "wb").write(b)
     m["files"] = [f for f in m["files"] if f["path"] != path] + [{"path": path, "sha256": sha, "size": len(b)}]
-put("game/no_net_module.gd", "extends DotGameModule\n")
+put("game/no_net_module.gd", "extends GSGameModule\n")
 yml = next(f for f in m["files"] if f["path"] == "game.yml")
 text = open(os.path.join(dst, "objects", yml["sha256"][:2], yml["sha256"])).read()
 put("game.yml", "\n".join("module: game/no_net_module.gd" if l.startswith("module:") else l for l in text.split("\n")))
@@ -110,7 +110,7 @@ def put(path, text):
     os.makedirs(os.path.join(dst, "objects", sha[:2]), exist_ok=True)
     open(os.path.join(dst, "objects", sha[:2], sha), "wb").write(b)
     m["files"] = [f for f in m["files"] if f["path"] != path] + [{"path": path, "sha256": sha, "size": len(b)}]
-put("game/no_net_module.gd", "extends DotGameModule\n\nfunc _net_config() -> DotNetConfig:\n\treturn DotNetConfig.new()\n\n"
+put("game/no_net_module.gd", "extends GSGameModule\n\nfunc _net_config() -> GSNetConfig:\n\treturn GSNetConfig.new()\n\n"
     "func _make_bridge() -> Node:\n\treturn Node.new() if game.get_meta(\"ready\", false) else null\n")
 json.dump(m, open(os.path.join(dst, "manifest.json"), "w"))
 PY
@@ -124,7 +124,7 @@ mkdir -p "$TMP/quiet" && cp -r "$TMP/stateful/." "$TMP/quiet/"
 python3 -I - "$TMP/quiet" <<'PY'
 import hashlib, json, os, sys
 dst = sys.argv[1]; m = json.load(open(os.path.join(dst, "manifest.json")))
-b = ("extends DotGameModule\n\nfunc _net_config() -> DotNetConfig:\n\treturn DotNetConfig.new()\n\n"
+b = ("extends GSGameModule\n\nfunc _net_config() -> GSNetConfig:\n\treturn GSNetConfig.new()\n\n"
      "func _make_bridge() -> Node:\n\tif game == null:\n\t\treturn null\n\treturn Node.new()\n").encode()
 sha = hashlib.sha256(b).hexdigest(); os.makedirs(os.path.join(dst, "objects", sha[:2]), exist_ok=True)
 open(os.path.join(dst, "objects", sha[:2], sha), "wb").write(b)
@@ -152,7 +152,7 @@ for d, side in ((dst + "_client", "client"), (dst + "_both", None)):
         if side: e["side"] = side
         m["files"] = [f for f in m["files"] if f["path"] != path] + [e]
     put("game/client_only.gd", "extends Node\n", side)
-    put("game/no_net_module.gd", "extends DotGameModule\n\nconst C := preload(\"res://dot_cloud/%s/%s/game/client_only.gd\")\n" % (m["content_id"], m["version"]))
+    put("game/no_net_module.gd", "extends GSGameModule\n\nconst C := preload(\"res://dot_cloud/%s/%s/game/client_only.gd\")\n" % (m["content_id"], m["version"]))
     yml = next(f for f in m["files"] if f["path"] == "game.yml")
     text = open(os.path.join(d, "objects", yml["sha256"][:2], yml["sha256"])).read()
     put("game.yml", "\n".join(l + "  # the server module" if l.startswith("module:") else l for l in text.split("\n")))

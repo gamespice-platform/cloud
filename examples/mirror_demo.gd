@@ -26,20 +26,20 @@ var _alice_key: Dictionary = {}
 var _origin: Node = null
 var _good: Node = null
 var _bad: Node = null
-var _payload: DotCloudFile = null
+var _payload: GSCloudFile = null
 
 
 func _ready() -> void:
-	DotLog.set_level(DotLog.Level.WARN)
+	GSLog.set_level(GSLog.Level.WARN)
 	await _run()
 
 
 func _run() -> void:
 	print("dot-cloud published mirrors")
-	DotPaths.remove_tree(WORK)
+	GSPaths.remove_tree(WORK)
 
-	var k1 := DotCloudSignature.generate_keypair(2048)
-	var k2 := DotCloudSignature.generate_keypair(2048)
+	var k1 := GSCloudSignature.generate_keypair(2048)
+	var k2 := GSCloudSignature.generate_keypair(2048)
 	if not k1.ok or not k2.ok:
 		_check("keygen", false)
 		_finish()
@@ -54,7 +54,7 @@ func _run() -> void:
 			_check("publish %s" % spec[0], false, str(published.error))
 			_finish()
 			return
-	DotPaths.write_text(origin_dir.path_join("_site/avatars/a.txt"), "avatar\n")
+	GSPaths.write_text(origin_dir.path_join("_site/avatars/a.txt"), "avatar\n")
 
 	var alice_manifest := _read_manifest(origin_dir, ALICE)
 	_payload = _largest(alice_manifest)
@@ -97,10 +97,10 @@ func _test_parse() -> void:
 		_mirror("m2", "https://m2.example", ["*"], false),
 		_mirror("m3", "https://m3.example/", ["bob/level"], true),
 	]
-	var good := DotCloudMirrorList.parse_signed(_signed(_list("https://cdn.example", three)), keys, now)
+	var good := GSCloudMirrorList.parse_signed(_signed(_list("https://cdn.example", three)), keys, now)
 	_check("a signed list is accepted", good.ok, "" if good.ok else str(good.error))
 	if good.ok:
-		var list: DotCloudMirrorList = good.value
+		var list: GSCloudMirrorList = good.value
 		_check("with every mirror", list.mirrors.size() == 3, str(list.mirrors.size()))
 		_check("a trailing slash is trimmed", str(list.mirrors[2]["base_url"]) == "https://m3.example")
 
@@ -108,29 +108,29 @@ func _test_parse() -> void:
 	_check("a list without them still parses", good.ok)
 
 	var env: Dictionary = JSON.parse_string(_signed(_list("https://cdn.example", three)).get_string_from_utf8())
-	env["payload"] = DotHash.base64url_encode(JSON.stringify(_list("https://evil.example", three)).to_utf8_buffer())
-	var tampered := DotCloudMirrorList.parse_signed(JSON.stringify(env).to_utf8_buffer(), keys, now)
-	_check("a tampered payload is refused", not tampered.ok and tampered.code() == DotError.CODE_INTEGRITY,
+	env["payload"] = GSHash.base64url_encode(JSON.stringify(_list("https://evil.example", three)).to_utf8_buffer())
+	var tampered := GSCloudMirrorList.parse_signed(JSON.stringify(env).to_utf8_buffer(), keys, now)
+	_check("a tampered payload is refused", not tampered.ok and tampered.code() == GSError.CODE_INTEGRITY,
 		"" if tampered.ok else tampered.code())
 
 	var stale := _list("https://cdn.example", three)
 	stale["expires_at"] = now - 10
-	_check("an expired list is refused", not DotCloudMirrorList.parse_signed(_signed(stale), keys, now).ok)
+	_check("an expired list is refused", not GSCloudMirrorList.parse_signed(_signed(stale), keys, now).ok)
 
-	var scoped := DotCloudMirrorList.parse_signed(
+	var scoped := GSCloudMirrorList.parse_signed(
 		_signed(_list("https://cdn.example", three), str(_alice_key["private"]), "alice"), keys, now)
-	_check("a key scoped to alice/* cannot sign it", not scoped.ok and scoped.code() == DotError.CODE_FORBIDDEN,
+	_check("a key scoped to alice/* cannot sign it", not scoped.ok and scoped.code() == GSError.CODE_FORBIDDEN,
 		"" if scoped.ok else scoped.code())
 
 	var bare := JSON.stringify(_list("https://cdn.example", three)).to_utf8_buffer()
-	_check("an unsigned list is refused", not DotCloudMirrorList.parse_signed(bare, keys, now).ok)
+	_check("an unsigned list is refused", not GSCloudMirrorList.parse_signed(bare, keys, now).ok)
 
 	var wrong := _list("https://cdn.example", three)
 	wrong["kind"] = "dot_cloud_prefetch"
-	_check("the wrong kind is refused", not DotCloudMirrorList.parse_signed(_signed(wrong), keys, now).ok)
+	_check("the wrong kind is refused", not GSCloudMirrorList.parse_signed(_signed(wrong), keys, now).ok)
 	var newer := _list("https://cdn.example", three)
 	newer["format"] = 2
-	_check("a newer format is refused", not DotCloudMirrorList.parse_signed(_signed(newer), keys, now).ok)
+	_check("a newer format is refused", not GSCloudMirrorList.parse_signed(_signed(newer), keys, now).ok)
 
 	var mixed := [
 		_mirror("ftp", "ftp://m.example", ["*"], false),
@@ -140,21 +140,21 @@ func _test_parse() -> void:
 		"not an object",
 		_mirror("ok", "https://ok.example", ["*"], false),
 	]
-	var some := DotCloudMirrorList.parse_signed(_signed(_list("https://cdn.example", mixed)), keys, now)
+	var some := GSCloudMirrorList.parse_signed(_signed(_list("https://cdn.example", mixed)), keys, now)
 	_check("bad mirror urls are dropped one by one", some.ok
-		and (some.value as DotCloudMirrorList).mirrors.size() == 1
-		and (some.value as DotCloudMirrorList).dropped.size() == 5,
-		"" if not some.ok else str((some.value as DotCloudMirrorList).describe()))
+		and (some.value as GSCloudMirrorList).mirrors.size() == 1
+		and (some.value as GSCloudMirrorList).dropped.size() == 5,
+		"" if not some.ok else str((some.value as GSCloudMirrorList).describe()))
 	_check("an origin with user info is refused",
-		not DotCloudMirrorList.parse_signed(_signed(_list("https://u@cdn.example", three)), keys, now).ok)
+		not GSCloudMirrorList.parse_signed(_signed(_list("https://u@cdn.example", three)), keys, now).ok)
 
 	var many := []
 	for i in 65:
 		many.append(_mirror("m%d" % i, "https://m%d.example" % i, ["*"], false))
 	_check("more than 64 mirrors is refused",
-		not DotCloudMirrorList.parse_signed(_signed(_list("https://cdn.example", many)), keys, now).ok)
+		not GSCloudMirrorList.parse_signed(_signed(_list("https://cdn.example", many)), keys, now).ok)
 
-	var chunked := DotCloudFile.from_dict({
+	var chunked := GSCloudFile.from_dict({
 		"path": "a.bin", "sha256": "ab".repeat(32), "size": 3,
 		"chunks": {"algo": "fastcdc-v1", "avg": 1048576, "min": 262144, "max": 4194304, "list": [["ab".repeat(32), 3]]},
 	})
@@ -169,10 +169,10 @@ func _check_platform_fields(keys: Dictionary, now: int, three: Array) -> void:
 	fp["location"] = "Frankfurt"
 	fp["country"] = "DE"
 	fp["weight"] = 2.5
-	var extra := DotCloudMirrorList.parse_signed(_signed(_list("https://cdn.example", [fp, three[0]])), keys, now)
+	var extra := GSCloudMirrorList.parse_signed(_signed(_list("https://cdn.example", [fp, three[0]])), keys, now)
 	_check("a list with the optional platform fields parses", extra.ok, "" if extra.ok else str(extra.error))
 	if extra.ok:
-		var el: DotCloudMirrorList = extra.value
+		var el: GSCloudMirrorList = extra.value
 		_check("no entry is refused for them", el.mirrors.size() == 2 and el.dropped.is_empty(), str(el.dropped))
 		_check("an m1000042-style id is kept", str(el.mirrors[0]["id"]) == "m1000042")
 		_check("its base is served", el.pack_bases("alice/map").has("https://fp.example/content"))
@@ -200,10 +200,10 @@ func _test_bases() -> void:
 		str(list.alternatives("https://cdn.example/_site/avatars/a.png")))
 	_check("a lookalike host has no alternatives", list.alternatives("https://cdn.example.evil/x").is_empty())
 
-	var src := DotCloudSourceHttp.new()
+	var src := GSCloudSourceHttp.new()
 	src.base_urls = PackedStringArray(["https://cdn.example/content"])
 	src.mirror_list = list
-	var m := DotCloudManifest.new()
+	var m := GSCloudManifest.new()
 	m.content_id = ALICE
 	m.version = VERSION
 	m.mirrors = PackedStringArray(["https://cdn.example/content/alice/map/1.0.0"])
@@ -220,7 +220,7 @@ func _test_bases() -> void:
 	src._preferred_base = "https://m2.example/content/alice/map/1.0.0"
 	order = Array(src.bases_for(m))
 	_check("the preferred base leads its own pack", order[0] == src._preferred_base, str(order))
-	var other := DotCloudManifest.new()
+	var other := GSCloudManifest.new()
 	other.content_id = BOB
 	other.version = VERSION
 	other.mirrors = PackedStringArray(["https://cdn.example/content/%s/%s" % [BOB, VERSION]])
@@ -269,7 +269,7 @@ func _test_dead_mirror() -> void:
 	var h := src.health()
 	var dead_base := DEAD_BASE + "/content/alice/map/1.0.0"
 	_check("the dead mirror is demoted", (h["cooling_bases"] as Array).has(dead_base), str(h["cooling_bases"]))
-	var manifest := client.manifest_for(DotCloudClient.content_key_for(StringName(ALICE), VERSION))
+	var manifest := client.manifest_for(GSCloudClient.content_key_for(StringName(ALICE), VERSION))
 	var order := src.bases_for(manifest) if manifest != null else PackedStringArray()
 	_check("and is now tried after the origin", not order.is_empty() and order[order.size() - 1] == dead_base, str(order))
 	_check("every object came from the origin", _object_lines(_origin) >= manifest.unique_hashes().size() if manifest != null else false)
@@ -285,7 +285,7 @@ func _test_resume_from_mirror() -> void:
 	if client == null:
 		return
 	var whole := FileAccess.get_file_as_bytes(WORK.path_join("origin/content/alice/map/1.0.0/objects/%s" % _payload.object_path()))
-	DotPaths.write_bytes(client.store.partial_path(_payload.sha256), whole.slice(0, whole.size() / 2))
+	GSPaths.write_bytes(client.store.partial_path(_payload.sha256), whole.slice(0, whole.size() / 2))
 	_clear_logs()
 	var res := await client.ensure(StringName(ALICE), VERSION)
 	var obj := "/content/alice/map/1.0.0/objects/%s" % _payload.object_path()
@@ -337,8 +337,8 @@ func _test_rollback() -> void:
 	var keys := _trusted()
 	var old := _list("https://cdn.example", [])
 	old["issued_at"] = now - 600
-	_check("a list older than the newest seen is refused", not DotCloudMirrorList.parse_signed(_signed(old), keys, now, now - 60).ok)
-	_check("the same issue time is accepted again", DotCloudMirrorList.parse_signed(_signed(old), keys, now, now - 600).ok)
+	_check("a list older than the newest seen is refused", not GSCloudMirrorList.parse_signed(_signed(old), keys, now, now - 60).ok)
+	_check("the same issue time is accepted again", GSCloudMirrorList.parse_signed(_signed(old), keys, now, now - 600).ok)
 
 	var mirrors := [_mirror("good", _good.base_url(), ["*"], true)]
 	_publish_list(mirrors, now)
@@ -441,12 +441,12 @@ func _list(origin: String, mirrors: Array) -> Dictionary:
 
 func _signed(d: Dictionary, pem: String = "", key_id: String = "platform") -> PackedByteArray:
 	var bytes := JSON.stringify(d).to_utf8_buffer()
-	var sig := DotCloudSignature.sign(bytes, pem if pem != "" else str(_platform["private"]))
-	return DotCloudEnvelope.wrap(bytes, str(sig.value), key_id).to_utf8_buffer()
+	var sig := GSCloudSignature.sign(bytes, pem if pem != "" else str(_platform["private"]))
+	return GSCloudEnvelope.wrap(bytes, str(sig.value), key_id).to_utf8_buffer()
 
 
-func _parsed(mirrors: Array, origin: String) -> DotCloudMirrorList:
-	var res := DotCloudMirrorList.parse_signed(_signed(_list(origin, mirrors)), _trusted(), int(Time.get_unix_time_from_system()))
+func _parsed(mirrors: Array, origin: String) -> GSCloudMirrorList:
+	var res := GSCloudMirrorList.parse_signed(_signed(_list(origin, mirrors)), _trusted(), int(Time.get_unix_time_from_system()))
 	return res.value if res.ok else null
 
 
@@ -457,7 +457,7 @@ func _publish_list(mirrors: Array, issued_at: int = 0) -> void:
 		d["issued_at"] = issued_at
 	var bytes := _signed(d)
 	for dir in ["origin", "m_good", "m_bad"]:
-		DotPaths.write_bytes(WORK.path_join(dir).path_join("content/mirrors.json"), bytes)
+		GSPaths.write_bytes(WORK.path_join(dir).path_join("content/mirrors.json"), bytes)
 
 
 func _prefetch_doc(packs: Array) -> Dictionary:
@@ -470,8 +470,8 @@ func _prefetch_doc(packs: Array) -> Dictionary:
 	}
 
 
-func _client(tag: String, use_mirrors: bool, mirrors_url: String = "") -> DotCloudClient:
-	var config := DotCloudConfig.new()
+func _client(tag: String, use_mirrors: bool, mirrors_url: String = "") -> GSCloudClient:
+	var config := GSCloudConfig.new()
 	config.cache_dir = WORK.path_join("cache_%s" % tag)
 	config.trusted_keys = _trusted()
 	config.resume_downloads = true
@@ -479,7 +479,7 @@ func _client(tag: String, use_mirrors: bool, mirrors_url: String = "") -> DotClo
 	config.file_timeout_sec = 10.0
 	config.use_mirrors = use_mirrors
 	config.mirrors_url = mirrors_url if mirrors_url != "" else _origin.base_url() + "/content/mirrors.json"
-	var client := DotCloudClient.new()
+	var client := GSCloudClient.new()
 	client.name = "Cloud_%s" % tag
 	client.config = config
 	client.config_file = ""
@@ -495,30 +495,30 @@ func _client(tag: String, use_mirrors: bool, mirrors_url: String = "") -> DotClo
 	return client
 
 
-func _drop(client: DotCloudClient) -> void:
+func _drop(client: GSCloudClient) -> void:
 	remove_child(client)
 	client.queue_free()
 
 
-func _http_source(client: DotCloudClient) -> DotCloudSourceHttp:
+func _http_source(client: GSCloudClient) -> GSCloudSourceHttp:
 	for s in client.sources:
-		if s is DotCloudSourceHttp:
-			return s as DotCloudSourceHttp
+		if s is GSCloudSourceHttp:
+			return s as GSCloudSourceHttp
 	return null
 
 
-func _publish(id: String, big: int, origin_dir: String) -> DotResult:
+func _publish(id: String, big: int, origin_dir: String) -> GSResult:
 	var src := WORK.path_join("src_" + id.replace("/", "_"))
-	DotPaths.ensure_dir(src)
+	GSPaths.ensure_dir(src)
 	if big > 0:
 		var bytes := PackedByteArray()
 		bytes.resize(big)
 		for i in bytes.size():
 			bytes[i] = (i * 31 + (i >> 8) + id.length()) & 0xFF
-		DotPaths.write_bytes(src.path_join("payload.bin"), bytes)
-	DotPaths.write_text(src.path_join("readme.txt"), "pack %s\n" % id)
-	DotPaths.write_text(src.path_join("data/config.json"), "{\"id\": \"%s\"}\n" % id)
-	var pub := DotCloudPublisher.new()
+		GSPaths.write_bytes(src.path_join("payload.bin"), bytes)
+	GSPaths.write_text(src.path_join("readme.txt"), "pack %s\n" % id)
+	GSPaths.write_text(src.path_join("data/config.json"), "{\"id\": \"%s\"}\n" % id)
+	var pub := GSCloudPublisher.new()
 	pub.content_id = id
 	pub.version = VERSION
 	pub.signing_key_pem = str(_platform["private"])
@@ -526,14 +526,14 @@ func _publish(id: String, big: int, origin_dir: String) -> DotResult:
 	return pub.publish(src, origin_dir.path_join("content/%s/%s" % [id, VERSION]))
 
 
-func _read_manifest(origin_dir: String, id: String) -> DotCloudManifest:
+func _read_manifest(origin_dir: String, id: String) -> GSCloudManifest:
 	var bytes := FileAccess.get_file_as_bytes(origin_dir.path_join("content/%s/%s/manifest.json" % [id, VERSION]))
-	var res := DotCloudManifest.from_json_bytes(bytes)
-	return res.value if res.ok else DotCloudManifest.new()
+	var res := GSCloudManifest.from_json_bytes(bytes)
+	return res.value if res.ok else GSCloudManifest.new()
 
 
-func _largest(m: DotCloudManifest) -> DotCloudFile:
-	var best: DotCloudFile = null
+func _largest(m: GSCloudManifest) -> GSCloudFile:
+	var best: GSCloudFile = null
 	for f in m.files:
 		if best == null or f.size > best.size:
 			best = f
@@ -541,9 +541,9 @@ func _largest(m: DotCloudManifest) -> DotCloudFile:
 
 
 func _copy_tree(from: String, to: String) -> void:
-	for rel in DotPaths.list_files_recursive(from):
+	for rel in GSPaths.list_files_recursive(from):
 		var r := str(rel).trim_prefix(from).trim_prefix("/")
-		DotPaths.write_bytes(to.path_join(r), FileAccess.get_file_as_bytes(from.path_join(r)))
+		GSPaths.write_bytes(to.path_join(r), FileAccess.get_file_as_bytes(from.path_join(r)))
 
 
 func _serve(tag: String, root: String) -> Node:
@@ -551,7 +551,7 @@ func _serve(tag: String, root: String) -> Node:
 	srv.name = tag
 	srv.root = root
 	add_child(srv)
-	var started: DotResult = srv.start(0)
+	var started: GSResult = srv.start(0)
 	return srv if started.ok else null
 
 

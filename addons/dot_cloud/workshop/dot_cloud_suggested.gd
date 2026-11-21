@@ -1,9 +1,9 @@
-class_name DotCloudSuggested
+class_name GSCloudSuggested
 extends RefCounted
 
 ## Content packs a game suggests but never requires, and the one rule for who turns them off.
 ## Mode is `all`, `none` or a comma list of groups; strongest source first: command line, device override
-## ([method DotCloudWorkshopDevice.suggested_mode]), then [member DotCloudWorkshopConfig.workshop_suggested].
+## ([method GSCloudWorkshopDevice.suggested_mode]), then [member GSCloudWorkshopConfig.workshop_suggested].
 
 const MODE_ALL := "all"
 const MODE_NONE := "none"

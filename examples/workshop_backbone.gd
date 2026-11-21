@@ -3,7 +3,7 @@ extends Node
 ## A fake site for the Workshop sync client: a local HTTP server whose answers come from one
 ## [member handler] the test sets, so each section decides what the backbone says.
 ##
-## Like [code]http_test_server.gd[/code] it speaks as much HTTP as [DotHttp] asks for, and no
+## Like [code]http_test_server.gd[/code] it speaks as much HTTP as [GSHttp] asks for, and no
 ## more -- but it reads a request [b]body[/b] (the scope route is a POST) and it can decline to
 ## answer at all, which is how a timeout is made.
 ##
@@ -28,14 +28,14 @@ var _server: TCPServer = null
 var _clients: Array[Dictionary] = []
 
 
-func start() -> DotResult:
+func start() -> GSResult:
 	_server = TCPServer.new()
 	var err := _server.listen(0, "127.0.0.1")
 	if err != OK:
-		return DotResult.fail(DotError.CODE_NETWORK, "The fake backbone could not listen.", error_string(err))
+		return GSResult.fail(GSError.CODE_NETWORK, "The fake backbone could not listen.", error_string(err))
 	port = _server.get_local_port()
 	set_process(true)
-	return DotResult.success(port)
+	return GSResult.success(port)
 
 
 func base_url() -> String:

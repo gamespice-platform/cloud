@@ -1,6 +1,6 @@
 extends Node
 
-## DotCloudEd25519 and DotCloudSha512 against known answers: SHA-512 across block boundaries,
+## GSCloudEd25519 and GSCloudSha512 against known answers: SHA-512 across block boundaries,
 ## RFC 8032 section 7.1 vectors 1 to 3, further signatures made by an independent implementation,
 ## and every way a signature can be wrong, which must each be refused with a code.
 ## Run: godot --headless --path . res://examples/ed25519_selftest.tscn
@@ -45,7 +45,7 @@ var _checks := 0
 
 
 func _ready() -> void:
-	DotLog.set_level(DotLog.Level.ERROR)
+	GSLog.set_level(GSLog.Level.ERROR)
 	_sha512()
 	_vectors()
 	_refusals()
@@ -62,14 +62,14 @@ func _sha512() -> void:
 		var data := PackedByteArray()
 		for i in int(v[0]):
 			data.append((i * 7 + 3) & 255)
-		_check("sha512 of %d bytes" % int(v[0]), DotCloudSha512.digest(data).hex_encode() == v[1])
+		_check("sha512 of %d bytes" % int(v[0]), GSCloudSha512.digest(data).hex_encode() == v[1])
 
 
 func _vectors() -> void:
 	print("-- known signatures")
 	for i in VECTORS.size():
 		var v: Array = VECTORS[i]
-		var res := DotCloudEd25519.verify(_hex(v[1]), _hex(v[2]), _hex(v[0]))
+		var res := GSCloudEd25519.verify(_hex(v[1]), _hex(v[2]), _hex(v[0]))
 		_check("vector %d verifies (%d byte message)" % [i, _hex(v[1]).size()], res.ok, str(res))
 
 
@@ -79,41 +79,41 @@ func _refusals() -> void:
 	var key := _hex(v[0])
 	var msg := _hex(v[1])
 	var sig := _hex(v[2])
-	_expect_fail("a changed message", DotCloudEd25519.verify(_flip(msg, 3), sig, key), DotError.CODE_INTEGRITY)
-	_expect_fail("an extended message", DotCloudEd25519.verify(msg + PackedByteArray([0]), sig, key), DotError.CODE_INTEGRITY)
-	_expect_fail("a flipped bit in R", DotCloudEd25519.verify(msg, _flip(sig, 5), key), DotError.CODE_INTEGRITY)
-	_expect_fail("a flipped bit in S", DotCloudEd25519.verify(msg, _flip(sig, 40), key), DotError.CODE_INTEGRITY)
-	_expect_fail("another key", DotCloudEd25519.verify(msg, sig, _hex(VECTORS[5][0])), DotError.CODE_INTEGRITY)
-	_expect_fail("a 63 byte signature", DotCloudEd25519.verify(msg, sig.slice(0, 63), key), DotError.CODE_INTEGRITY)
-	_expect_fail("a 65 byte signature", DotCloudEd25519.verify(msg, sig + PackedByteArray([0]), key), DotError.CODE_INTEGRITY)
-	_expect_fail("no signature", DotCloudEd25519.verify(msg, PackedByteArray(), key), DotError.CODE_INTEGRITY)
-	_expect_fail("a 31 byte key", DotCloudEd25519.verify(msg, sig, key.slice(0, 31)), DotError.CODE_INVALID)
-	_expect_fail("no key", DotCloudEd25519.verify(msg, sig, PackedByteArray()), DotError.CODE_INVALID)
-	_expect_fail("an all-zero signature", DotCloudEd25519.verify(msg, _zeros(64), key), DotError.CODE_INTEGRITY)
-	_expect_fail("S + L (malleable encoding)", DotCloudEd25519.verify(_hex(MALLEABLE_MESSAGE), _hex(MALLEABLE_SIGNATURE), _hex(MALLEABLE_KEY)), DotError.CODE_INTEGRITY)
+	_expect_fail("a changed message", GSCloudEd25519.verify(_flip(msg, 3), sig, key), GSError.CODE_INTEGRITY)
+	_expect_fail("an extended message", GSCloudEd25519.verify(msg + PackedByteArray([0]), sig, key), GSError.CODE_INTEGRITY)
+	_expect_fail("a flipped bit in R", GSCloudEd25519.verify(msg, _flip(sig, 5), key), GSError.CODE_INTEGRITY)
+	_expect_fail("a flipped bit in S", GSCloudEd25519.verify(msg, _flip(sig, 40), key), GSError.CODE_INTEGRITY)
+	_expect_fail("another key", GSCloudEd25519.verify(msg, sig, _hex(VECTORS[5][0])), GSError.CODE_INTEGRITY)
+	_expect_fail("a 63 byte signature", GSCloudEd25519.verify(msg, sig.slice(0, 63), key), GSError.CODE_INTEGRITY)
+	_expect_fail("a 65 byte signature", GSCloudEd25519.verify(msg, sig + PackedByteArray([0]), key), GSError.CODE_INTEGRITY)
+	_expect_fail("no signature", GSCloudEd25519.verify(msg, PackedByteArray(), key), GSError.CODE_INTEGRITY)
+	_expect_fail("a 31 byte key", GSCloudEd25519.verify(msg, sig, key.slice(0, 31)), GSError.CODE_INVALID)
+	_expect_fail("no key", GSCloudEd25519.verify(msg, sig, PackedByteArray()), GSError.CODE_INVALID)
+	_expect_fail("an all-zero signature", GSCloudEd25519.verify(msg, _zeros(64), key), GSError.CODE_INTEGRITY)
+	_expect_fail("S + L (malleable encoding)", GSCloudEd25519.verify(_hex(MALLEABLE_MESSAGE), _hex(MALLEABLE_SIGNATURE), _hex(MALLEABLE_KEY)), GSError.CODE_INTEGRITY)
 	# y = 2 is not the y of any curve point; a non-canonical y (2^255 - 18) is refused outright.
 	var off_curve := _zeros(32)
 	off_curve[0] = 2
-	_expect_fail("a key that is not on the curve", DotCloudEd25519.verify(msg, sig, off_curve), DotError.CODE_INVALID)
+	_expect_fail("a key that is not on the curve", GSCloudEd25519.verify(msg, sig, off_curve), GSError.CODE_INVALID)
 	var non_canonical := _hex("eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")
-	_expect_fail("a non-canonical key", DotCloudEd25519.verify(msg, sig, non_canonical), DotError.CODE_INVALID)
+	_expect_fail("a non-canonical key", GSCloudEd25519.verify(msg, sig, non_canonical), GSError.CODE_INVALID)
 
 
 func _signature_class() -> void:
-	print("-- DotCloudSignature.verify_ed25519")
+	print("-- GSCloudSignature.verify_ed25519")
 	var v: Array = VECTORS[2]
-	_check("the signature class verifies a good one", DotCloudSignature.verify_ed25519(_hex(v[1]), _hex(v[2]), _hex(v[0])).ok)
-	_expect_fail("the signature class refuses a bad one", DotCloudSignature.verify_ed25519(_hex(v[1]), _flip(_hex(v[2]), 9), _hex(v[0])), DotError.CODE_INTEGRITY)
+	_check("the signature class verifies a good one", GSCloudSignature.verify_ed25519(_hex(v[1]), _hex(v[2]), _hex(v[0])).ok)
+	_expect_fail("the signature class refuses a bad one", GSCloudSignature.verify_ed25519(_hex(v[1]), _flip(_hex(v[2]), 9), _hex(v[0])), GSError.CODE_INTEGRITY)
 
 
 func _token_through_the_signature_class() -> void:
 	print("-- a site token")
 	var signed := TOKEN_PAYLOAD.to_ascii_buffer()
-	var sig := DotHash.base64url_decode(TOKEN_SIGNATURE)
-	var key := DotHash.base64url_decode(TOKEN_KEY)
-	_check("a base64url token body and raw key verify", DotCloudSignature.verify_ed25519(signed, sig, key).ok)
+	var sig := GSHash.base64url_decode(TOKEN_SIGNATURE)
+	var key := GSHash.base64url_decode(TOKEN_KEY)
+	_check("a base64url token body and raw key verify", GSCloudSignature.verify_ed25519(signed, sig, key).ok)
 	var forged := (TOKEN_PAYLOAD + "A").to_ascii_buffer()
-	_expect_fail("a token whose payload was edited", DotCloudSignature.verify_ed25519(forged, sig, key), DotError.CODE_INTEGRITY)
+	_expect_fail("a token whose payload was edited", GSCloudSignature.verify_ed25519(forged, sig, key), GSError.CODE_INTEGRITY)
 
 
 func _hex(s: String) -> PackedByteArray:
@@ -135,7 +135,7 @@ func _flip(b: PackedByteArray, index: int) -> PackedByteArray:
 	return out
 
 
-func _expect_fail(label: String, res: DotResult, code: String) -> void:
+func _expect_fail(label: String, res: GSResult, code: String) -> void:
 	_check(label, not res.ok and res.code() == code, "ok=%s code=%s" % [res.ok, res.code()])
 
 

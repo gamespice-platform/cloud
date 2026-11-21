@@ -1,6 +1,6 @@
 @tool
-class_name DotCloudSourceHttp
-extends DotCloudSource
+class_name GSCloudSourceHttp
+extends GSCloudSource
 
 ## Fetches content over HTTP, from a web server or CDN.
 ##
@@ -10,7 +10,7 @@ extends DotCloudSource
 ##
 ## [b]Content-addressed URLs by default.[/b] A file is fetched from
 ## [code]<base>/objects/<aa>/<hash>[/code] unless its manifest entry overrides
-## [member DotCloudFile.url_path]. Immutable paths mean a CDN can cache
+## [member GSCloudFile.url_path]. Immutable paths mean a CDN can cache
 ## everything forever with no invalidation story, and two games sharing a file
 ## share the cache entry too.
 ##
@@ -27,7 +27,7 @@ extends DotCloudSource
 ## Without [code]Access-Control-Allow-Headers: Range[/code] resume is impossible;
 ## without the exposed headers it is impossible to detect that. Serving content
 ## from the same origin as the game avoids all of it, which is why
-## [DotTransportWebSocket] defaults to a path rather than the root — one hostname
+## [GSTransportWebSocket] defaults to a path rather than the root — one hostname
 ## can carry both.
 
 ## Base URLs, tried in order. Overridden by the manifest's own mirrors when it
@@ -40,11 +40,11 @@ extends DotCloudSource
 ## Extra headers, e.g. an API key for a private content host.
 @export var headers: Dictionary = {}
 
-## The HTTP client. Injected by [DotCloudDownloader]; not exported because it is
+## The HTTP client. Injected by [GSCloudDownloader]; not exported because it is
 ## a [Node] and must live in the tree.
-var http: DotHttp = null
+var http: GSHttp = null
 
-## Requests this source keeps in flight at once, across every downloader sharing it. DotHttp's pool is
+## Requests this source keeps in flight at once, across every downloader sharing it. GSHttp's pool is
 ## 16 and a request past it fails at once with a state error that would count against the base.
 @export_range(1, 15, 1) var max_in_flight: int = 12
 
@@ -70,8 +70,8 @@ var _throttled_until: Dictionary = {}
 ## spreading load a CDN already handles.
 var _preferred_base: String = ""
 
-## The site's published mirrors (API 13), set by [DotCloudClient]; null means origin only.
-var mirror_list: DotCloudMirrorList = null
+## The site's published mirrors (API 13), set by [GSCloudClient]; null means origin only.
+var mirror_list: GSCloudMirrorList = null
 
 ## Consecutive failures (network or hash) a base may have before it is tried last for [member cooldown_sec].
 const BASE_FAILURES_BEFORE_DEMOTION := 2
@@ -84,11 +84,11 @@ var _base_health: Dictionary = {}
 
 
 ## One HTTP download, waiting for a free slot first so packs downloading side by side never overrun the pool.
-func download(url: String, dest: String, from: int, extra_headers: Dictionary = {}) -> DotResult:
+func download(url: String, dest: String, from: int, extra_headers: Dictionary = {}) -> GSResult:
 	while _active_requests >= max_in_flight:
 		await _slot_freed
 	_active_requests += 1
-	var res: DotResult
+	var res: GSResult
 	if url.begins_with("file://"):
 		# HTTPRequest cannot open file:// ("Error parsing URL"): a content url naming a local directory is copied.
 		res = _copy_local(url.trim_prefix("file://"), dest)
@@ -103,31 +103,31 @@ func download(url: String, dest: String, from: int, extra_headers: Dictionary = 
 ## jitter) and asks the same base again, up to [member throttle_retries] / [member server_error_retries].
 func download_with_backoff(
 	base: String, url: String, dest: String, from: int, extra_headers: Dictionary = {}
-) -> DotResult:
-	var res: DotResult = null
+) -> GSResult:
+	var res: GSResult = null
 	for attempt in maxi(throttle_retries, server_error_retries) + 1:
 		await _wait_out_throttle(base)
 		res = await download(url, dest, from, extra_headers)
 		if res.ok or attempt >= retry_limit(res.error):
 			return res
 		var wait := backoff_delay(attempt + 1, res.error)
-		if res.code() == DotError.CODE_RATE_LIMITED:
+		if res.code() == GSError.CODE_RATE_LIMITED:
 			_throttled_until[base] = maxi(
 				int(_throttled_until.get(base, 0)), Time.get_ticks_msec() + int(wait * 1000.0)
 			)
 		else:
 			await _sleep(wait)
-		DotLog.debug(CHANNEL, "server asked to back off", {
+		GSLog.debug(CHANNEL, "server asked to back off", {
 			"base": base, "url": url, "status": res.error.http_status, "wait_sec": wait, "attempt": attempt + 1,
 		})
 	return res
 
 
 ## How many times a failure with [param err] is retried on the same base: 429 and 5xx only.
-func retry_limit(err: DotError) -> int:
+func retry_limit(err: GSError) -> int:
 	if err == null:
 		return 0
-	if err.code == DotError.CODE_RATE_LIMITED:
+	if err.code == GSError.CODE_RATE_LIMITED:
 		return throttle_retries
 	if err.http_status >= 500:
 		return server_error_retries
@@ -136,7 +136,7 @@ func retry_limit(err: DotError) -> int:
 
 ## Seconds to wait before retry [param attempt] (1-based): the server's Retry-After when it sent
 ## one, else [member backoff_base_sec] doubled per attempt with +-20% jitter; capped at [member backoff_max_sec].
-func backoff_delay(attempt: int, err: DotError) -> float:
+func backoff_delay(attempt: int, err: GSError) -> float:
 	if err != null and err.retry_after > 0.0:
 		return minf(err.retry_after, backoff_max_sec)
 	var d := backoff_base_sec * pow(2.0, float(maxi(attempt, 1) - 1))
@@ -162,23 +162,23 @@ static func _sleep(sec: float) -> void:
 
 ## The error worth reporting from two failed bases: a retryable one (429, 5xx, network) beats a later
 ## base's 404, so the downloader retries instead of giving up on a file the first base would serve.
-static func _keep_error(last: DotResult, res: DotResult) -> DotResult:
+static func _keep_error(last: GSResult, res: GSResult) -> GSResult:
 	if last != null and last.is_retryable() and not res.is_retryable():
 		return last
 	return res
 
 
 ## Copies a local file to [param dest] in place of a download (whole file: a resume offset has nothing to resume).
-static func _copy_local(path: String, dest: String) -> DotResult:
+static func _copy_local(path: String, dest: String) -> GSResult:
 	var bytes := FileAccess.get_file_as_bytes(path)
 	if bytes.is_empty() and not FileAccess.file_exists(path):
-		return DotResult.fail(DotError.CODE_NETWORK, "No local file at '%s'." % path)
+		return GSResult.fail(GSError.CODE_NETWORK, "No local file at '%s'." % path)
 	var out := FileAccess.open(dest, FileAccess.WRITE)
 	if out == null:
-		return DotResult.fail(DotError.CODE_IO, "Could not write '%s'." % dest)
+		return GSResult.fail(GSError.CODE_IO, "Could not write '%s'." % dest)
 	out.store_buffer(bytes)
 	out.close()
-	return DotResult.success(true)
+	return GSResult.success(true)
 
 
 func source_name() -> String:
@@ -188,39 +188,39 @@ func source_name() -> String:
 ## Whether a URL can be built for this manifest at all.
 ##
 ## Mirrors arrive with the manifest, so this cannot be answered by
-## [method is_supported], which has none. [DotCloudClient] always builds an HTTP
+## [method is_supported], which has none. [GSCloudClient] always builds an HTTP
 ## source whether or not it was given any base URLs — deliberately, since a
 ## manifest may carry its own mirrors — so "configured but with nowhere to
 ## fetch from" is the normal state of a netchan-only or local-only deployment,
 ## not a misconfiguration to shout about. The downloader skips it instead.
-func can_serve(manifest: DotCloudManifest) -> DotResult:
+func can_serve(manifest: GSCloudManifest) -> GSResult:
 	if manifest != null and not _resolve_bases(manifest).is_empty():
-		return DotResult.success(true)
+		return GSResult.success(true)
 	if manifest == null and not base_urls.is_empty():
-		return DotResult.success(true)
-	return DotResult.fail(
-		DotError.CODE_INVALID,
+		return GSResult.success(true)
+	return GSResult.fail(
+		GSError.CODE_INVALID,
 		"No content URL is configured.",
 		"set base_urls on the source, or mirrors in the manifest"
 	)
 
 
-func is_supported() -> DotResult:
+func is_supported() -> GSResult:
 	if http == null:
-		return DotResult.fail(
-			DotError.CODE_STATE,
-			"DotCloudSourceHttp has no DotHttp node.",
-			"DotCloudDownloader normally injects one"
+		return GSResult.fail(
+			GSError.CODE_STATE,
+			"GSCloudSourceHttp has no GSHttp node.",
+			"GSCloudDownloader normally injects one"
 		)
-	return DotResult.success(true)
+	return GSResult.success(true)
 
 
 func fetch(
-	file: DotCloudFile,
-	manifest: DotCloudManifest,
-	store: DotCloudStore,
-	scheduler: DotScheduler
-) -> DotResult:
+	file: GSCloudFile,
+	manifest: GSCloudManifest,
+	store: GSCloudStore,
+	scheduler: GSScheduler
+) -> GSResult:
 	var supported := is_supported()
 	if not supported.ok:
 		return supported
@@ -231,7 +231,7 @@ func fetch(
 
 	var bases := _resolve_bases(manifest)
 
-	var last: DotResult = null
+	var last: GSResult = null
 
 	for base in bases:
 		var url := _build_url(base, file)
@@ -254,7 +254,7 @@ func fetch(
 		if not res.ok and resume_from > 0:
 			# A rejected range is the expected failure when a host does not
 			# support them. Retry the same mirror from zero before writing it off.
-			DotLog.debug(
+			GSLog.debug(
 				CHANNEL,
 				"resume failed; restarting from zero",
 				{"file": file.path, "why": res.code()}
@@ -267,9 +267,9 @@ func fetch(
 		if not res.ok:
 			last = _keep_error(last, res)
 			# A throttled base is healthy, only busy: demoting it hands its files to bases that may not have them.
-			if res.code() != DotError.CODE_RATE_LIMITED:
+			if res.code() != GSError.CODE_RATE_LIMITED:
 				_note_base_failure(base)
-			DotLog.debug(
+			GSLog.debug(
 				CHANNEL,
 				"mirror failed",
 				{"base": base, "file": file.path, "why": res.code()}
@@ -292,7 +292,7 @@ func fetch(
 			# re-download only in the case that was going to fail anyway.
 			# Without it a single-mirror host — the normal deployment — turns a
 			# bad partial into content that can never be acquired.
-			DotLog.debug(
+			GSLog.debug(
 				CHANNEL,
 				"resumed content failed verification; restarting from zero",
 				{"file": file.path, "resumed_from": resume_from}
@@ -314,7 +314,7 @@ func fetch(
 			_note_base_failure(base)
 			# [b]With the reason.[/b] "failed verification" alone cannot tell a mirror serving the wrong bytes (a corrupt or stale host) from a 404 body
 			# being hashed (a URL built wrong). The detail carries both hashes and the size.
-			DotLog.warn(
+			GSLog.warn(
 				CHANNEL,
 				"content from mirror failed verification",
 				{
@@ -335,10 +335,10 @@ func fetch(
 	# One breaker failure per FILE that no base could serve, not per base: a dead community
 	# mirror ahead of a healthy origin must never put the whole source in cooldown. A throttled
 	# host is not failing, and cooldown would turn its 429s into "no source available".
-	if last == null or last.code() != DotError.CODE_RATE_LIMITED:
+	if last == null or last.code() != GSError.CODE_RATE_LIMITED:
 		note_failure()
-	return (last if last != null else DotResult.fail(
-		DotError.CODE_NETWORK, "Every content mirror failed."
+	return (last if last != null else GSResult.fail(
+		GSError.CODE_NETWORK, "Every content mirror failed."
 	)).wrap("Could not fetch '%s'." % file.path)
 
 
@@ -347,20 +347,20 @@ func fetch(
 ## instead of one per object. Returns `{objects, bytes}`; a failure leaves the per-file path
 ## to fetch whatever is still missing, so it is never fatal to the sync.
 func fetch_bundle(
-	manifest: DotCloudManifest,
-	store: DotCloudStore,
-	scheduler: DotScheduler,
+	manifest: GSCloudManifest,
+	store: GSCloudStore,
+	scheduler: GSScheduler,
 	wanted: Dictionary
-) -> DotResult:
+) -> GSResult:
 	var decl := manifest.usable_bundle()
 	if decl.is_empty():
-		return DotResult.fail(DotError.CODE_INVALID, "The manifest declares no usable bundle.")
+		return GSResult.fail(GSError.CODE_INVALID, "The manifest declares no usable bundle.")
 	var supported := is_supported()
 	if not supported.ok:
 		return supported
 	var sha := str(decl["sha256"]).to_lower()
 	var part := store.partial_path(sha)
-	var last: DotResult = null
+	var last: GSResult = null
 
 	for base in _resolve_bases(manifest):
 		var url := "%s/%s" % [base.trim_suffix("/"), str(decl["url_path"]).trim_prefix("/")]
@@ -368,11 +368,11 @@ func fetch_bundle(
 		var res := await download_with_backoff(base, url, part, 0, headers)
 		if not res.ok:
 			last = _keep_error(last, res)
-			if res.code() != DotError.CODE_RATE_LIMITED:
+			if res.code() != GSError.CODE_RATE_LIMITED:
 				_note_base_failure(base)
 			continue
-		var checked: DotResult = await scheduler.run(DotHashJob.new(part, sha)) \
-			if scheduler != null else DotResult.success(true)
+		var checked: GSResult = await scheduler.run(GSHashJob.new(part, sha)) \
+			if scheduler != null else GSResult.success(true)
 		if not checked.ok:
 			last = _keep_error(last, checked)
 			_note_base_failure(base)
@@ -385,10 +385,10 @@ func fetch_bundle(
 		if out.ok:
 			note_success()
 		return out
-	if last == null or last.code() != DotError.CODE_RATE_LIMITED:
+	if last == null or last.code() != GSError.CODE_RATE_LIMITED:
 		note_failure()
-	return (last if last != null else DotResult.fail(
-		DotError.CODE_NETWORK, "Every content mirror failed."
+	return (last if last != null else GSResult.fail(
+		GSError.CODE_NETWORK, "Every content mirror failed."
 	)).wrap("Could not fetch the content bundle.")
 
 
@@ -401,11 +401,11 @@ static func unpack_slice_budget(last_frame_ms: int) -> int:
 	return clampi(int(last_frame_ms * 1.5), UNPACK_SLICE_MIN_MS, UNPACK_SLICE_MAX_MS)
 
 
-func _unpack_bundle(path: String, store: DotCloudStore, wanted: Dictionary) -> DotResult:
+func _unpack_bundle(path: String, store: GSCloudStore, wanted: Dictionary) -> GSResult:
 	var zip := ZIPReader.new()
 	var err := zip.open(path)
 	if err != OK:
-		return DotResult.failure(DotError.from_engine(err, "opening the content bundle"))
+		return GSResult.failure(GSError.from_engine(err, "opening the content bundle"))
 	var objects := 0
 	var bytes := 0
 	var tree := Engine.get_main_loop() as SceneTree
@@ -417,7 +417,7 @@ func _unpack_bundle(path: String, store: DotCloudStore, wanted: Dictionary) -> D
 		var body := zip.read_file(entry)
 		var put := store.put_bytes(body, entry)
 		if not put.ok:
-			DotLog.warn(CHANNEL, "bundle entry failed verification", {"entry": entry.substr(0, 12)})
+			GSLog.warn(CHANNEL, "bundle entry failed verification", {"entry": entry.substr(0, 12)})
 			continue
 		objects += 1
 		bytes += body.size()
@@ -429,18 +429,18 @@ func _unpack_bundle(path: String, store: DotCloudStore, wanted: Dictionary) -> D
 			slice_start = Time.get_ticks_msec()
 			budget_ms = unpack_slice_budget(slice_start - yielded)
 	zip.close()
-	DotWeb.sync_filesystem()
-	return DotResult.success({"objects": objects, "bytes": bytes})
+	GSWeb.sync_filesystem()
+	return GSResult.success({"objects": objects, "bytes": bytes})
 
 
 ## Base URLs to try for [param manifest], best first: the sticky preference when this pack offers it, the manifest's
 ## own mirrors, published mirrors carrying the pack (rank order), then the origin last. A base
 ## that failed twice in a row is moved to the end for [member cooldown_sec], never removed.
-func bases_for(manifest: DotCloudManifest) -> PackedStringArray:
+func bases_for(manifest: GSCloudManifest) -> PackedStringArray:
 	return _resolve_bases(manifest)
 
 
-func _resolve_bases(manifest: DotCloudManifest) -> PackedStringArray:
+func _resolve_bases(manifest: GSCloudManifest) -> PackedStringArray:
 	var out := PackedStringArray()
 	var origin_side := PackedStringArray()
 
@@ -481,7 +481,7 @@ func _resolve_bases(manifest: DotCloudManifest) -> PackedStringArray:
 
 ## The pack's directory on each published mirror: the same path under `<mirror>/content` as the
 ## origin pack directory this manifest came from, or `<id>/<version>` when none is known.
-func _published_bases(manifest: DotCloudManifest) -> PackedStringArray:
+func _published_bases(manifest: GSCloudManifest) -> PackedStringArray:
 	var out := PackedStringArray()
 	var roots := mirror_list.pack_bases(manifest.content_id)
 	if roots.is_empty():
@@ -524,7 +524,7 @@ func _note_base_success(base: String) -> void:
 	_base_health.erase(base)
 
 
-func _build_url(base: String, file: DotCloudFile) -> String:
+func _build_url(base: String, file: GSCloudFile) -> String:
 	var root := base.trim_suffix("/")
 
 	if file.url_path != "":
@@ -539,9 +539,9 @@ func _build_url(base: String, file: DotCloudFile) -> String:
 ##
 ## Worth calling once before a large sync: discovering that ranges are
 ## unsupported after 400 MB of a 500 MB file means starting over.
-func probe_base(base: String) -> DotResult:
+func probe_base(base: String) -> GSResult:
 	if http == null:
-		return DotResult.fail(DotError.CODE_STATE, "No DotHttp node.")
+		return GSResult.fail(GSError.CODE_STATE, "No GSHttp node.")
 	return await http.probe(base.trim_suffix("/") + "/", headers)
 
 

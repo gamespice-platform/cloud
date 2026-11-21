@@ -1,6 +1,6 @@
 extends RefCounted
 
-## The text report of [DotCloudClient] for the `cloud_status` console command, in a file of their own so the client
+## The text report of [GSCloudClient] for the `cloud_status` console command, in a file of their own so the client
 ## stays inside the size budget. Nothing here is used on its own.
 
 
@@ -20,7 +20,7 @@ static func lines(client: Node) -> PackedStringArray:
 		for l in client.mounter.describe_lines():
 			out.append("  " + l)
 
-	var index := DotRegistry.get_service(DotContentIndex.SERVICE) as DotContentIndex
+	var index := GSRegistry.get_service(GSContentIndex.SERVICE) as GSContentIndex
 	if index != null:
 		out.append("provided:")
 		for l in index.describe_lines():

@@ -1,6 +1,6 @@
 @tool
-class_name DotCloudSourceNetchan
-extends DotCloudSource
+class_name GSCloudSourceNetchan
+extends GSCloudSource
 
 ## Fetches content down the multiplayer connection itself.
 ##
@@ -19,8 +19,8 @@ extends DotCloudSource
 ## [codeblock]
 ## # The delegate contract
 ## func cloud_chunk_size() -> int
-## func cloud_request_chunk(sha256: String, offset: int, length: int) -> DotResult
-## #   -> DotResult.success(PackedByteArray) with up to `length` bytes from `offset`,
+## func cloud_request_chunk(sha256: String, offset: int, length: int) -> GSResult
+## #   -> GSResult.success(PackedByteArray) with up to `length` bytes from `offset`,
 ## #      or a failure. A short read means end-of-file.
 ## [/codeblock]
 ##
@@ -37,7 +37,7 @@ var delegate: Object = null
 ## Bytes requested per round trip when the delegate does not specify.
 ##
 ## Sized to fit comfortably inside the transport's per-peer buffer — see
-## [member DotTransportWebSocket.inbound_buffer_exp]. Too large and packets are
+## [member GSTransportWebSocket.inbound_buffer_exp]. Too large and packets are
 ## dropped for exceeding the buffer, which presents as a stalled download.
 @export var default_chunk_bytes: int = 65536
 
@@ -82,30 +82,30 @@ func source_name() -> String:
 	return "netchan"
 
 
-func is_supported() -> DotResult:
+func is_supported() -> GSResult:
 	if delegate == null:
-		return DotResult.fail(
-			DotError.CODE_STATE,
+		return GSResult.fail(
+			GSError.CODE_STATE,
 			"No netchan delegate is set.",
 			"dot-server sets this when a session is established"
 		)
 
 	for method in ["cloud_request_chunk", "cloud_chunk_size"]:
 		if not delegate.has_method(method):
-			return DotResult.fail(
-				DotError.CODE_STATE,
+			return GSResult.fail(
+				GSError.CODE_STATE,
 				"The netchan delegate is missing %s()." % method
 			)
 
-	return DotResult.success(true)
+	return GSResult.success(true)
 
 
 func fetch(
-	file: DotCloudFile,
-	_manifest: DotCloudManifest,
-	store: DotCloudStore,
-	scheduler: DotScheduler
-) -> DotResult:
+	file: GSCloudFile,
+	_manifest: GSCloudManifest,
+	store: GSCloudStore,
+	scheduler: GSScheduler
+) -> GSResult:
 	var supported := is_supported()
 	if not supported.ok:
 		return supported
@@ -124,7 +124,7 @@ func fetch(
 			store.discard_partial(file.sha256)
 			offset = 0
 		else:
-			DotLog.debug(
+			GSLog.debug(
 				CHANNEL,
 				"resuming in-band transfer",
 				{"file": file.path, "from": offset}
@@ -132,7 +132,7 @@ func fetch(
 
 	if offset == 0:
 		store.discard_partial(file.sha256)
-		var created := DotPaths.write_bytes(partial, PackedByteArray(), false)
+		var created := GSPaths.write_bytes(partial, PackedByteArray(), false)
 		if not created.ok:
 			return created
 
@@ -152,20 +152,20 @@ func fetch(
 		chunks += 1
 		if chunks > max_chunks_per_file:
 			store.discard_partial(file.sha256)
-			return DotResult.fail(
-				DotError.CODE_INVALID,
+			return GSResult.fail(
+				GSError.CODE_INVALID,
 				"In-band transfer exceeded its chunk limit.",
 				"%s after %d chunks" % [file.path, chunks]
 			)
 
-		# Deliberately Variant: the timeout marker is not a DotResult, and a
-		# DotResult-typed local makes testing for it a parse error rather than a
+		# Deliberately Variant: the timeout marker is not a GSResult, and a
+		# GSResult-typed local makes testing for it a parse error rather than a
 		# runtime branch.
 		var answer: Variant = await _request_chunk(
 			file.sha256, offset, chunk_size, scheduler, budget
 		)
 
-		if answer is DotCloudNetchanTimeout:
+		if answer is GSCloudNetchanTimeout:
 			note_failure()
 			# Keep the partial: the transfer stalled, it did not go wrong. A
 			# retry resumes from here rather than restarting.
@@ -180,18 +180,18 @@ func fetch(
 			if _remaining_budget_sec(started_ms) == 0.0:
 				return _file_timed_out(file, offset, chunks)
 
-			return DotResult.fail(
-				DotError.CODE_TIMEOUT,
+			return GSResult.fail(
+				GSError.CODE_TIMEOUT,
 				"The server did not send an in-band chunk in time.",
 				"%s at offset %d, after %.0fs" % [file.path, offset, chunk_timeout_sec]
 			)
 
-		var res: DotResult = answer
+		var res: GSResult = answer
 
 		if res == null:
 			note_failure()
-			return DotResult.fail(
-				DotError.CODE_NETWORK,
+			return GSResult.fail(
+				GSError.CODE_NETWORK,
 				"The server did not answer an in-band content request.",
 				file.path
 			)
@@ -233,7 +233,7 @@ func fetch(
 
 	note_success()
 
-	DotLog.debug(
+	GSLog.debug(
 		CHANNEL,
 		"in-band transfer complete",
 		{"file": file.path, "chunks": chunks, "bytes": offset}
@@ -246,7 +246,7 @@ func fetch(
 ##
 ## [b]Why this is not just [code]await delegate.call(...)[/code].[/b] It was, and
 ## that made the exported timeout above a lie: nothing read it, and
-## [member DotCloudConfig.file_timeout_sec] only ever reaches the HTTP source. A
+## [member GSCloudConfig.file_timeout_sec] only ever reaches the HTTP source. A
 ## delegate whose reply never arrives — a peer that vanished without closing its
 ## socket, the normal shape of a dropped mobile connection — suspended this
 ## coroutine forever, and with it the downloader awaiting it and the acquire
@@ -266,12 +266,12 @@ func fetch(
 ## [member chunk_timeout_sec], so a peer that goes silent one second before the
 ## file deadline is not given another 30 to do it in.
 ##
-## Returns the delegate's [DotResult], or a [DotCloudNetchanTimeout] marker.
+## Returns the delegate's [GSResult], or a [GSCloudNetchanTimeout] marker.
 func _request_chunk(
 	sha256: String,
 	offset: int,
 	length: int,
-	scheduler: DotScheduler,
+	scheduler: GSScheduler,
 	budget_sec: float = INF
 ) -> Variant:
 	var box := {"done": false, "res": null}
@@ -296,7 +296,7 @@ func _request_chunk(
 			# The abandoned coroutine still holds this box and will write to it
 			# if the reply ever lands. Every call gets a fresh one, so a late
 			# arrival cannot be mistaken for the next chunk.
-			return DotCloudNetchanTimeout.new()
+			return GSCloudNetchanTimeout.new()
 
 		await tree.process_frame
 
@@ -318,9 +318,9 @@ func _request_chunk_into(
 ## The [member file_timeout_sec] failure, built in one place because two paths
 ## reach it: the check at the top of the loop, and a chunk wait that was cut
 ## short by the remaining budget rather than by [member chunk_timeout_sec].
-func _file_timed_out(file: DotCloudFile, offset: int, chunks: int) -> DotResult:
-	return DotResult.fail(
-		DotError.CODE_TIMEOUT,
+func _file_timed_out(file: GSCloudFile, offset: int, chunks: int) -> GSResult:
+	return GSResult.fail(
+		GSError.CODE_TIMEOUT,
 		"The in-band transfer took too long.",
 		"%s stopped at offset %d after %.0fs and %d chunks" % [
 			file.path, offset, file_timeout_sec, chunks
@@ -341,16 +341,16 @@ func _remaining_budget_sec(started_ms: int) -> float:
 
 
 ## Appends to the partial file. A no-op for an empty buffer.
-func _append(path: String, bytes: PackedByteArray) -> DotResult:
+func _append(path: String, bytes: PackedByteArray) -> GSResult:
 	if bytes.is_empty():
-		return DotResult.success(0)
+		return GSResult.success(0)
 
 	var f := FileAccess.open(path, FileAccess.READ_WRITE)
 	if f == null:
 		f = FileAccess.open(path, FileAccess.WRITE)
 	if f == null:
-		return DotResult.failure(
-			DotError.from_engine(
+		return GSResult.failure(
+			GSError.from_engine(
 				FileAccess.get_open_error(),
 				"opening '%s' to append" % path
 			)
@@ -360,8 +360,8 @@ func _append(path: String, bytes: PackedByteArray) -> DotResult:
 	f.store_buffer(bytes)
 	f.close()
 
-	DotWeb.sync_filesystem()
-	return DotResult.success(bytes.size())
+	GSWeb.sync_filesystem()
+	return GSResult.success(bytes.size())
 
 
 func health() -> Dictionary:

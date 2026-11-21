@@ -1,6 +1,6 @@
 extends Node
 
-## [DotCloudAutoUpdate] against a fake clock, a fake origin and a fake player count.
+## [GSCloudAutoUpdate] against a fake clock, a fake origin and a fake player count.
 ## Run: godot --headless --path . res://examples/auto_update_demo.tscn
 
 const WORK := "user://dot_cloud_auto_update_demo"
@@ -50,13 +50,13 @@ class FakeConsole:
 
 
 func _ready() -> void:
-	DotLog.set_level(DotLog.Level.WARN)
+	GSLog.set_level(GSLog.Level.WARN)
 	await _run()
 
 
 func _run() -> void:
 	print("dot-cloud auto-update")
-	DotPaths.remove_tree(WORK)
+	GSPaths.remove_tree(WORK)
 
 	await _section_empty_restarts_at_once()
 	await _section_waits_for_empty()
@@ -98,7 +98,7 @@ func _section_empty_restarts_at_once() -> void:
 	u.step()
 	await get_tree().process_frame
 	_check("checked at the interval", _asked >= 1, str(_asked))
-	_check("update found", u.state == DotCloudAutoUpdate.State.WAITING, DotCloudAutoUpdate.State.keys()[u.state])
+	_check("update found", u.state == GSCloudAutoUpdate.State.WAITING, GSCloudAutoUpdate.State.keys()[u.state])
 	_t = 601.0
 	u.step()
 	_check("restart requested", _restarts.size() == 1, str(_restarts))
@@ -113,11 +113,11 @@ func _section_waits_for_empty() -> void:
 	_latest = {"gamemann/fc": "0.2.0"}
 	_players = 4
 	await u.check_now()
-	_check("found", u.state == DotCloudAutoUpdate.State.WAITING)
+	_check("found", u.state == GSCloudAutoUpdate.State.WAITING)
 	for i in 70:
 		_t += 100.0
 		u.step()
-	_check("still waiting with players", _restarts.is_empty() and u.state == DotCloudAutoUpdate.State.WAITING)
+	_check("still waiting with players", _restarts.is_empty() and u.state == GSCloudAutoUpdate.State.WAITING)
 	_check("no warning while waiting", _warnings.is_empty(), str(_warnings))
 	_players = 0
 	_t += 1.0
@@ -132,7 +132,7 @@ func _section_cap_forces_restart() -> void:
 	var u := _make({"max_wait": 1800, "warn_seconds": 300, "warn_steps": ["300", "60", "10", "5"]})
 	_latest = {"gamemann/fc": "0.2.0", "gamemann/surf_map": "1.1.0"}
 	_players = 3
-	var found: DotResult = await u.check_now()
+	var found: GSResult = await u.check_now()
 	_check("two updates found", found.ok and (found.value as Array).size() == 2, str(found.value))
 	var start := _t
 	_t = start + 1799.0
@@ -188,7 +188,7 @@ func _section_not_when_empty() -> void:
 	_players = 2
 	await u.check_now()
 	u.step()
-	_check("countdown starts at once", u.state == DotCloudAutoUpdate.State.COUNTDOWN)
+	_check("countdown starts at once", u.state == GSCloudAutoUpdate.State.COUNTDOWN)
 	_check("first warning is warn_seconds", _seconds() == [120], str(_seconds()))
 	_t += 61.0
 	u.step()
@@ -219,10 +219,10 @@ func _section_disabled() -> void:
 	var v := _make({})
 	_players = 5
 	await v.check_now()
-	_check("pending", v.state == DotCloudAutoUpdate.State.WAITING)
+	_check("pending", v.state == GSCloudAutoUpdate.State.WAITING)
 	v.config.enabled = false
 	v.step()
-	_check("turning it off drops the update", v.state == DotCloudAutoUpdate.State.IDLE and v.updates.is_empty())
+	_check("turning it off drops the update", v.state == GSCloudAutoUpdate.State.IDLE and v.updates.is_empty())
 	_players = 0
 	v.step()
 	_check("and does not restart", _restarts.is_empty())
@@ -240,10 +240,10 @@ func _section_loop_guard() -> void:
 	_done(u)
 	var again := _make({}, true)
 	await again.check_now()
-	_check("same version not found again", again.state == DotCloudAutoUpdate.State.IDLE, DotCloudAutoUpdate.State.keys()[again.state])
+	_check("same version not found again", again.state == GSCloudAutoUpdate.State.IDLE, GSCloudAutoUpdate.State.keys()[again.state])
 	_latest = {"gamemann/fc": "0.3.0"}
 	await again.check_now()
-	_check("a newer one is", again.state == DotCloudAutoUpdate.State.WAITING)
+	_check("a newer one is", again.state == GSCloudAutoUpdate.State.WAITING)
 	_done(again)
 	_latest = {"gamemann/fc": "0.2.0"}
 	var applied := _make({}, true, [{"id": "gamemann/fc", "version": "0.2.0"}])
@@ -253,16 +253,16 @@ func _section_loop_guard() -> void:
 	var ignored := _make({"ignore": ["gamemann/fc"]}, false, [{"id": "gamemann/fc", "version": "0.1.0"}])
 	_latest = {"gamemann/fc": "9.0.0"}
 	await ignored.check_now()
-	_check("ignored id never checked", _asked == 0 and ignored.state == DotCloudAutoUpdate.State.IDLE)
+	_check("ignored id never checked", _asked == 0 and ignored.state == GSCloudAutoUpdate.State.IDLE)
 	_done(ignored)
 
 
 func _section_cfg_layers() -> void:
 	_begin("configuration layers")
 	var path := WORK.path_join("autoupdate.yml")
-	DotPaths.write_text(path, "when_empty: false\nwarn_seconds: 120\nmax_wait: 99\nwarn_steps: [60, 10]\nmessage: \"Back in {seconds}s ({content} {version})\"\n")
+	GSPaths.write_text(path, "when_empty: false\nwarn_seconds: 120\nmax_wait: 99\nwarn_steps: [60, 10]\nmessage: \"Back in {seconds}s ({content} {version})\"\n")
 	OS.set_environment("GS_CLOUD_AUTOUPDATE_WARN_SECONDS", "30")
-	var c := DotCloudAutoUpdateConfig.new()
+	var c := GSCloudAutoUpdateConfig.new()
 	var res := c.load_cfg(path)
 	OS.unset_environment("GS_CLOUD_AUTOUPDATE_WARN_SECONDS")
 	_check("loads", res.ok, str(res.error) if not res.ok else "")
@@ -271,8 +271,8 @@ func _section_cfg_layers() -> void:
 	_check("default kept", c.enabled and is_equal_approx(c.check_interval, 600.0))
 	_check("steps parsed", c.steps() == PackedInt32Array([60, 10]), str(c.steps()))
 	_check("template", c.format_message(5, "1.0", "a/b") == "Back in 5s (a/b 1.0)", c.format_message(5, "1.0", "a/b"))
-	DotPaths.write_text(path, "check_interval: 1\n")
-	_check("too-short interval refused", not DotCloudAutoUpdateConfig.new().load_cfg(path).ok)
+	GSPaths.write_text(path, "check_interval: 1\n")
+	_check("too-short interval refused", not GSCloudAutoUpdateConfig.new().load_cfg(path).ok)
 	_end()
 
 
@@ -282,7 +282,7 @@ func _section_cvars() -> void:
 	var console := FakeConsole.new()
 	console.preset = {"sv_autoupdate_warn_seconds": "45"}
 	u.bind_console(console)
-	_check("all registered", console.cvars.size() == DotCloudAutoUpdate.CVARS.size(), str(console.cvars.keys()))
+	_check("all registered", console.cvars.size() == GSCloudAutoUpdate.CVARS.size(), str(console.cvars.keys()))
 	_check("server.cfg value applied", u.config.warn_seconds == 45, str(u.config.warn_seconds))
 	_check("defaults as text", (console.cvars["sv_autoupdate_max_wait_seconds"] as FakeCvar).value == "3600")
 	(console.cvars["sv_autoupdate"] as FakeCvar).set_to("0")
@@ -296,16 +296,16 @@ func _section_cvars() -> void:
 
 func _section_pointer() -> void:
 	_begin("latest.json")
-	var ok := DotCloudAutoUpdate.follow_pointer("a/b", {"version": "1.2.0"}, 0)
+	var ok := GSCloudAutoUpdate.follow_pointer("a/b", {"version": "1.2.0"}, 0)
 	_check("version read", ok.ok and ok.value["version"] == "1.2.0")
-	var moved := DotCloudAutoUpdate.follow_pointer("a/b", {"moved_to": "a/c"}, 0)
+	var moved := GSCloudAutoUpdate.follow_pointer("a/b", {"moved_to": "a/c"}, 0)
 	_check("moved read", moved.ok and moved.value["moved_to"] == "a/c")
-	_check("second hop refused", not DotCloudAutoUpdate.follow_pointer("a/c", {"moved_to": "a/d"}, 1).ok)
-	_check("traversal refused", not DotCloudAutoUpdate.follow_pointer("a/b", {"version": "../x"}, 0).ok)
-	_check("not an object refused", not DotCloudAutoUpdate.follow_pointer("a/b", [], 0).ok)
+	_check("second hop refused", not GSCloudAutoUpdate.follow_pointer("a/c", {"moved_to": "a/d"}, 1).ok)
+	_check("traversal refused", not GSCloudAutoUpdate.follow_pointer("a/b", {"version": "../x"}, 0).ok)
+	_check("not an object refused", not GSCloudAutoUpdate.follow_pointer("a/b", [], 0).ok)
 	var u := _make({})
 	u.latest_fn = Callable()
-	var none: DotResult = await u.latest_from_origin("a/b")
+	var none: GSResult = await u.latest_from_origin("a/b")
 	_check("no client: nothing to ask", none.ok and (none.value as Dictionary).is_empty())
 	_done(u)
 
@@ -313,20 +313,20 @@ func _section_pointer() -> void:
 func _section_failures() -> void:
 	_begin("a failing origin")
 	var u := _make({})
-	u.latest_fn = func(_id: String) -> DotResult: return DotResult.fail(DotError.CODE_NETWORK, "down")
+	u.latest_fn = func(_id: String) -> GSResult: return GSResult.fail(GSError.CODE_NETWORK, "down")
 	await u.check_now()
-	_check("no update on failure", u.state == DotCloudAutoUpdate.State.IDLE)
+	_check("no update on failure", u.state == GSCloudAutoUpdate.State.IDLE)
 	_check("failure counted", int(u.last_check.get("errors", 0)) == 2, str(u.last_check))
-	u.latest_fn = func(_id: String) -> DotResult: return DotResult.fail(DotError.CODE_FORBIDDEN, "Not allowed.")
+	u.latest_fn = func(_id: String) -> GSResult: return GSResult.fail(GSError.CODE_FORBIDDEN, "Not allowed.")
 	await u.check_now()
 	_check("an unpublished id is not a failure", int(u.last_check.get("errors", 0)) == 0, str(u.last_check))
-	u.latest_fn = func(_id: String) -> DotResult: return DotResult.success({"id": "gamemann/fc2", "version": "0.1.0"})
+	u.latest_fn = func(_id: String) -> GSResult: return GSResult.success({"id": "gamemann/fc2", "version": "0.1.0"})
 	await u.check_now()
-	_check("moved id is an update", u.state == DotCloudAutoUpdate.State.WAITING and str(u.updates[0]["to"]) == "gamemann/fc2@0.1.0", str(u.updates))
+	_check("moved id is an update", u.state == GSCloudAutoUpdate.State.WAITING and str(u.updates[0]["to"]) == "gamemann/fc2@0.1.0", str(u.updates))
 	_done(u)
 
 
-func _make(overrides: Dictionary, keep_state: bool = false, running: Array = []) -> DotCloudAutoUpdate:
+func _make(overrides: Dictionary, keep_state: bool = false, running: Array = []) -> GSCloudAutoUpdate:
 	_t = 0.0
 	_players = 0
 	_asked = 0
@@ -340,17 +340,17 @@ func _make(overrides: Dictionary, keep_state: bool = false, running: Array = [])
 	]
 	if not keep_state:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(WORK.path_join("state.json")))
-	var u := DotCloudAutoUpdate.new()
-	u.config = DotCloudAutoUpdateConfig.new()
+	var u := GSCloudAutoUpdate.new()
+	u.config = GSCloudAutoUpdateConfig.new()
 	u.config.state_path = WORK.path_join("state.json")
 	u.config.apply_dictionary(overrides, "test")
 	u.drive_by_process = false
 	u.now_fn = func() -> float: return _t
 	u.players_fn = func() -> int: return _players
 	u.watch_fn = func() -> Array: return _running
-	u.latest_fn = func(id: String) -> DotResult:
+	u.latest_fn = func(id: String) -> GSResult:
 		_asked += 1
-		return DotResult.success({"id": id, "version": str(_latest.get(id, _version_of(id)))})
+		return GSResult.success({"id": id, "version": str(_latest.get(id, _version_of(id)))})
 	u.warn_fn = func(text: String) -> void: _warn_texts.append(text)
 	u.warning_sent.connect(func(s: int, text: String) -> void: _warnings.append([s, text]))
 	u.restart_fn = func(code: int, reason: String) -> void: _restarts.append([code, reason])
@@ -369,7 +369,7 @@ func _seconds() -> Array:
 	return _warnings.map(func(w: Array) -> int: return int(w[0]))
 
 
-func _done(u: DotCloudAutoUpdate) -> void:
+func _done(u: GSCloudAutoUpdate) -> void:
 	if is_instance_valid(u) and u.is_inside_tree():
 		remove_child(u)  # unregisters now, before the next section registers its own
 		u.queue_free()

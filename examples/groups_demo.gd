@@ -1,6 +1,6 @@
 extends Node
 
-## Download groups from the source's `groups.json`. Covers both shapes of the file, the groups in the manifest entries, a file in no rule or in two, the merge with `DotCloudPublisher.group_rules`,
+## Download groups from the source's `groups.json`. Covers both shapes of the file, the groups in the manifest entries, a file in no rule or in two, the merge with `GSCloudPublisher.group_rules`,
 ## the `.import` marker and `_imported/` output following their asset, a client fetching only its group's files, a mounted pack topped up with one group then all (`ensure_groups_at`, `"*"`), and the
 ## publisher's refusals (a pattern matching nothing, an empty group, the name `*`, a non-pack path, a malformed file). Run: [code]godot --headless --path . res://examples/groups_demo.tscn[/code]
 
@@ -20,14 +20,14 @@ var _keys: Dictionary = {}
 
 
 func _ready() -> void:
-	DotLog.set_level(DotLog.Level.WARN)
+	GSLog.set_level(GSLog.Level.WARN)
 	await _run()
 
 
 func _run() -> void:
 	print("dot-cloud groups")
-	DotPaths.remove_tree(WORK)
-	var keys := DotCloudSignature.generate_keypair(2048)
+	GSPaths.remove_tree(WORK)
+	var keys := GSCloudSignature.generate_keypair(2048)
 	if not keys.ok:
 		print("keygen failed: %s" % keys.error)
 		_finish(1)
@@ -107,7 +107,7 @@ func _section_mounted() -> void:
 	var elsewhere := await client.ensure_groups_at("res://not_acquired/x", PackedStringArray(["course_b"]))
 	_check("unacquired path is a no-op", elsewhere.ok and str(elsewhere.value) == "" and not FileAccess.file_exists(prefix.path_join("worlds/course_b.json")))
 
-	var all := await client.acquire_manifest(manifest, PackedStringArray([DotCloudFile.ALL_GROUPS]))
+	var all := await client.acquire_manifest(manifest, PackedStringArray([GSCloudFile.ALL_GROUPS]))
 	_check("every group mounted", all.ok and FileAccess.file_exists(prefix.path_join("worlds/course_b.bin")), str(all.error) if not all.ok else "")
 	client.queue_free()
 	_end()
@@ -123,7 +123,7 @@ func _section_job() -> void:
 		return
 	var core: Dictionary = await _job_total(manifest, PackedStringArray(), "job_core")
 	var one: Dictionary = await _job_total(manifest, PackedStringArray(["course_a"]), "job_one")
-	var r_all: Dictionary = await _job_total(manifest, PackedStringArray([DotCloudFile.ALL_GROUPS]), "job_all")
+	var r_all: Dictionary = await _job_total(manifest, PackedStringArray([GSCloudFile.ALL_GROUPS]), "job_all")
 	var t_core: int = int(core["total"])
 	var t_one: int = int(one["total"])
 	var t_all: int = int(r_all["total"])
@@ -138,7 +138,7 @@ func _section_job() -> void:
 
 
 ## Registers [param manifest] in a job of its own with [param groups], downloads, and reports totals.
-func _job_total(manifest: DotCloudManifest, groups: PackedStringArray, cache: String) -> Dictionary:
+func _job_total(manifest: GSCloudManifest, groups: PackedStringArray, cache: String) -> Dictionary:
 	var client := _make_client(WORK.path_join("out_ok"), cache)
 	await client.start()
 	var snaps: Array = []
@@ -187,11 +187,11 @@ func _section_imported() -> void:
 	_begin("imported outputs follow their asset")
 	var dir := WORK.path_join("src_imported")
 	_write_source(dir, '{"course_a": ["worlds/course_a.*"], "course_b": ["worlds/course_b.*"]}')
-	DotPaths.write_text(dir.path_join("project.godot"), "config_version=5\n")
-	DotPaths.write_text(dir.path_join("worlds/course_a.png.import"), "[remap]\n\npath=\"res://.godot/imported/course_a.png-abc.ctex\"\n")
-	DotPaths.write_text(dir.path_join(".godot/imported/course_a.png-abc.ctex"), "imported a")
-	DotPaths.write_text(dir.path_join("tex/plain.png.import"), "[remap]\n\npath=\"res://.godot/imported/plain.png-def.ctex\"\n")
-	DotPaths.write_text(dir.path_join(".godot/imported/plain.png-def.ctex"), "imported plain")
+	GSPaths.write_text(dir.path_join("project.godot"), "config_version=5\n")
+	GSPaths.write_text(dir.path_join("worlds/course_a.png.import"), "[remap]\n\npath=\"res://.godot/imported/course_a.png-abc.ctex\"\n")
+	GSPaths.write_text(dir.path_join(".godot/imported/course_a.png-abc.ctex"), "imported a")
+	GSPaths.write_text(dir.path_join("tex/plain.png.import"), "[remap]\n\npath=\"res://.godot/imported/plain.png-def.ctex\"\n")
+	GSPaths.write_text(dir.path_join(".godot/imported/plain.png-def.ctex"), "imported plain")
 	var res := _publisher().publish(dir, WORK.path_join("out_imported"))
 	_check("publish", res.ok, str(res.error) if not res.ok else "")
 	var groups := _groups_of(WORK.path_join("out_imported"))
@@ -219,19 +219,19 @@ func _section_refusals() -> void:
 
 func _refused(groups: String) -> bool:
 	var dir := WORK.path_join("src_bad")
-	DotPaths.remove_tree(dir)
+	GSPaths.remove_tree(dir)
 	_write_source(dir, groups)
 	var res := _publisher().publish(dir, WORK.path_join("out_bad"))
 	return not res.ok
 
 
-func _make_client(published: String, cache: String = "cache") -> DotCloudClient:
-	var config := DotCloudConfig.new()
+func _make_client(published: String, cache: String = "cache") -> GSCloudClient:
+	var config := GSCloudConfig.new()
 	config.cache_dir = WORK.path_join(cache)
 	config.require_signed_manifests = true
 	config.trusted_keys = {"demo": str(_keys["public"])}
 	config.side = "both"
-	var client := DotCloudClient.new()
+	var client := GSCloudClient.new()
 	client.name = "Cloud_groups"
 	client.config = config
 	client.config_file = ""
@@ -242,8 +242,8 @@ func _make_client(published: String, cache: String = "cache") -> DotCloudClient:
 	return client
 
 
-func _publisher() -> DotCloudPublisher:
-	var pub := DotCloudPublisher.new()
+func _publisher() -> GSCloudPublisher:
+	var pub := GSCloudPublisher.new()
 	pub.content_id = "groups_demo"
 	pub.version = "1.0.0"
 	pub.signing_key_pem = str(_keys["private"])
@@ -251,11 +251,11 @@ func _publisher() -> DotCloudPublisher:
 	return pub
 
 
-func _manifest(out: String) -> DotCloudManifest:
-	var bytes := DotPaths.read_bytes(out.path_join("manifest.json"))
+func _manifest(out: String) -> GSCloudManifest:
+	var bytes := GSPaths.read_bytes(out.path_join("manifest.json"))
 	if not bytes.ok:
 		return null
-	var parsed := DotCloudManifest.from_json_bytes(bytes.value)
+	var parsed := GSCloudManifest.from_json_bytes(bytes.value)
 	return parsed.value if parsed.ok else null
 
 
@@ -283,7 +283,7 @@ func _write_source(dir: String, groups: String) -> void:
 		"groups.json": groups + "\n",
 	}
 	for path: String in files:
-		DotPaths.write_text(dir.path_join(path), str(files[path]))
+		GSPaths.write_text(dir.path_join(path), str(files[path]))
 
 
 func _begin(name: String) -> void:

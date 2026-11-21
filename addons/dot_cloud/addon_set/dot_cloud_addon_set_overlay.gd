@@ -2,14 +2,14 @@ extends RefCounted
 
 const _Uids := preload("../mount/dot_cloud_mounter_uids.gd")
 
-## Pieces of [method DotCloudAddonSet._assemble], in a file of their own so the addon set stays inside the
+## Pieces of [method GSCloudAddonSet._assemble], in a file of their own so the addon set stays inside the
 ## size budget. Nothing here is used on its own.
 
 ## The most one overlay pack file holds. A browser keeps `user://` in IndexedDB one file per value, and Chrome
 ## refuses a value over 133169152 bytes (127 MiB): a larger overlay is never saved and the reload never comes.
 const PART_BYTES := 96 * 1024 * 1024
 
-## [constant DotCloudAddonSet.REMAPPED] lives here so this file never names the addon set.
+## [constant GSCloudAddonSet.REMAPPED] lives here so this file never names the addon set.
 const REMAPPED := ["gd", "tscn", "tres", "scn", "res", "gdshader", "shader"]
 
 ## [method base] of a pack that holds no addon.
@@ -21,7 +21,7 @@ const REWRITTEN := ["tscn", "tres", "import"]
 
 ## Where the addon's directory starts in [param manifest]: "" for a pack that is the addon (a dot-*
 ## release), `addons/<dir>/` for a project that holds it (a game addon's release), else [constant NOT_AN_ADDON].
-static func base(manifest: DotCloudManifest, dir: String) -> String:
+static func base(manifest: GSCloudManifest, dir: String) -> String:
 	if has_file(manifest, "plugin.cfg"):
 		return ""
 	var nested := "addons/%s/" % dir
@@ -30,7 +30,7 @@ static func base(manifest: DotCloudManifest, dir: String) -> String:
 
 ## Where [param path] goes: the addon's files under `res://addons/<dir>/`, the rest of a project pack
 ## (its `_imported/` outputs, data its scenes name) where the site's rewritten references expect it.
-static func target(manifest: DotCloudManifest, dir: String, at: String, path: String) -> String:
+static func target(manifest: GSCloudManifest, dir: String, at: String, path: String) -> String:
 	if at == "" or path.begins_with(at):
 		return "res://addons/%s/%s" % [dir, path.trim_prefix(at)]
 	return manifest.mount_prefix().path_join(path)
@@ -39,7 +39,7 @@ static func target(manifest: DotCloudManifest, dir: String, at: String, path: St
 ## [param source], or a copy in [param scratch] whose references to the addon's own files are moved
 ## from the mount prefix the site wrote back to `res://addons/<dir>/`, where the overlay puts them.
 ## References to the rest of the pack keep the prefix: [method target] puts those files there.
-static func unrelocate(manifest: DotCloudManifest, dir: String, at: String, path: String, source: String, scratch: String) -> String:
+static func unrelocate(manifest: GSCloudManifest, dir: String, at: String, path: String, source: String, scratch: String) -> String:
 	if at == "" or not path.begins_with(at) or path.get_extension().to_lower() not in REWRITTEN:
 		return source
 	var text := FileAccess.get_file_as_string(source)
@@ -56,7 +56,7 @@ static func unrelocate(manifest: DotCloudManifest, dir: String, at: String, path
 static func path(dir: String, manifests: Dictionary, fingerprint: String, groups: PackedStringArray) -> String:
 	var lines := PackedStringArray([fingerprint])
 	for d: String in manifests:
-		for f in (manifests[d] as DotCloudManifest).wanted_files(groups):
+		for f in (manifests[d] as GSCloudManifest).wanted_files(groups):
 			lines.append("%s/%s:%s" % [d, f.path, f.sha256])
 	lines.sort()
 	return dir.path_join("overlay-%s.pck" % "\n".join(lines).sha256_text().substr(0, 16))
@@ -80,7 +80,7 @@ static func add_remap(packer: Parts, remap_file: String, target: String) -> int:
 
 ## Picks the script confirm_boot loads to see which copy is running: the addon's API file when it has
 ## one (constants, nothing that runs on load), else the first by path, so the choice is the same every build.
-static func note_probe(probes: Dictionary, dir: String, manifest: DotCloudManifest, at: String, target: String) -> void:
+static func note_probe(probes: Dictionary, dir: String, manifest: GSCloudManifest, at: String, target: String) -> void:
 	var api := "%s_api.gd" % dir
 	if target == "res://addons/%s/%s" % [dir, api]:
 		probes[dir] = target
@@ -157,7 +157,7 @@ class Parts:
 		return err
 
 
-static func has_file(manifest: DotCloudManifest, path: String) -> bool:
+static func has_file(manifest: GSCloudManifest, path: String) -> bool:
 	for f in manifest.files:
 		if f.path == path:
 			return true

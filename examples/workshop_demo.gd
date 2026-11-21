@@ -4,8 +4,8 @@ extends Node
 ## puts it in the index for the right session.
 ##
 ## Publishes fixture packs (a map, a weapon and a prop; a pack carrying a script; an addon
-## overlay; packs that reuse UIDs), mounts them through [method DotCloudClient.ensure_for_session]
-## and reads the answer back from [DotContentIndex]. Each refusal is armed: the check beside it
+## overlay; packs that reuse UIDs), mounts them through [method GSCloudClient.ensure_for_session]
+## and reads the answer back from [GSContentIndex]. Each refusal is armed: the check beside it
 ## states what the unguarded path does, so a test that cannot fail shows up.
 ##
 ## [codeblock]
@@ -19,16 +19,16 @@ var _failures := 0
 var _checks := 0
 var _key_pem := ""
 var _pub_pem := ""
-var _cloud: DotCloudClient
-var _index: DotContentIndex
+var _cloud: GSCloudClient
+var _index: GSContentIndex
 
 
 func _ready() -> void:
-	DotLog.set_level(DotLog.Level.ERROR)
+	GSLog.set_level(GSLog.Level.ERROR)
 	_line("[b]the Workshop: provides, the code scan, session-tagged mounts[/b]")
-	DotPaths.remove_tree(WORK)
+	GSPaths.remove_tree(WORK)
 
-	var keys := DotCloudSignature.generate_keypair(2048)
+	var keys := GSCloudSignature.generate_keypair(2048)
 	_check(keys.ok, "a signing key pair is generated")
 	if not keys.ok:
 		_done()
@@ -37,13 +37,13 @@ func _ready() -> void:
 	_pub_pem = str((keys.value as Dictionary)["public"])
 
 	# A fresh index of this test's own, which is what the registry name is for.
-	_index = DotContentIndex.new()
-	DotRegistry.register(DotContentIndex.SERVICE, _index)
+	_index = GSContentIndex.new()
+	GSRegistry.register(GSContentIndex.SERVICE, _index)
 	_index.set_session(&"solo")
 
-	_cloud = DotCloudClient.new()
+	_cloud = GSCloudClient.new()
 	_cloud.name = "Cloud"
-	_cloud.config = DotCloudConfig.new()
+	_cloud.config = GSCloudConfig.new()
 	_cloud.config.cache_dir = WORK.path_join("cache")
 	_cloud.config.trusted_keys = {"test": {"key": _pub_pem, "content_ids": ["ws_*"]}}
 	_cloud.config_file = ""
@@ -62,11 +62,11 @@ func _ready() -> void:
 # fixtures
 
 func _write(dir: String, rel: String, text: String) -> void:
-	DotPaths.write_text(dir.path_join(rel), text)
+	GSPaths.write_text(dir.path_join(rel), text)
 
 
-func _publish(src: String, id: String, version: String = "1.0.0", pub_setup: Callable = Callable()) -> DotResult:
-	var pub := DotCloudPublisher.new()
+func _publish(src: String, id: String, version: String = "1.0.0", pub_setup: Callable = Callable()) -> GSResult:
+	var pub := GSCloudPublisher.new()
 	pub.content_id = id
 	pub.version = version
 	pub.signing_key_pem = _key_pem
@@ -111,21 +111,21 @@ func _check_publish_validation() -> void:
 	_check(ok.ok, "a fixture pack with a map, a weapon and a prop publishes", str(ok.error) if not ok.ok else "")
 	if not ok.ok:
 		return
-	var manifest: DotCloudManifest = (ok.value as Dictionary)["manifest"]
+	var manifest: GSCloudManifest = (ok.value as Dictionary)["manifest"]
 	_check(manifest.provides.get("entries", []).size() == 3, "the manifest carries all three entries")
 	_check(manifest.provides.get("runs_code") == false, "runs_code is computed, and false for data")
 
 	# The manifest that comes back off the disk is the signed one: provides survives the
 	# round trip through the payload, which is what the client will read.
-	var read := DotCloudManifest.from_json_bytes(FileAccess.get_file_as_bytes(_manifest_url("ws_data")))
-	_check(read.ok and (read.value as DotCloudManifest).provides.get("title") == "Fixture pack", "and survives the signed round trip")
+	var read := GSCloudManifest.from_json_bytes(FileAccess.get_file_as_bytes(_manifest_url("ws_data")))
+	_check(read.ok and (read.value as GSCloudManifest).provides.get("title") == "Fixture pack", "and survives the signed round trip")
 
 	var missing := DATA_PROVIDES.duplicate(true)
 	missing["entries"][0]["scene"] = "maps/nowhere.tscn"
 	var s1 := WORK.path_join("src_missing")
 	_data_source(s1, missing)
 	var r1 := _publish(s1, "ws_missing")
-	_check(not r1.ok and r1.error.code == DotError.CODE_INVALID, "an entry naming a file the pack lacks is refused", str(r1.error) if not r1.ok else "published")
+	_check(not r1.ok and r1.error.code == GSError.CODE_INVALID, "an entry naming a file the pack lacks is refused", str(r1.error) if not r1.ok else "published")
 
 	var climb := DATA_PROVIDES.duplicate(true)
 	climb["entries"][0]["scene"] = "../outside.tscn"
@@ -153,7 +153,7 @@ func _check_publish_validation() -> void:
 
 	# Additive-only: a newer schema, a kind this build does not know and a field it does
 	# not know are all fine for the client's reader.
-	var norm := DotCloudProvides.normalize({
+	var norm := GSCloudProvides.normalize({
 		"schema": 7, "future_key": 1,
 		"entries": [{"kind": "hologram", "id": "h", "name": "H", "future": true}, "junk", {"kind": "map"}],
 	})
@@ -195,7 +195,7 @@ func _check_mount_and_sessions() -> void:
 
 	# A subscription is never mounted for an online session, even by a caller that asks.
 	var denied := await _cloud.ensure_for_session(&"ws_data", "1.0.0", &"online", &"subscription")
-	_check(not denied.ok and denied.error.code == DotError.CODE_FORBIDDEN, "a subscription mount for an online session is refused")
+	_check(not denied.ok and denied.error.code == GSError.CODE_FORBIDDEN, "a subscription mount for an online session is refused")
 	_check(_index.entries(&"map").size() == 0, "and left nothing visible online")
 
 	# A server requiring the same id and version reuses the mount and gains the tag.
@@ -246,26 +246,26 @@ func _check_undeclared_code() -> void:
 	var src := WORK.path_join("src_code")
 	_code_source(src)
 	var honest := _publish(src, "ws_code")
-	var honest_manifest: DotCloudManifest = (honest.value as Dictionary)["manifest"] if honest.ok else null
+	var honest_manifest: GSCloudManifest = (honest.value as Dictionary)["manifest"] if honest.ok else null
 	_check(honest_manifest != null and honest_manifest.provides.get("runs_code") == true, "a pack with a script publishes with runs_code true, whatever the author wrote")
 
 	# The same files under a manifest that says they are data: re-signed by the test key, so
 	# the signature is valid and only the scan can notice.
 	var forged_dir := WORK.path_join("out_ws_forged_1.0.0")
-	DotPaths.ensure_dir(forged_dir)
+	GSPaths.ensure_dir(forged_dir)
 	var again := _publish(src, "ws_forged")
-	var parsed := DotCloudManifest.from_json_bytes(FileAccess.get_file_as_bytes(_manifest_url("ws_forged")))
-	var m: DotCloudManifest = parsed.value
+	var parsed := GSCloudManifest.from_json_bytes(FileAccess.get_file_as_bytes(_manifest_url("ws_forged")))
+	var m: GSCloudManifest = parsed.value
 	var prov := m.provides.duplicate(true)
 	prov["runs_code"] = false
 	m.provides = prov
 	var payload := m.payload_bytes()
-	var sig := DotCloudSignature.sign(payload, _key_pem)
-	var wrapped := DotCloudEnvelope.wrap(payload, str(sig.value), "test")
-	DotPaths.write_bytes(_manifest_url("ws_forged"), wrapped.to_utf8_buffer())
+	var sig := GSCloudSignature.sign(payload, _key_pem)
+	var wrapped := GSCloudEnvelope.wrap(payload, str(sig.value), "test")
+	GSPaths.write_bytes(_manifest_url("ws_forged"), wrapped.to_utf8_buffer())
 
 	var refused := await _cloud.ensure_for_session(&"ws_forged", "1.0.0", &"solo", &"subscription", {"manifest_url": _manifest_url("ws_forged")})
-	_check(again.ok and not refused.ok and refused.error.code == DotError.CODE_FORBIDDEN, "the client refuses it as forbidden", str(refused.error) if not refused.ok else "mounted")
+	_check(again.ok and not refused.ok and refused.error.code == GSError.CODE_FORBIDDEN, "the client refuses it as forbidden", str(refused.error) if not refused.ok else "mounted")
 	_check(not ResourceLoader.exists("res://dot_cloud/ws_forged/1.0.0/maps/m.tscn"), "and nothing of it was mounted")
 	_check(_index.entry("ws_forged@1.0.0:map/m") == null, "or indexed")
 
@@ -290,7 +290,7 @@ func _check_root_overlay() -> void:
 	_check(pub.ok, "an addon pack publishes", str(pub.error) if not pub.ok else "")
 
 	var refused := await _cloud.ensure_for_session(&"ws_overlay", "1.0.0", &"solo", &"subscription", {"allow_root": false, "manifest_url": _manifest_url("ws_overlay")})
-	_check(not refused.ok and refused.error.code == DotError.CODE_FORBIDDEN, "allow_root false refuses it as forbidden")
+	_check(not refused.ok and refused.error.code == GSError.CODE_FORBIDDEN, "allow_root false refuses it as forbidden")
 	_check(not _cloud.is_mounted(&"ws_overlay", "1.0.0"), "and it is not mounted")
 
 	var missing_dir := WORK.path_join("src_overlay_bad")
@@ -319,7 +319,7 @@ func _check_uid_policy() -> void:
 	ResourceUID.add_id(host_id, host_path)
 	var shared_text := ResourceUID.id_to_text(shared_id)
 
-	var ship := func(pub: DotCloudPublisher) -> void: pub.ship_import_sources = true
+	var ship := func(pub: GSCloudPublisher) -> void: pub.ship_import_sources = true
 
 	# Content already mounted by somebody else (the game's own pack, a server's map) owns the id.
 	var s1 := WORK.path_join("src_uid1")
@@ -369,12 +369,12 @@ func _check_scan_alone() -> void:
 	var reader := func(p: String) -> PackedByteArray: return str(files.get(p, "")).to_utf8_buffer()
 	var verdicts := {}
 	for p: String in files:
-		var r := DotCloudScriptScan.scan(PackedStringArray([p]), reader)
+		var r := GSCloudScriptScan.scan(PackedStringArray([p]), reader)
 		verdicts[p] = bool((r.value as Dictionary)["runs_code"])
 	_check(verdicts["a.tscn"] and verdicts["c.tres"] and verdicts["d.res"] and verdicts["g.dll"], "a sub-resource script, an in-pack script, a binary class name and a native library all count")
 	_check(not verdicts["b.tscn"], "a script that is the host build's copy under res://addons/ does not")
 	_check(not verdicts["e.res"] and not verdicts["f.txt"], "and neither do a plain binary resource or a text file")
-	var kinds := DotCloudScriptScan.scan(PackedStringArray(), reader, {"entries": [{"kind": "tool", "id": "t"}]})
+	var kinds := GSCloudScriptScan.scan(PackedStringArray(), reader, {"entries": [{"kind": "tool", "id": "t"}]})
 	_check(bool((kinds.value as Dictionary)["runs_code"]), "an entry of kind tool always runs code")
 
 

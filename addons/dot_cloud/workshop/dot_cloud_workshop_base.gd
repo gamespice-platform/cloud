@@ -1,6 +1,6 @@
-## Base of [DotCloudWorkshop]: the vocabulary a sync reports in (channel, skip reasons, signals)
+## Base of [GSCloudWorkshop]: the vocabulary a sync reports in (channel, skip reasons, signals)
 ## and the stateless pack rules. Path-based, no class_name: the client's own surface stays on
-## [DotCloudWorkshop], and this keeps each script under the size budget.
+## [GSCloudWorkshop], and this keeps each script under the size budget.
 extends Node
 
 const CHANNEL := "dot.cloud.workshop"
@@ -25,7 +25,7 @@ const REASON_ADDON_BUILT := "addon_built"
 ## [param done] of [param total] packs, and the bytes of what had to be downloaded. [param current]
 ## is the pack being worked on, for a loading bar.
 signal progress(done: int, total: int, bytes_done: int, bytes_total: int, current: String)
-signal pack_failed(content_id: String, version: String, error: DotError)
+signal pack_failed(content_id: String, version: String, error: GSError)
 signal synced(summary: Dictionary)
 
 
@@ -34,14 +34,14 @@ static func _over(count: int, limit: int) -> bool:
 	return limit > 0 and count >= limit
 
 
-static func _not_accepted_addon() -> DotError:
-	return DotError.make(
-		DotError.CODE_FORBIDDEN, "This pack would overlay the build's addons, and this game does not accept addon packs.",
+static func _not_accepted_addon() -> GSError:
+	return GSError.make(
+		GSError.CODE_FORBIDDEN, "This pack would overlay the build's addons, and this game does not accept addon packs.",
 		"a game opts in with \"addon\" in its provides.json accepts.kinds"
 	)
 
 
-static func _paths_of(manifest: DotCloudManifest) -> PackedStringArray:
+static func _paths_of(manifest: GSCloudManifest) -> PackedStringArray:
 	var out := PackedStringArray()
 	for f in manifest.files:
 		out.append(f.path)
@@ -49,7 +49,7 @@ static func _paths_of(manifest: DotCloudManifest) -> PackedStringArray:
 
 
 ## The addon directories (under [code]res://addons/[/code]) a manifest's `addon` entries name.
-static func addon_dirs(manifest: DotCloudManifest) -> PackedStringArray:
+static func addon_dirs(manifest: GSCloudManifest) -> PackedStringArray:
 	var out := PackedStringArray()
 	for e: Variant in manifest.provides.get("entries", []):
 		if not (e is Dictionary) or str((e as Dictionary).get("kind", "")) != "addon":
@@ -68,10 +68,10 @@ static func addon_clash(dir: String, id: String, taken: Dictionary = {}) -> Stri
 	if taken.has(dir) and str(taken[dir]) != id:
 		return "addons/%s is already taken by the subscribed %s" % [dir, taken[dir]]
 	var repo := id.get_file()
-	if DotCloudAddonSet.built_versions().has(repo):
+	if GSCloudAddonSet.built_versions().has(repo):
 		return "this build ships %s" % repo
-	var plan := DotCloudAddonSet.read_plan()
-	var held: Dictionary = plan.get("addons", {}) if DotCloudAddonSet.mounted_this_boot(plan) else {}
+	var plan := GSCloudAddonSet.read_plan()
+	var held: Dictionary = plan.get("addons", {}) if GSCloudAddonSet.mounted_this_boot(plan) else {}
 	if held.has(dir):
 		var other := str((held[dir] as Dictionary).get("id", ""))
 		return "" if other == id else "the running addon overlay has addons/%s from %s" % [dir, other]
@@ -82,12 +82,12 @@ static func addon_clash(dir: String, id: String, taken: Dictionary = {}) -> Stri
 
 ## Whether the overlay this process booted on already holds [param id] at [param version] or newer.
 static func addon_running(dir: String, id: String, version: String) -> bool:
-	var plan := DotCloudAddonSet.read_plan()
-	if not DotCloudAddonSet.mounted_this_boot(plan):
+	var plan := GSCloudAddonSet.read_plan()
+	if not GSCloudAddonSet.mounted_this_boot(plan):
 		return false
 	var held: Variant = (plan.get("addons", {}) as Dictionary).get(dir)
 	return held is Dictionary and str((held as Dictionary).get("id", "")) == id \
-		and DotCloudAddonSet.compare_versions(str((held as Dictionary).get("version", "")), version) >= 0
+		and GSCloudAddonSet.compare_versions(str((held as Dictionary).get("version", "")), version) >= 0
 
 
 static func _any_in(have: Array, want: Array) -> bool:
@@ -101,9 +101,9 @@ static func _skip(id: String, version: String, reason: String) -> Dictionary:
 	return {"content_id": id, "version": version, "reason": reason}
 
 
-func _fail_pack(failed: Array, id: String, version: String, error: DotError) -> void:
+func _fail_pack(failed: Array, id: String, version: String, error: GSError) -> void:
 	failed.append({"content_id": id, "version": version, "code": error.code, "message": error.message})
-	DotLog.warn(CHANNEL, "pack skipped", {
+	GSLog.warn(CHANNEL, "pack skipped", {
 		"pack": "%s@%s" % [id, version], "code": error.code, "message": error.message, "detail": error.detail,
 	})
 	pack_failed.emit(id, version, error)
@@ -118,18 +118,18 @@ static func _new_summary() -> Dictionary:
 
 ## The second lock behind the shell's own: a join in progress, or a session already online.
 func _is_online_session() -> bool:
-	if DotRegistry.get_service(&"dot_client_link") != null:
+	if GSRegistry.get_service(&"dot_client_link") != null:
 		return true
-	return DotContentIndex.shared().session() == DotContentIndex.SESSION_ONLINE
+	return GSContentIndex.shared().session() == GSContentIndex.SESSION_ONLINE
 
 
 ## What this build is, as the site's workshop list wants it: [code]web[/code] in a browser,
 ## [code]mobile[/code] on a phone or tablet, otherwise [code]desktop[/code]. An old client that
 ## sends nothing is read as native by the site, the strict case.
 static func client_platform() -> String:
-	if DotPlatform.is_web():
+	if GSPlatform.is_web():
 		return "web"
-	if DotPlatform.is_mobile():
+	if GSPlatform.is_mobile():
 		return "mobile"
 	return "desktop"
 
@@ -147,7 +147,7 @@ static func _script_policy_allows(policy: String, runs_code: bool, approved: boo
 	return false
 
 
-## The ids of [param keyring] (a [member DotCloudConfig.trusted_keys]) a subscription may be signed
+## The ids of [param keyring] (a [member GSCloudConfig.trusted_keys]) a subscription may be signed
 ## with: all of them, or only those [param narrow] names when it names any. Never wider than the keyring.
 static func keyring_ids(keyring: Dictionary, narrow: PackedStringArray) -> PackedStringArray:
 	var out := PackedStringArray()
@@ -161,14 +161,14 @@ static func keyring_ids(keyring: Dictionary, narrow: PackedStringArray) -> Packe
 ## The manifest's key id, once that key itself (not merely some key in the keyring) has verified
 ## it. The id in a manifest is the publisher's unsigned hint; checking it against the one keyring
 ## entry of that name is what makes a subscription's key id mean the key that signed it.
-static func subscription_signer(manifest: DotCloudManifest, trusted: PackedStringArray, keyring: Dictionary) -> DotResult:
+static func subscription_signer(manifest: GSCloudManifest, trusted: PackedStringArray, keyring: Dictionary) -> GSResult:
 	var key_id := manifest.signature_key_id
 	if not trusted.has(key_id) or not keyring.has(key_id):
-		return DotResult.fail(
-			DotError.CODE_FORBIDDEN, "The manifest is signed with a key a subscription does not trust.", key_id
+		return GSResult.fail(
+			GSError.CODE_FORBIDDEN, "The manifest is signed with a key a subscription does not trust.", key_id
 		)
 	var one := {key_id: keyring[key_id]}
-	var verified := DotCloudSignature.verify_for(manifest.raw_bytes, manifest.signature, one, manifest.content_id, key_id)
+	var verified := GSCloudSignature.verify_for(manifest.raw_bytes, manifest.signature, one, manifest.content_id, key_id)
 	if not verified.ok:
-		return DotResult.fail(DotError.CODE_FORBIDDEN, "The manifest is not signed by the key it names.", key_id)
-	return DotResult.success(key_id)
+		return GSResult.fail(GSError.CODE_FORBIDDEN, "The manifest is not signed by the key it names.", key_id)
+	return GSResult.success(key_id)

@@ -10,10 +10,10 @@ Runtime content delivery for Godot 4.7+. A server hands a client a manifest. The
 ## Use
 
 ```gdscript
-var cloud := DotCloudClient.new()
+var cloud := GSCloudClient.new()
 add_child(cloud)
 
-cloud.config = DotCloudConfig.new()
+cloud.config = GSCloudConfig.new()
 cloud.config.trusted_keys = {"default": PUBLIC_KEY_PEM}
 
 await cloud.start()

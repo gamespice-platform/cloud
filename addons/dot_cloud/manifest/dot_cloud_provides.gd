@@ -1,9 +1,9 @@
-class_name DotCloudProvides
+class_name GSCloudProvides
 extends RefCounted
 
 ## The `provides` block: what a pack offers a game, parsed and validated.
 ##
-## The author writes `provides.json` at the root of the pack source; [DotCloudPublisher]
+## The author writes `provides.json` at the root of the pack source; [GSCloudPublisher]
 ## validates it with [method parse] and [method check_files], adds the computed `runs_code`
 ## and signs it into the manifest. The contract is `docs/workshop.md`.
 ##
@@ -29,7 +29,7 @@ const PATH_FIELDS: Array[String] = ["scene", "def", "thumbnail", "script", "stre
 
 ## Validates an author's document and returns the normalised block (without `runs_code`).
 ## Value: the cleaned dictionary.
-static func parse(d: Dictionary, strict: bool = true) -> DotResult:
+static func parse(d: Dictionary, strict: bool = true) -> GSResult:
 	var out := {"schema": int(d.get("schema", SCHEMA))}
 	out["title"] = str(d.get("title", ""))
 
@@ -56,7 +56,7 @@ static func parse(d: Dictionary, strict: bool = true) -> DotResult:
 		for c: Variant in (raw_cats as Array):
 			if not (c is Dictionary) or str((c as Dictionary).get("id", "")) == "":
 				if strict:
-					return DotResult.fail(DotError.CODE_INVALID, "A category needs an id.")
+					return GSResult.fail(GSError.CODE_INVALID, "A category needs an id.")
 				continue
 			cats.append((c as Dictionary).duplicate(true))
 			cat_ids[str((c as Dictionary)["id"])] = true
@@ -69,7 +69,7 @@ static func parse(d: Dictionary, strict: bool = true) -> DotResult:
 		for e: Variant in (raw_entries as Array):
 			if not (e is Dictionary):
 				if strict:
-					return DotResult.fail(DotError.CODE_INVALID, "Each entry must be an object.")
+					return GSResult.fail(GSError.CODE_INVALID, "Each entry must be an object.")
 				continue
 			var ed := e as Dictionary
 			var kind := str(ed.get("kind", ""))
@@ -82,8 +82,8 @@ static func parse(d: Dictionary, strict: bool = true) -> DotResult:
 				continue
 			entries.append(ed.duplicate(true))
 			if strict and not kinds.has(kind):
-				return DotResult.fail(
-					DotError.CODE_INVALID,
+				return GSResult.fail(
+					GSError.CODE_INVALID,
 					"An entry's kind is missing from 'kinds'.",
 					"%s/%s: kinds lists %s" % [kind, id, ", ".join(PackedStringArray(kinds))]
 				)
@@ -91,23 +91,23 @@ static func parse(d: Dictionary, strict: bool = true) -> DotResult:
 
 	if d.get("accepts") is Dictionary:
 		out["accepts"] = (d["accepts"] as Dictionary).duplicate(true)
-	return DotResult.success(out)
+	return GSResult.success(out)
 
 
-static func _check_entry(ed: Dictionary, kind: String, id: String, cat_ids: Dictionary, seen: Dictionary) -> DotResult:
+static func _check_entry(ed: Dictionary, kind: String, id: String, cat_ids: Dictionary, seen: Dictionary) -> GSResult:
 	if kind == "" or id == "":
-		return DotResult.fail(DotError.CODE_INVALID, "An entry needs a kind and an id.")
+		return GSResult.fail(GSError.CODE_INVALID, "An entry needs a kind and an id.")
 	if not _is_id(id):
-		return DotResult.fail(
-			DotError.CODE_INVALID, "An entry id must be lowercase letters, digits and _.", "'%s'" % id
+		return GSResult.fail(
+			GSError.CODE_INVALID, "An entry id must be lowercase letters, digits and _.", "'%s'" % id
 		)
 	var sk := "%s/%s" % [kind, id]
 	if seen.has(sk):
-		return DotResult.fail(DotError.CODE_INVALID, "Two entries share a kind and id.", sk)
+		return GSResult.fail(GSError.CODE_INVALID, "Two entries share a kind and id.", sk)
 	seen[sk] = true
 	var cat := str(ed.get("category", ""))
 	if cat != "" and not cat_ids.has(cat):
-		return DotResult.fail(DotError.CODE_INVALID, "An entry names an unknown category.", "%s: '%s'" % [sk, cat])
+		return GSResult.fail(GSError.CODE_INVALID, "An entry names an unknown category.", "%s: '%s'" % [sk, cat])
 	for f in PATH_FIELDS:
 		if ed.has(f):
 			var safe := safe_pack_path(ed[f])
@@ -117,7 +117,7 @@ static func _check_entry(ed: Dictionary, kind: String, id: String, cat_ids: Dict
 		var safe_dir := safe_pack_path(ed["dir"])
 		if not safe_dir.ok:
 			return safe_dir.wrap("Entry %s field 'dir'." % sk)
-	return DotResult.success(true)
+	return GSResult.success(true)
 
 
 static func _is_id(s: String) -> bool:
@@ -132,13 +132,13 @@ static func _is_id(s: String) -> bool:
 
 
 ## A path inside the pack: relative, no `..`, not a `res://` or other scheme.
-static func safe_pack_path(v: Variant) -> DotResult:
+static func safe_pack_path(v: Variant) -> GSResult:
 	if not (v is String) or (v as String) == "":
-		return DotResult.fail(DotError.CODE_INVALID, "A path must be a non-empty string.")
+		return GSResult.fail(GSError.CODE_INVALID, "A path must be a non-empty string.")
 	var p := v as String
 	if p.contains("://") or p.begins_with("/") or p.contains(":"):
-		return DotResult.fail(DotError.CODE_INVALID, "A pack path must be relative to the pack.", p)
-	return DotPaths.safe_relative(p)
+		return GSResult.fail(GSError.CODE_INVALID, "A pack path must be relative to the pack.", p)
+	return GSPaths.safe_relative(p)
 
 
 ## Every path an entry or category names, as pack-relative strings.
@@ -159,14 +159,14 @@ static func paths_in(provides: Dictionary) -> PackedStringArray:
 ## Publish-time: every named file is in the pack. [param exists] is a Callable taking a
 ## pack-relative path and returning bool (the publisher answers for shipped files and for the
 ## sources of imported assets); [param dir_exists] does the same for an addon's `dir`.
-static func check_files(provides: Dictionary, exists: Callable, dir_exists: Callable) -> DotResult:
+static func check_files(provides: Dictionary, exists: Callable, dir_exists: Callable) -> GSResult:
 	for p in paths_in(provides):
 		var safe := safe_pack_path(p)
 		if not safe.ok:
 			return safe.wrap("provides names a bad path.")
 		if not bool(exists.call(p)):
-			return DotResult.fail(
-				DotError.CODE_INVALID, "provides names a file the pack does not ship.", p
+			return GSResult.fail(
+				GSError.CODE_INVALID, "provides names a file the pack does not ship.", p
 			)
 	for e: Variant in provides.get("entries", []):
 		if e is Dictionary and str((e as Dictionary).get("kind", "")) == "addon":
@@ -175,8 +175,8 @@ static func check_files(provides: Dictionary, exists: Callable, dir_exists: Call
 			if not safe_dir.ok:
 				return safe_dir.wrap("An addon entry needs a dir.")
 			if not bool(dir_exists.call(dir)):
-				return DotResult.fail(DotError.CODE_INVALID, "An addon entry names a directory the pack does not ship.", dir)
-	return DotResult.success(true)
+				return GSResult.fail(GSError.CODE_INVALID, "An addon entry names a directory the pack does not ship.", dir)
+	return GSResult.success(true)
 
 
 ## True when any entry's kind always runs code.

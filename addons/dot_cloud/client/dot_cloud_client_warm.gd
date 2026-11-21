@@ -1,6 +1,6 @@
 extends RefCounted
 
-## The script warming of [DotCloudClient] ([method DotCloudClient.warm_content] and the class prewarm), in a
+## The script warming of [GSCloudClient] ([method GSCloudClient.warm_content] and the class prewarm), in a
 ## file of their own so the client stays inside the size budget. Nothing here is used on its own.
 
 const CHANNEL := "cloud"
@@ -12,11 +12,11 @@ const SET_BLOCKING := "dot_cloud/warm/blocking_msec"
 const SET_TAIL_BUDGET := "dot_cloud/warm/background_budget_msec"
 const SET_SKIP := "dot_cloud/warm/skip_dirs"
 ## The pack file (path inside the pack) listing the scripts its scene needs before it opens, written by
-## [method DotCloudSliceLoader.cached_scripts]: the cover waits for those only, the rest compile after it.
+## [method GSCloudSliceLoader.cached_scripts]: the cover waits for those only, the rest compile after it.
 ## Empty, or a pack without the file = every script under the cover, as before.
 const SET_LIST := "dot_cloud/warm/list_file"
 const DEFAULT_LIST := "warm.txt"
-## Top-level pack folders whose scripts are not warmed ([constant DotCloudClient.WARM_SKIP_DIRS]).
+## Top-level pack folders whose scripts are not warmed ([constant GSCloudClient.WARM_SKIP_DIRS]).
 const SKIP_DIRS := ["tools", "examples", "tests", "ci"]
 
 
@@ -30,8 +30,8 @@ static func _skipped(path: String) -> bool:
 
 
 ## The addon classes a pack names, compiled while its big objects still download.
-static func prewarm_classes(c: Node, manifest: DotCloudManifest) -> void:
-	if DotPlatform.has_threads() or c._prewarming or not c.is_inside_tree():
+static func prewarm_classes(c: Node, manifest: GSCloudManifest) -> void:
+	if GSPlatform.has_threads() or c._prewarming or not c.is_inside_tree():
 		return
 	var names := PackedStringArray()
 	var files := PackedStringArray()
@@ -43,29 +43,29 @@ static func prewarm_classes(c: Node, manifest: DotCloudManifest) -> void:
 			names.append(file.path)
 			files.append(object)
 	c._prewarming = true
-	c._prewarm = DotCloudSliceLoader.new()
+	c._prewarm = GSCloudSliceLoader.new()
 	var t0 := Time.get_ticks_msec()
-	var classes := DotCloudSliceLoader.named_class_scripts(names, files)
-	var res: DotResult = await c._prewarm.load_all(c.get_tree(), classes, false)
-	DotLog.info(CHANNEL, "addon classes prewarmed", {
+	var classes := GSCloudSliceLoader.named_class_scripts(names, files)
+	var res: GSResult = await c._prewarm.load_all(c.get_tree(), classes, false)
+	GSLog.info(CHANNEL, "addon classes prewarmed", {
 		"classes": classes.size(), "left_to_warm": c._prewarm.remaining.size(), "ms": Time.get_ticks_msec() - t0, "ok": res.ok,
 	})
 	c._prewarming = false
 	c._prewarm_done.emit()
 
 
-## See [method DotCloudClient.warm_content].
-static func warm_content(c: Node, tree: SceneTree, keys: PackedStringArray, force: bool, on_progress: Callable) -> DotCloudSliceLoader:
-	var loader := DotCloudSliceLoader.new()
+## See [method GSCloudClient.warm_content].
+static func warm_content(c: Node, tree: SceneTree, keys: PackedStringArray, force: bool, on_progress: Callable) -> GSCloudSliceLoader:
+	var loader := GSCloudSliceLoader.new()
 	if on_progress.is_valid():
 		loader.progress.connect(func(done: int, total: int, _path: String) -> void: on_progress.call(done, total))
-	if DotPlatform.has_threads() and not force:
+	if GSPlatform.has_threads() and not force:
 		return loader
 
 	var scripts := PackedStringArray()
 	var seen := {}
 	for key in keys:
-		var manifest: DotCloudManifest = c.manifest_for(key)
+		var manifest: GSCloudManifest = c.manifest_for(key)
 		if manifest == null:
 			continue
 		for file in manifest.files:
@@ -87,7 +87,7 @@ static func warm_content(c: Node, tree: SceneTree, keys: PackedStringArray, forc
 	while c._prewarming:
 		await c._prewarm_done
 	var t0 := Time.get_ticks_msec()
-	var named := DotCloudSliceLoader.named_class_scripts(scripts)
+	var named := GSCloudSliceLoader.named_class_scripts(scripts)
 	var scan_ms := Time.get_ticks_msec() - t0
 	var order := named + scripts
 	var unlisted := PackedStringArray()
@@ -106,7 +106,7 @@ static func warm_content(c: Node, tree: SceneTree, keys: PackedStringArray, forc
 	if deferred > 0:
 		loader.load_rest(tree, int(ProjectSettings.get_setting(SET_TAIL_BUDGET, 3)))
 
-	DotLog.info(CHANNEL, "scripts warmed", {
+	GSLog.info(CHANNEL, "scripts warmed", {
 		"content": ",".join(keys), "pack_scripts": scripts.size(), "addon_classes": named.size(),
 		"listed": listed_count, "unlisted": unlisted.size(),
 		"scan_ms": scan_ms, "ms": Time.get_ticks_msec() - t0, "frames": loader.frames_yielded,
@@ -114,7 +114,7 @@ static func warm_content(c: Node, tree: SceneTree, keys: PackedStringArray, forc
 	})
 	# Which scripts cost the join its seconds; read at DEBUG so a slow web join can be diagnosed from its log.
 	for entry in loader.slowest:
-		DotLog.debug(CHANNEL, "slow script", {"ms": entry[0], "path": entry[1]})
+		GSLog.debug(CHANNEL, "slow script", {"ms": entry[0], "path": entry[1]})
 	return loader
 
 
@@ -150,7 +150,7 @@ static func listed_scripts(c: Node, keys: PackedStringArray) -> Dictionary:
 	if list_name == "":
 		return out
 	for key in keys:
-		var manifest: DotCloudManifest = c.manifest_for(key)
+		var manifest: GSCloudManifest = c.manifest_for(key)
 		if manifest == null:
 			continue
 		for file in manifest.files:

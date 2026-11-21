@@ -1,6 +1,6 @@
 extends Node
 
-## DotCloudJobProgress: the aggregate maths of a many-pack job, on a fake clock.
+## GSCloudJobProgress: the aggregate maths of a many-pack job, on a fake clock.
 ## Run: godot --headless --path . res://examples/job_progress_selftest.tscn
 
 const CHECKS := 35
@@ -14,7 +14,7 @@ var _t := 0
 
 
 func _ready() -> void:
-	DotLog.set_level(DotLog.Level.ERROR)
+	GSLog.set_level(GSLog.Level.ERROR)
 	_totals()
 	_partial()
 	_parallel()
@@ -28,9 +28,9 @@ func _ready() -> void:
 	get_tree().quit(1 if _failures > 0 else 0)
 
 
-func _job() -> DotCloudJobProgress:
+func _job() -> GSCloudJobProgress:
 	_t = 0
-	var j := DotCloudJobProgress.new()
+	var j := GSCloudJobProgress.new()
 	j.now_ms = func() -> int: return _t
 	return j
 

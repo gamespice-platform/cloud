@@ -1,7 +1,7 @@
 @tool
 extends Node
 
-## Where a [DotCloudClient] looks for manifests: the base lists, the URL templates and their expansion. A base
+## Where a [GSCloudClient] looks for manifests: the base lists, the URL templates and their expansion. A base
 ## layer so the client stays inside the size budget; nothing here is used on its own.
 
 @export_group("Sources")
@@ -14,7 +14,7 @@ extends Node
 
 ## How a content id and version become a manifest URL, for [method ensure]: {base}, {id} and {version}
 ## are substituted. A catalogue of a hundred maps should not repeat one CDN hostname a hundred times;
-## the default matches what [DotCloudPublisher] writes.
+## the default matches what [GSCloudPublisher] writes.
 @export var manifest_url_template: String = "{base}/{id}/{version}/manifest.json"
 
 ## Other shapes to try when [member manifest_url_template] does not answer.
@@ -63,7 +63,7 @@ func _expand_all(
 ##
 ## HTTPRequest refuses `/content/x/manifest.json` before the browser sees it. HTTP bases only: a local search dir beginning with `/` is a real path.
 static func resolve_base_url(base: String) -> String:
-	return join_origin(DotWeb.origin(), base)
+	return join_origin(GSWeb.origin(), base)
 
 
 ## The pure half of [method resolve_base_url], so it can be tested off-web. Off-web the origin is ""

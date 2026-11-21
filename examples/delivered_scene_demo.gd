@@ -13,7 +13,7 @@ extends Node
 ## Godot writes a scene's script reference as an ABSOLUTE `res://` path, and a pack
 ## mounts at `res://<mount_root>/<id>/<version>/`. So the scene loads and its script
 ## is simply gone -- no error at mount, none at load, and none until something calls a
-## method on it. [DotCloudPublisher] rewrites those references now, and this is the
+## method on it. [GSCloudPublisher] rewrites those references now, and this is the
 ## check that says so.
 ##
 ## [codeblock]
@@ -33,30 +33,30 @@ const CHECKS := 51
 
 
 func _ready() -> void:
-	DotLog.set_level(DotLog.Level.WARN)
+	GSLog.set_level(GSLog.Level.WARN)
 	_line("[b]a delivered scene, with its script[/b]")
 
-	DotPaths.remove_tree(WORK)
+	GSPaths.remove_tree(WORK)
 
 	var src := WORK.path_join("source")
 	var out := WORK.path_join("published")
 
 	# --- a game-shaped source tree: a scene in one directory, its script in another
-	DotPaths.ensure_dir(src.path_join("game"))
-	DotPaths.ensure_dir(src.path_join("scenes"))
+	GSPaths.ensure_dir(src.path_join("game"))
+	GSPaths.ensure_dir(src.path_join("scenes"))
 
-	DotPaths.write_text(src.path_join("game/thing.gd"), """extends Node
+	GSPaths.write_text(src.path_join("game/thing.gd"), """extends Node
 
 func who() -> String:
 	return "DELIVERED"
 """)
 
 	# One the scene does not need, and the warm list that says so: the cover waits for thing.gd only.
-	DotPaths.write_text(src.path_join("game/extra.gd"), "extends RefCounted\n")
-	DotPaths.write_text(src.path_join("warm.txt"), "game/thing.gd\n# a comment\nnot_a_script.tscn\n../escape.gd\n")
+	GSPaths.write_text(src.path_join("game/extra.gd"), "extends RefCounted\n")
+	GSPaths.write_text(src.path_join("warm.txt"), "game/thing.gd\n# a comment\nnot_a_script.tscn\n../escape.gd\n")
 
 	# Written the way Godot writes one: the script named by absolute res:// path.
-	DotPaths.write_text(src.path_join("scenes/world.tscn"), """[gd_scene load_steps=2 format=3]
+	GSPaths.write_text(src.path_join("scenes/world.tscn"), """[gd_scene load_steps=2 format=3]
 
 [ext_resource type="Script" path="res://game/thing.gd" id="1"]
 
@@ -65,7 +65,7 @@ script = ExtResource("1")
 """)
 
 	# --- publish
-	var keys := DotCloudSignature.generate_keypair(2048)
+	var keys := GSCloudSignature.generate_keypair(2048)
 	_check(keys.ok, "a signing key pair is generated")
 	if not keys.ok:
 		_done()
@@ -73,7 +73,7 @@ script = ExtResource("1")
 
 	var pair: Dictionary = keys.value
 
-	var pub := DotCloudPublisher.new()
+	var pub := GSCloudPublisher.new()
 	pub.content_id = "delivered_scene"
 	pub.version = "1.0.0"
 	pub.entry_scene = "scenes/world.tscn"
@@ -99,9 +99,9 @@ script = ExtResource("1")
 	)
 
 	# --- acquire and mount
-	var cloud := DotCloudClient.new()
+	var cloud := GSCloudClient.new()
 	cloud.name = "Cloud"
-	cloud.config = DotCloudConfig.new()
+	cloud.config = GSCloudConfig.new()
 	cloud.config.cache_dir = WORK.path_join("cache")
 	# [b]Scoped to content ids this pack is NOT one of, first.[/b] A trusted key used to
 	# mean "trusted for everything there is", which with one key is a distinction without
@@ -125,9 +125,9 @@ script = ExtResource("1")
 
 	var refused: Variant = await cloud.acquire(out.path_join("manifest.json"))
 	_check(
-		refused is DotResult and not (refused as DotResult).ok,
+		refused is GSResult and not (refused as GSResult).ok,
 		"a key scoped to other content cannot vouch for this pack",
-		"it mounted anyway" if refused is DotResult and (refused as DotResult).ok else ""
+		"it mounted anyway" if refused is GSResult and (refused as GSResult).ok else ""
 	)
 	_check(
 		not ResourceLoader.exists("res://dot_cloud/delivered_scene/1.0.0/scenes/world.tscn"),
@@ -141,8 +141,8 @@ script = ExtResource("1")
 	}
 
 	var got: Variant = await cloud.acquire(out.path_join("manifest.json"))
-	_check(got is DotResult and (got as DotResult).ok, "the client acquires and mounts it",
-		"" if got is DotResult and (got as DotResult).ok else str((got as DotResult).error))
+	_check(got is GSResult and (got as GSResult).ok, "the client acquires and mounts it",
+		"" if got is GSResult and (got as GSResult).ok else str((got as GSResult).error))
 
 	_check(
 		cloud.local_search_dirs.has(out),
@@ -156,7 +156,7 @@ script = ExtResource("1")
 
 	var warm_keys := PackedStringArray(cloud.acquired_keys())
 	var ticks: Array = []
-	var warmed: DotCloudSliceLoader = await cloud.warm_content(get_tree(), warm_keys, true,
+	var warmed: GSCloudSliceLoader = await cloud.warm_content(get_tree(), warm_keys, true,
 		func(done: int, total: int) -> void: ticks.append([done, total]))
 	_check(not ticks.is_empty() and ticks.back()[0] == ticks.back()[1],
 		"warm_content reports progress up to done == total", str(ticks))
@@ -176,14 +176,14 @@ script = ExtResource("1")
 		await get_tree().process_frame
 	_check(warmed.loaded.any(func(r: Resource) -> bool: return r.resource_path == prefix + "game/extra.gd"),
 		"and an unlisted script still compiles behind the cover")
-	var recorded := DotCloudSliceLoader.cached_scripts(prefix, DotCloudClient.WARM_SKIP_DIRS)
+	var recorded := GSCloudSliceLoader.cached_scripts(prefix, GSCloudClient.WARM_SKIP_DIRS)
 	_check(recorded.has("game/thing.gd") and recorded.has("game/extra.gd"),
 		"cached_scripts lists the loaded scripts relative to the root it was given", str(recorded))
 	ProjectSettings.set_setting(_Warm.SET_LIST, "")
 	_check(_Warm.listed_scripts(cloud, warm_keys).is_empty(), "an empty dot_cloud/warm/list_file turns the list off")
 	ProjectSettings.set_setting(_Warm.SET_LIST, null)
 
-	var stopped := DotCloudSliceLoader.new()
+	var stopped := GSCloudSliceLoader.new()
 	stopped.stop_requested = true
 	var paths := PackedStringArray([scene_path, scene_path])
 	await stopped.load_all(get_tree(), paths, false)
@@ -191,7 +191,7 @@ script = ExtResource("1")
 		"a stopped slice loader loads nothing and leaves every path in remaining", str(stopped.remaining))
 
 	# A class prewarm still running: warm_content stops it after its slice and takes over rather than wait it out.
-	var pre := DotCloudSliceLoader.new()
+	var pre := GSCloudSliceLoader.new()
 	pre.budget_msec = 0
 	cloud._prewarm = pre
 	cloud._prewarming = true
@@ -229,13 +229,13 @@ script = ExtResource("1")
 
 ## [b]A pack published from a project ROOT carried no imported outputs at all.[/b]
 ##
-## [member DotCloudPublisher.include_imported] exists because a `.png` or a `.glb` is not
+## [member GSCloudPublisher.include_imported] exists because a `.png` or a `.glb` is not
 ## a loadable resource -- the editor imports it into `.godot/imported/` and the `.import`
 ## marker beside it redirects every load there. The publisher handled the case it was
 ## written against (an imported map, published from a SUBDIRECTORY of a project) and
 ## returned empty for a source that IS the project root, on the grounds that the file
 ## walk had already found them. It never had:
-## [method DotPaths.list_files_recursive] goes through [method DirAccess.list_dir_begin],
+## [method GSPaths.list_files_recursive] goes through [method DirAccess.list_dir_begin],
 ## which skips hidden entries, and `.godot` is hidden.
 ##
 ## So every delivered game shipped its markers and none of its textures or meshes, and
@@ -316,44 +316,44 @@ func _check_imported_outputs(key_pem: String) -> void:
 
 ## A project with an imported texture, a keep-imported asset, a scene using the texture and an excluded directory.
 func _write_import_fixture(root: String, ctex: String) -> void:
-	DotPaths.ensure_dir(root.path_join("textures"))
-	DotPaths.ensure_dir(root.path_join(".godot/imported"))
-	DotPaths.ensure_dir(root.path_join("screenshots"))
+	GSPaths.ensure_dir(root.path_join("textures"))
+	GSPaths.ensure_dir(root.path_join(".godot/imported"))
+	GSPaths.ensure_dir(root.path_join("screenshots"))
 
-	DotPaths.write_text(root.path_join("project.godot"), "config_version=5\n")
-	DotPaths.write_text(root.path_join("textures/tile.png"), "not really a png")
-	DotPaths.write_text(root.path_join("textures/tile.png.import"),
+	GSPaths.write_text(root.path_join("project.godot"), "config_version=5\n")
+	GSPaths.write_text(root.path_join("textures/tile.png"), "not really a png")
+	GSPaths.write_text(root.path_join("textures/tile.png.import"),
 		"[remap]\n\npath=\"res://%s\"\n" % ctex)
-	DotPaths.write_text(root.path_join(ctex), "the imported form")
+	GSPaths.write_text(root.path_join(ctex), "the imported form")
 	# Imported as "keep": no output, so the file is the asset and must ship.
-	DotPaths.write_text(root.path_join("textures/raw.bin"), "kept as is")
-	DotPaths.write_text(root.path_join("textures/raw.bin.import"), "[remap]\n\nimporter=\"keep\"\n")
+	GSPaths.write_text(root.path_join("textures/raw.bin"), "kept as is")
+	GSPaths.write_text(root.path_join("textures/raw.bin.import"), "[remap]\n\nimporter=\"keep\"\n")
 	# A scene naming the source path: the marker is what that path resolves through.
-	DotPaths.write_text(root.path_join("textures/uses.tscn"),
+	GSPaths.write_text(root.path_join("textures/uses.tscn"),
 		"[gd_scene format=3]\n\n[ext_resource type=\"Texture2D\" path=\"res://textures/tile.png\" id=\"1\"]\n\n[node name=\"S\" type=\"Sprite2D\"]\ntexture = ExtResource(\"1\")\n")
 
 	# An asset in a directory the publisher was told to skip. Its marker used to be kept
 	# whatever the exclusions said -- markers were decided before them -- and once a marker
 	# is in the pack the output it names follows it in.
-	DotPaths.write_text(root.path_join("screenshots/shot.png"), "not really a png")
-	DotPaths.write_text(root.path_join("screenshots/shot.png.import"),
+	GSPaths.write_text(root.path_join("screenshots/shot.png"), "not really a png")
+	GSPaths.write_text(root.path_join("screenshots/shot.png.import"),
 		"[remap]\n\npath=\"res://.godot/imported/shot.png-def456.ctex\"\n")
-	DotPaths.write_text(root.path_join(".godot/imported/shot.png-def456.ctex"), "excluded")
+	GSPaths.write_text(root.path_join(".godot/imported/shot.png-def456.ctex"), "excluded")
 
 
 func _check_unimported_refused(key_pem: String, ctex: String) -> void:
 	# A tree never imported (a fresh clone) has markers and no outputs; skipping them shipped 180 textures that never loaded.
 	var raw := WORK.path_join("unimported")
-	DotPaths.ensure_dir(raw.path_join("textures"))
-	DotPaths.write_text(raw.path_join("project.godot"), "config_version=5\n")
-	DotPaths.write_text(raw.path_join("textures/tile.png"), "not really a png")
-	DotPaths.write_text(raw.path_join("textures/tile.png.import"), "[remap]\n\npath=\"res://%s\"\n" % ctex)
-	var pub := DotCloudPublisher.new()
+	GSPaths.ensure_dir(raw.path_join("textures"))
+	GSPaths.write_text(raw.path_join("project.godot"), "config_version=5\n")
+	GSPaths.write_text(raw.path_join("textures/tile.png"), "not really a png")
+	GSPaths.write_text(raw.path_join("textures/tile.png.import"), "[remap]\n\npath=\"res://%s\"\n" % ctex)
+	var pub := GSCloudPublisher.new()
 	pub.content_id = "unimported"
 	pub.version = "1.0.0"
 	pub.signing_key_pem = key_pem
 	var refused := pub.publish(raw, WORK.path_join("pub_unimported"))
-	_check(not refused.ok and refused.error.code == DotError.CODE_INVALID
+	_check(not refused.ok and refused.error.code == GSError.CODE_INVALID
 			and str(refused.error).contains("--import"),
 		"a marker naming an output the project never imported refuses the publish",
 		str(refused.error))
@@ -367,14 +367,14 @@ func _check_unimported_refused(key_pem: String, ctex: String) -> void:
 ## sentence instead. "Before it mounts" is checked as well as the sentence, because a
 ## mounted pack can never be unmounted: a refusal after the mount would leave its files in
 ## the tree for good.
-func _check_requirements(key_pem: String, cloud: DotCloudClient) -> void:
+func _check_requirements(key_pem: String, cloud: GSCloudClient) -> void:
 	var src := WORK.path_join("needs_source")
 	var out := WORK.path_join("needs_published")
-	DotPaths.ensure_dir(src.path_join("game"))
-	DotPaths.write_text(src.path_join("game/thing.gd"), "extends Node\n\nfunc who() -> String:\n\treturn \"NEWER\"\n")
-	DotPaths.write_text(src.path_join(DotAddonApi.REQUIREMENTS_FILE), DotAddonApi.encode({"dot_core": 99}))
+	GSPaths.ensure_dir(src.path_join("game"))
+	GSPaths.write_text(src.path_join("game/thing.gd"), "extends Node\n\nfunc who() -> String:\n\treturn \"NEWER\"\n")
+	GSPaths.write_text(src.path_join(GSAddonApi.REQUIREMENTS_FILE), GSAddonApi.encode({"dot_core": 99}))
 
-	var pub := DotCloudPublisher.new()
+	var pub := GSCloudPublisher.new()
 	pub.content_id = "delivered_needs"
 	pub.version = "1.0.0"
 	pub.signing_key_pem = key_pem
@@ -385,8 +385,8 @@ func _check_requirements(key_pem: String, cloud: DotCloudClient) -> void:
 
 	cloud.host_role = "client"
 	var refused: Variant = await cloud.acquire(out.path_join("manifest.json"))
-	var err: DotError = (refused as DotResult).error if refused is DotResult and not (refused as DotResult).ok else null
-	_check(err != null and err.code == DotError.CODE_VERSION, "this build refuses it as a version problem", str(err))
+	var err: GSError = (refused as GSResult).error if refused is GSResult and not (refused as GSResult).ok else null
+	_check(err != null and err.code == GSError.CODE_VERSION, "this build refuses it as a version problem", str(err))
 	# This build's own level, read rather than written down: dot-core went from 1 to 2 on
 	# 2026-10-08, and the sentence was right while this check said it was wrong.
 	var have := int((load("res://addons/dot_core/dot_core_api.gd") as GDScript).get_script_constant_map()["LEVEL"])
@@ -401,9 +401,9 @@ func _check_requirements(key_pem: String, cloud: DotCloudClient) -> void:
 	)
 	# Level 3: refused before the payload is downloaded, not just before it mounts.
 	var pack_hash := ""
-	var env := DotCloudEnvelope.unwrap(FileAccess.get_file_as_bytes(out.path_join("manifest.json")))
-	var parsed := DotCloudManifest.from_json_bytes(env.value["payload"]) if env.ok else null
-	var mf: DotCloudManifest = parsed.value if parsed != null and parsed.ok else null
+	var env := GSCloudEnvelope.unwrap(FileAccess.get_file_as_bytes(out.path_join("manifest.json")))
+	var parsed := GSCloudManifest.from_json_bytes(env.value["payload"]) if env.ok else null
+	var mf: GSCloudManifest = parsed.value if parsed != null and parsed.ok else null
 	if mf != null:
 		for f in mf.files:
 			if f.path == "game/thing.gd":
@@ -417,8 +417,8 @@ func _check_requirements(key_pem: String, cloud: DotCloudClient) -> void:
 	# The same pack on a build that has what it asks for.
 	cloud.addon_api.overrides["dot_core"] = 99
 	var got: Variant = await cloud.acquire(out.path_join("manifest.json"))
-	_check(got is DotResult and (got as DotResult).ok, "a build that has the level mounts it",
-		"" if got is DotResult and (got as DotResult).ok else str((got as DotResult).error))
+	_check(got is GSResult and (got as GSResult).ok, "a build that has the level mounts it",
+		"" if got is GSResult and (got as GSResult).ok else str((got as GSResult).error))
 	var script := load("res://dot_cloud/delivered_needs/1.0.0/game/thing.gd") as GDScript
 	var node: Node = script.new() if script != null else null
 	_check(node != null and node.call("who") == "NEWER", "and its script runs")
@@ -427,7 +427,7 @@ func _check_requirements(key_pem: String, cloud: DotCloudClient) -> void:
 	cloud.addon_api.overrides.clear()
 
 
-## [b]A file in the pack that is not under the source: [member DotCloudPublisher.extra_files].[/b]
+## [b]A file in the pack that is not under the source: [member GSCloudPublisher.extra_files].[/b]
 ##
 ## dot-server-deploy's packer derives `requires.json` outside the game's checkout and used
 ## to reach the pack by overriding the private `_imported_outputs_for`. This is the public
@@ -440,14 +440,14 @@ func _check_extra_files(key_pem: String) -> void:
 
 	var src := WORK.path_join("extra_source")
 	var outside := WORK.path_join("extra_outside")
-	DotPaths.ensure_dir(src)
-	DotPaths.ensure_dir(outside)
-	DotPaths.write_text(src.path_join("data.txt"), "from the source")
-	DotPaths.write_text(src.path_join("replaced.txt"), "the source's copy")
-	DotPaths.write_text(outside.path_join("derived.json"), "{\"derived\": true}")
-	DotPaths.write_text(outside.path_join("winner.txt"), "the extra file's copy")
+	GSPaths.ensure_dir(src)
+	GSPaths.ensure_dir(outside)
+	GSPaths.write_text(src.path_join("data.txt"), "from the source")
+	GSPaths.write_text(src.path_join("replaced.txt"), "the source's copy")
+	GSPaths.write_text(outside.path_join("derived.json"), "{\"derived\": true}")
+	GSPaths.write_text(outside.path_join("winner.txt"), "the extra file's copy")
 
-	var pub := DotCloudPublisher.new()
+	var pub := GSCloudPublisher.new()
 	pub.content_id = "extra_files"
 	pub.version = "1.0.0"
 	pub.signing_key_pem = key_pem
@@ -460,11 +460,11 @@ func _check_extra_files(key_pem: String) -> void:
 	_check(res.ok, "a pack with extra files publishes", str(res.error) if not res.ok else "")
 
 	var paths := {}
-	var bytes := DotPaths.read_bytes(out.path_join("manifest.json"))
+	var bytes := GSPaths.read_bytes(out.path_join("manifest.json"))
 	if res.ok and bytes.ok:
-		var manifest := DotCloudManifest.from_json_bytes(bytes.value)
+		var manifest := GSCloudManifest.from_json_bytes(bytes.value)
 		if manifest.ok:
-			for entry in (manifest.value as DotCloudManifest).files:
+			for entry in (manifest.value as GSCloudManifest).files:
 				paths[entry.path] = entry.sha256
 
 	_check(
@@ -480,7 +480,7 @@ func _check_extra_files(key_pem: String) -> void:
 
 	pub.extra_files = {"requires.json": outside.path_join("not_there.json")}
 	var missing := pub.publish(src, WORK.path_join("extra_missing"))
-	_check(not missing.ok and missing.error.code == DotError.CODE_IO,
+	_check(not missing.ok and missing.error.code == GSError.CODE_IO,
 		"a missing extra file fails the publish", str(missing.error))
 
 	pub.extra_files = {"../escape.txt": outside.path_join("winner.txt")}
@@ -493,11 +493,11 @@ func _check_republish(key_pem: String) -> void:
 	_line("")
 	_line("[b]republish under a new version[/b]")
 	var src := WORK.path_join("republish_source")
-	DotPaths.ensure_dir(src.path_join("game"))
-	DotPaths.write_text(src.path_join("game/thing.gd"), "extends Node\n")
+	GSPaths.ensure_dir(src.path_join("game"))
+	GSPaths.write_text(src.path_join("game/thing.gd"), "extends Node\n")
 	var old := "res://dot_cloud/republished/0.1.24/game/thing.gd"
-	DotPaths.write_text(src.path_join("w.tscn"), "[gd_scene format=3]\n\n[ext_resource type=\"Script\" path=\"%s\" id=\"1\"]\n\n[node name=\"W\" type=\"Node\"]\nscript = ExtResource(\"1\")\n" % old)
-	var pub := DotCloudPublisher.new()
+	GSPaths.write_text(src.path_join("w.tscn"), "[gd_scene format=3]\n\n[ext_resource type=\"Script\" path=\"%s\" id=\"1\"]\n\n[node name=\"W\" type=\"Node\"]\nscript = ExtResource(\"1\")\n" % old)
+	var pub := GSCloudPublisher.new()
 	pub.content_id = "republished"
 	pub.version = "0.1.25"
 	pub.signing_key_pem = key_pem
@@ -505,16 +505,16 @@ func _check_republish(key_pem: String) -> void:
 	var res := pub.publish(src, out)
 	_check(res.ok, "a source naming the previous version publishes", str(res.error) if not res.ok else "")
 	var scene := ""
-	var bytes := DotPaths.read_bytes(out.path_join("manifest.json"))
+	var bytes := GSPaths.read_bytes(out.path_join("manifest.json"))
 	if res.ok and bytes.ok:
-		var manifest := DotCloudManifest.from_json_bytes(bytes.value)
+		var manifest := GSCloudManifest.from_json_bytes(bytes.value)
 		if manifest.ok:
-			for entry in (manifest.value as DotCloudManifest).files:
+			for entry in (manifest.value as GSCloudManifest).files:
 				if entry.path == "w.tscn":
 					scene = _published_text(out, entry.sha256)
 	_check(scene.contains("res://dot_cloud/republished/0.1.25/game/thing.gd"), "its reference is rebased to the new version")
 	_check(not scene.contains("0.1.24"), "and nothing in the built scene names another version")
-	DotPaths.write_text(src.path_join("w.tscn"), "[ext_resource path=\"res://dot_cloud/republished/0.1.24/gone.gd\"]\n")
+	GSPaths.write_text(src.path_join("w.tscn"), "[ext_resource path=\"res://dot_cloud/republished/0.1.24/gone.gd\"]\n")
 	var bad := pub.publish(src, WORK.path_join("republish_bad"))
 	_check(not bad.ok, "a reference to another version that cannot be rebased fails the build", str(bad.error))
 
@@ -523,7 +523,7 @@ func _check_republish(key_pem: String) -> void:
 func _publish_paths(
 	source: String, out: String, id: String, key_pem: String, with_sources := false
 ) -> Dictionary:
-	var pub := DotCloudPublisher.new()
+	var pub := GSCloudPublisher.new()
 	pub.ship_import_sources = with_sources
 	pub.content_id = id
 	pub.version = "1.0.0"
@@ -535,18 +535,18 @@ func _publish_paths(
 		_check(false, "%s publishes" % id, str(res.error))
 		return {}
 
-	var bytes := DotPaths.read_bytes(out.path_join("manifest.json"))
+	var bytes := GSPaths.read_bytes(out.path_join("manifest.json"))
 	if not bytes.ok:
 		_check(false, "%s's manifest reads back" % id, str(bytes.error))
 		return {}
 
-	var manifest := DotCloudManifest.from_json_bytes(bytes.value)
+	var manifest := GSCloudManifest.from_json_bytes(bytes.value)
 	if not manifest.ok:
 		_check(false, "%s's manifest parses" % id, str(manifest.error))
 		return {}
 
 	var paths := {}
-	for entry in (manifest.value as DotCloudManifest).files:
+	for entry in (manifest.value as GSCloudManifest).files:
 		paths[entry.path] = entry.sha256
 	return paths
 

@@ -36,7 +36,7 @@ func _run(out: String) -> int:
 		return 2
 	var m := manifest as Dictionary
 	var prefix := "res://%s/%s/%s" % [str(m.get("mount_root", "dot_cloud")), str(m["content_id"]), str(m["version"])]
-	# A server fetches the server and both files only (DotCloudFile.side; an unknown side is both): it is judged on
+	# A server fetches the server and both files only (GSCloudFile.side; an unknown side is both): it is judged on
 	# that view first, so a server script reaching a client-only file fails here as it would on the server.
 	var server_files: Array = []
 	var client_files: Array = []
@@ -136,7 +136,7 @@ func _check_builtins(resources: PackedStringArray, prefix: String) -> void:
 
 func _check_game_yml(yml: Dictionary, prefix: String, keys: Array) -> void:
 	for key: String in keys:
-		var rel := str(DotYaml.at(yml, key, "")).strip_edges()
+		var rel := str(GSYaml.at(yml, key, "")).strip_edges()
 		if rel == "":
 			continue
 		var res: Resource = load(rel if rel.contains("://") else prefix.path_join(rel))
@@ -148,7 +148,7 @@ func _check_game_yml(yml: Dictionary, prefix: String, keys: Array) -> void:
 			_check_module(res as GDScript, rel)
 
 
-## What the host does first with a module (dot_module_host.gd _instantiate_module, then DotGameModule's
+## What the host does first with a module (dot_module_host.gd _instantiate_module, then GSGameModule's
 ## netcode start): make one and ask it for its bridge. Neither is added to the tree; both are freed.
 func _check_module(script: GDScript, rel: String) -> void:
 	var module: Object = script.new()
@@ -319,12 +319,12 @@ static func _builtin_scripts(root: Resource) -> Array[GDScript]:
 	return found
 
 
-## game.yml parsed as the host parses it (DotYaml, as tmc_content.gd's TmcYaml): comments, quoting and nesting
+## game.yml parsed as the host parses it (GSYaml, as tmc_content.gd's TmcYaml): comments, quoting and nesting
 ## read the same. A game.yml that does not parse is one the host would refuse: a failure.
 func _game_yml(path: String) -> Dictionary:
 	if path == "":
 		return {}
-	var parsed: DotResult = DotYaml.parse(FileAccess.get_file_as_string(path), "game.yml")
+	var parsed: GSResult = GSYaml.parse(FileAccess.get_file_as_string(path), "game.yml")
 	if not parsed.ok or not (parsed.value is Dictionary):
 		_fail("game.yml does not parse: %s" % str(parsed.error))
 		return {}

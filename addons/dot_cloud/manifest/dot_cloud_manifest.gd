@@ -1,15 +1,15 @@
 @tool
-class_name DotCloudManifest
+class_name GSCloudManifest
 extends Resource
 
 ## The description of one downloadable content set.
 ## A client fetches it, works out what it is missing, downloads, verifies and mounts. It is the whole trust
-## boundary, since everything downstream trusts its hashes (see [DotCloudSignature]).
+## boundary, since everything downstream trusts its hashes (see [GSCloudSignature]).
 ## [b]The mount prefix is load-bearing[/b]: content mounts at [code]res://<mount_root>/<content_id>/<version>/[/code],
-## which is what makes hot-swapping possible (see [DotCloudMounter], and [DotCloudPacker] for the packing side).
+## which is what makes hot-swapping possible (see [GSCloudMounter], and [GSCloudPacker] for the packing side).
 
-# No log channel: the trust boundary is a document, and a document returns DotResult.
-# DotCloudClient, which fetched it, fails the acquisition with it and logs that at ERROR.
+# No log channel: the trust boundary is a document, and a document returns GSResult.
+# GSCloudClient, which fetched it, fails the acquisition with it and logs that at ERROR.
 
 ## Manifest schema version. Bumped when the wire format changes incompatibly.
 const FORMAT_VERSION := 1
@@ -34,7 +34,7 @@ const FORMAT_VERSION := 1
 @export var mirrors: PackedStringArray = PackedStringArray()
 
 ## Files in this content set.
-@export var files: Array[DotCloudFile] = []
+@export var files: Array[GSCloudFile] = []
 
 ## Entry scene, relative to the mount prefix; what GameSpice Server tells clients to load. Empty for pure assets.
 @export var entry_scene: String = ""
@@ -47,7 +47,7 @@ const FORMAT_VERSION := 1
 @export var metadata: Dictionary = {}
 
 ## What the pack offers a game: the author's `provides.json` plus the computed `runs_code` (see
-## [DotCloudProvides]). Empty for packs older than the Workshop. Signed, as the manifest is the only
+## [GSCloudProvides]). Empty for packs older than the Workshop. Signed, as the manifest is the only
 ## document verified before anything is downloaded.
 @export var provides: Dictionary = {}
 
@@ -73,14 +73,14 @@ const MAX_COLLECTION := 128
 ## Format version the document declared.
 var format_version: int = FORMAT_VERSION
 
-## The side this process fetches and mounts the manifest as ([constant DotCloudFile.SIDE_BOTH],
+## The side this process fetches and mounts the manifest as ([constant GSCloudFile.SIDE_BOTH],
 ## `SIDE_CLIENT` or `SIDE_SERVER`); [method wanted_files] leaves out the other side's entries.
-## [b]Not part of the document[/b]: set by [DotCloudClient] from its own [member DotCloudConfig.side], never
+## [b]Not part of the document[/b]: set by [GSCloudClient] from its own [member GSCloudConfig.side], never
 ## by a server. Filtering in [method wanted_files] keeps the downloader, the mounter's checks and the code
 ## rescan agreeing on what is wanted.
-var fetch_side: String = DotCloudFile.SIDE_BOTH
+var fetch_side: String = GSCloudFile.SIDE_BOTH
 
-## Signature from the enclosing [DotCloudEnvelope]; empty for unsigned content.
+## Signature from the enclosing [GSCloudEnvelope]; empty for unsigned content.
 ## Outside the document it signs, so verification never re-serialises.
 var signature: String = ""
 
@@ -94,8 +94,8 @@ var raw_bytes: PackedByteArray = PackedByteArray()
 
 ## Parses a published manifest, signed or not; the only entry point, so no caller verifies against the envelope.
 ## [member raw_bytes] is set to the [b]payload[/b] bytes, exactly what was signed.
-static func from_json_bytes(bytes: PackedByteArray) -> DotResult:
-	var unwrapped := DotCloudEnvelope.unwrap(bytes)
+static func from_json_bytes(bytes: PackedByteArray) -> GSResult:
+	var unwrapped := GSCloudEnvelope.unwrap(bytes)
 	if not unwrapped.ok:
 		return unwrapped
 
@@ -105,22 +105,22 @@ static func from_json_bytes(bytes: PackedByteArray) -> DotResult:
 	var json := JSON.new()
 	var err := json.parse(payload.get_string_from_utf8())
 	if err != OK:
-		return DotResult.fail(
-			DotError.CODE_PARSE,
+		return GSResult.fail(
+			GSError.CODE_PARSE,
 			"The manifest is not valid JSON.",
 			"line %d: %s" % [json.get_error_line(), json.get_error_message()]
 		)
 
 	if not (json.data is Dictionary):
-		return DotResult.fail(
-			DotError.CODE_PARSE, "The manifest must be a JSON object."
+		return GSResult.fail(
+			GSError.CODE_PARSE, "The manifest must be a JSON object."
 		)
 
 	var res := from_dict(json.data as Dictionary)
 	if not res.ok:
 		return res
 
-	var m := res.value as DotCloudManifest
+	var m := res.value as GSCloudManifest
 	m.raw_bytes = payload
 	m.signature = str(env["signature"])
 	m.signature_key_id = str(env["key_id"])
@@ -128,13 +128,13 @@ static func from_json_bytes(bytes: PackedByteArray) -> DotResult:
 	return res
 
 
-static func from_dict(d: Dictionary) -> DotResult:
-	var m := DotCloudManifest.new()
+static func from_dict(d: Dictionary) -> GSResult:
+	var m := GSCloudManifest.new()
 
 	m.format_version = int(d.get("format_version", 1))
 	if m.format_version > FORMAT_VERSION:
-		return DotResult.fail(
-			DotError.CODE_VERSION,
+		return GSResult.fail(
+			GSError.CODE_VERSION,
 			"This manifest needs a newer version of dot-cloud.",
 			"manifest format %d, supported up to %d"
 				% [m.format_version, FORMAT_VERSION]
@@ -157,7 +157,7 @@ static func from_dict(d: Dictionary) -> DotResult:
 	if d.get("dependencies") is Array:
 		for dep: Variant in d["dependencies"]:
 			if not (dep is Dictionary):
-				return DotResult.fail(DotError.CODE_PARSE, "Each dependency must be an object with an id and a version.")
+				return GSResult.fail(GSError.CODE_PARSE, "Each dependency must be an object with an id and a version.")
 			m.dependencies.append({"id": str((dep as Dictionary).get("id", "")), "version": str((dep as Dictionary).get("version", ""))})
 
 	for u in d.get("mirrors", []):
@@ -165,29 +165,29 @@ static func from_dict(d: Dictionary) -> DotResult:
 
 	var raw_files: Variant = d.get("files", [])
 	if not (raw_files is Array):
-		return DotResult.fail(
-			DotError.CODE_PARSE, "The manifest's 'files' must be an array."
+		return GSResult.fail(
+			GSError.CODE_PARSE, "The manifest's 'files' must be an array."
 		)
 
 	var seen_paths := {}
 	for entry in (raw_files as Array):
 		if not (entry is Dictionary):
-			return DotResult.fail(
-				DotError.CODE_PARSE, "Each manifest file entry must be an object."
+			return GSResult.fail(
+				GSError.CODE_PARSE, "Each manifest file entry must be an object."
 			)
 
-		var parsed := DotCloudFile.from_dict(entry as Dictionary)
+		var parsed := GSCloudFile.from_dict(entry as Dictionary)
 		if not parsed.ok:
 			return parsed
 
-		var f := parsed.value as DotCloudFile
+		var f := parsed.value as GSCloudFile
 
 		# Two entries for one path is unresolvable: whichever mounted last would
 		# win, and which that is depends on download order. Refuse rather than
 		# make the outcome depend on the network.
 		if seen_paths.has(f.path):
-			return DotResult.fail(
-				DotError.CODE_INVALID,
+			return GSResult.fail(
+				GSError.CODE_INVALID,
 				"The manifest lists '%s' twice." % f.path
 			)
 		seen_paths[f.path] = true
@@ -198,67 +198,67 @@ static func from_dict(d: Dictionary) -> DotResult:
 	if not checked.ok:
 		return checked
 
-	return DotResult.success(m)
+	return GSResult.success(m)
 
 
-func validate_shape() -> DotResult:
+func validate_shape() -> GSResult:
 	if content_id == "":
-		return DotResult.fail(
-			DotError.CODE_INVALID, "The manifest has no content_id."
+		return GSResult.fail(
+			GSError.CODE_INVALID, "The manifest has no content_id."
 		)
 
 	# One segment, or `<owner>/<name>`. A real "/" separator, not a flattened `owner_name`: `_` is legal in
 	# both halves, so `alice_bob`+`x` and `alice`+`bob_x` would collide and a key scoped to `alice/*`
 	# could sign for `alice_bob`. Each segment must be a slug, which keeps ".." out.
-	var id_safe := DotPaths.safe_relative(content_id)
+	var id_safe := GSPaths.safe_relative(content_id)
 	if not id_safe.ok:
 		return id_safe.wrap("The manifest's content_id is unsafe.")
 
 	var id_parts := content_id.split("/", false)
 
 	if id_parts.size() != content_id.count("/") + 1:
-		return DotResult.fail(
-			DotError.CODE_INVALID,
+		return GSResult.fail(
+			GSError.CODE_INVALID,
 			"content_id must not have an empty segment.",
 			"got '%s'" % content_id
 		)
 
 	if id_parts.size() > 2:
-		return DotResult.fail(
-			DotError.CODE_INVALID,
+		return GSResult.fail(
+			GSError.CODE_INVALID,
 			"content_id is at most <owner>/<name>.",
 			"got '%s', which has %d segments" % [content_id, id_parts.size()]
 		)
 
 	for part in id_parts:
-		if DotPaths.slugify(part) != part:
-			return DotResult.fail(
-				DotError.CODE_INVALID,
+		if GSPaths.slugify(part) != part:
+			return GSResult.fail(
+				GSError.CODE_INVALID,
 				"Each part of a content_id must be lowercase alphanumeric with - or _.",
 				"'%s' in '%s' should look like '%s'"
-					% [part, content_id, DotPaths.slugify(part)]
+					% [part, content_id, GSPaths.slugify(part)]
 			)
 
 	# Not slug-checked like content_id (the slug of "1.0.0" is "1_0_0"), but it lands in the mount prefix,
 	# so it must be one safe path component: version "../.." once made mount_prefix() come out as "res://".
-	var ver_slug := DotPaths.slugify(version)
+	var ver_slug := GSPaths.slugify(version)
 	if ver_slug == "":
-		return DotResult.fail(
-			DotError.CODE_INVALID, "The manifest has no usable version."
+		return GSResult.fail(
+			GSError.CODE_INVALID, "The manifest has no usable version."
 		)
 
-	var ver_safe := DotPaths.safe_relative(version)
+	var ver_safe := GSPaths.safe_relative(version)
 	if not ver_safe.ok:
 		return ver_safe.wrap("The manifest's version is unsafe.")
 
 	if "/" in version or "\\" in version:
-		return DotResult.fail(
-			DotError.CODE_INVALID,
+		return GSResult.fail(
+			GSError.CODE_INVALID,
 			"The manifest's version must be a single path component.",
 			"got '%s'" % version
 		)
 
-	var root_safe := DotPaths.safe_relative(mount_root)
+	var root_safe := GSPaths.safe_relative(mount_root)
 	if not root_safe.ok:
 		return root_safe.wrap("The manifest's mount_root is unsafe.")
 
@@ -267,51 +267,51 @@ func validate_shape() -> DotResult:
 		return deps
 
 	if entry_scene != "":
-		var entry_safe := DotPaths.safe_relative(entry_scene)
+		var entry_safe := GSPaths.safe_relative(entry_scene)
 		if not entry_safe.ok:
 			return entry_safe.wrap("The manifest's entry_scene is unsafe.")
 
-	return DotResult.success(true)
+	return GSResult.success(true)
 
 
 ## Every dependency names a safe id and one exact version, and none is this content itself.
-func _check_dependencies() -> DotResult:
+func _check_dependencies() -> GSResult:
 	var cap := MAX_COLLECTION if files.is_empty() else MAX_DEPENDENCIES
 	if dependencies.size() > cap:
-		return DotResult.fail(DotError.CODE_INVALID, "A manifest names at most %d dependencies." % cap)
+		return GSResult.fail(GSError.CODE_INVALID, "A manifest names at most %d dependencies." % cap)
 	for dep in dependencies:
 		var id := str(dep.get("id", ""))
 		var ver := str(dep.get("version", ""))
-		var safe := DotPaths.safe_relative(id)
-		if id == "" or not safe.ok or id.split("/", false).size() > 2 or DotPaths.slugify(id.replace("/", "-")) != id.replace("/", "-"):
-			return DotResult.fail(DotError.CODE_INVALID, "A dependency's id is unsafe or empty.", "got '%s'" % id)
-		if ver == "" or "/" in ver or "\\" in ver or not DotPaths.safe_relative(ver).ok:
-			return DotResult.fail(DotError.CODE_INVALID, "A dependency needs one exact version.", "'%s' of '%s'" % [ver, id])
+		var safe := GSPaths.safe_relative(id)
+		if id == "" or not safe.ok or id.split("/", false).size() > 2 or GSPaths.slugify(id.replace("/", "-")) != id.replace("/", "-"):
+			return GSResult.fail(GSError.CODE_INVALID, "A dependency's id is unsafe or empty.", "got '%s'" % id)
+		if ver == "" or "/" in ver or "\\" in ver or not GSPaths.safe_relative(ver).ok:
+			return GSResult.fail(GSError.CODE_INVALID, "A dependency needs one exact version.", "'%s' of '%s'" % [ver, id])
 		if id == content_id and ver == version:
-			return DotResult.fail(DotError.CODE_INVALID, "Content cannot depend on itself.", id)
-	return DotResult.success(true)
+			return GSResult.fail(GSError.CODE_INVALID, "Content cannot depend on itself.", id)
+	return GSResult.success(true)
 
 
 ## [method validate_shape], then: can THIS engine run it?
 ## The shape is intrinsic; [member min_engine_version] is a mount-time question a publisher building for a newer Godot must not ask.
-func validate() -> DotResult:
+func validate() -> GSResult:
 	var shape := validate_shape()
 	if not shape.ok:
 		return shape
 
 	if min_engine_version != "":
-		var need := DotSemVer.parse(min_engine_version)
-		if need.valid and DotSemVer.engine().is_older_than(need):
-			return DotResult.fail(
-				DotError.CODE_VERSION,
+		var need := GSSemVer.parse(min_engine_version)
+		if need.valid and GSSemVer.engine().is_older_than(need):
+			return GSResult.fail(
+				GSError.CODE_VERSION,
 				"This content needs Godot %s or newer." % min_engine_version,
-				"running %s" % DotSemVer.engine()
+				"running %s" % GSSemVer.engine()
 			)
 
-	return DotResult.success(true)
+	return GSResult.success(true)
 
 
-## The manifest as a plain dictionary, without the signature (that belongs to the [DotCloudEnvelope]).
+## The manifest as a plain dictionary, without the signature (that belongs to the [GSCloudEnvelope]).
 func to_dict() -> Dictionary:
 	var d := {
 		"format_version": FORMAT_VERSION,
@@ -343,7 +343,7 @@ func to_dict() -> Dictionary:
 	# Sorted by hash so identical content serialises to identical bytes, whatever order the walk found it;
 	# otherwise signatures differ per publish and nothing can cache on the manifest.
 	var sorted := files.duplicate()
-	sorted.sort_custom(func(a: DotCloudFile, b: DotCloudFile) -> bool:
+	sorted.sort_custom(func(a: GSCloudFile, b: GSCloudFile) -> bool:
 		return a.sha256 < b.sha256
 	)
 	for f in sorted:
@@ -373,20 +373,20 @@ func to_json(pretty: bool = true) -> String:
 
 
 ## The bytes to sign and write as the envelope payload; the client verifies exactly what it received,
-## so no canonicalisation is involved (see [DotCloudEnvelope]).
+## so no canonicalisation is involved (see [GSCloudEnvelope]).
 func payload_bytes() -> PackedByteArray:
 	return to_json(true).to_utf8_buffer()
 
 
 ## Path under [code]res://[/code] where this content mounts.
 ##
-## The version is in the path deliberately. See [DotCloudMounter].
+## The version is in the path deliberately. See [GSCloudMounter].
 func mount_prefix() -> String:
 	return "res://%s/%s/%s" % [mount_root, content_id, version]
 
 
 ## Absolute path of a manifest entry once mounted.
-func resource_path(file: DotCloudFile) -> String:
+func resource_path(file: GSCloudFile) -> String:
 	return mount_prefix().path_join(file.path)
 
 
@@ -404,8 +404,8 @@ func key() -> String:
 
 ## Files this platform wants, filtered by group; the list the downloader works from.
 ## Filtered here so the progress total is right from the start.
-func wanted_files(groups: PackedStringArray = PackedStringArray()) -> Array[DotCloudFile]:
-	var out: Array[DotCloudFile] = []
+func wanted_files(groups: PackedStringArray = PackedStringArray()) -> Array[GSCloudFile]:
+	var out: Array[GSCloudFile] = []
 	for f in files:
 		if not f.wanted_on_this_platform():
 			continue
@@ -449,9 +449,9 @@ func group_names() -> PackedStringArray:
 
 ## Entries tagged for one side only, as [code]{"client": n, "server": n}[/code].
 func side_counts() -> Dictionary:
-	var out := {DotCloudFile.SIDE_CLIENT: 0, DotCloudFile.SIDE_SERVER: 0}
+	var out := {GSCloudFile.SIDE_CLIENT: 0, GSCloudFile.SIDE_SERVER: 0}
 	for f in files:
-		if f.side != DotCloudFile.SIDE_BOTH:
+		if f.side != GSCloudFile.SIDE_BOTH:
 			out[f.side] = int(out.get(f.side, 0)) + 1
 	return out
 
@@ -478,13 +478,13 @@ func describe() -> Dictionary:
 		"groups": Array(group_names()),
 		"sided": side_counts(),
 		# Which side "bytes" counts: "both" until a client has stamped its own.
-		"fetch_side": fetch_side if fetch_side != DotCloudFile.SIDE_BOTH else "both",
-		"bytes_client": bytes_for_side(DotCloudFile.SIDE_CLIENT),
-		"bytes_server": bytes_for_side(DotCloudFile.SIDE_SERVER),
+		"fetch_side": fetch_side if fetch_side != GSCloudFile.SIDE_BOTH else "both",
+		"bytes_client": bytes_for_side(GSCloudFile.SIDE_CLIENT),
+		"bytes_server": bytes_for_side(GSCloudFile.SIDE_SERVER),
 	}
 
 
 func _to_string() -> String:
-	return "DotCloudManifest(%s, %d files, %s)" % [
-		key(), files.size(), DotPaths.format_bytes(total_bytes())
+	return "GSCloudManifest(%s, %d files, %s)" % [
+		key(), files.size(), GSPaths.format_bytes(total_bytes())
 	]

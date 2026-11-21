@@ -17,14 +17,14 @@ var _ready_keys: PackedStringArray = PackedStringArray()
 
 
 func _ready() -> void:
-	DotLog.set_level(DotLog.Level.WARN)
+	GSLog.set_level(GSLog.Level.WARN)
 	await _run()
 
 
 func _run() -> void:
 	print("dot-cloud dependencies (API 15)")
-	DotPaths.remove_tree(WORK)
-	var keys := DotCloudSignature.generate_keypair(2048)
+	GSPaths.remove_tree(WORK)
+	var keys := GSCloudSignature.generate_keypair(2048)
 	if not keys.ok:
 		print("keygen failed: %s" % keys.error)
 		_finish(1)
@@ -63,7 +63,7 @@ func _section_payload() -> void:
 	_check("dependency in the signed payload", text.contains('"dependencies"'))
 	var forged := text.replace('"version": "1"\n\t\t}\n\t],\n\t"files"', '"version": "2"\n\t\t}\n\t],\n\t"files"').to_utf8_buffer()
 	_check("forged text differs", forged != m.raw_bytes)
-	_check("forged dependency refused", not DotCloudSignature.verify(forged, m.signature, str(_keys["public"])).ok)
+	_check("forged dependency refused", not GSCloudSignature.verify(forged, m.signature, str(_keys["public"])).ok)
 	_check("store has none", _read("lib_store", "1").dependencies.is_empty())
 	_check("none writes no key", not _read("lib_store", "1").to_dict().has("dependencies"))
 	_end()
@@ -73,7 +73,7 @@ func _section_shared_store() -> void:
 	_begin("shared store")
 	var client := _client("shared")
 	_ready_keys.clear()
-	client.content_ready.connect(func(m: DotCloudManifest, _p: String) -> void: _ready_keys.append(m.key()))
+	client.content_ready.connect(func(m: GSCloudManifest, _p: String) -> void: _ready_keys.append(m.key()))
 	var a := await client.ensure(&"map_a", "1")
 	_check("map a mounts", a.ok, str(a.error) if not a.ok else "")
 	_check("store mounted first", _ready_keys.size() == 2 and _ready_keys[0] == "lib_store@1", str(_ready_keys))
@@ -115,26 +115,26 @@ func _section_manifest_rules() -> void:
 	var base := {"content_id": "x", "version": "1", "files": []}
 	var ok := base.duplicate()
 	ok["dependencies"] = [{"id": "owner/store", "version": "3"}]
-	_check("owner/name accepted", DotCloudManifest.from_dict(ok).ok)
+	_check("owner/name accepted", GSCloudManifest.from_dict(ok).ok)
 	for bad: Array in [
 		[{"id": "", "version": "1"}], [{"id": "x", "version": "1"}], [{"id": "../up", "version": "1"}],
 		[{"id": "s", "version": ""}], [{"id": "s", "version": "1/2"}], [{"id": "A B", "version": "1"}], ["text"],
 	]:
 		var d := base.duplicate()
 		d["dependencies"] = bad
-		_check("refused %s" % JSON.stringify(bad), not DotCloudManifest.from_dict(d).ok)
+		_check("refused %s" % JSON.stringify(bad), not GSCloudManifest.from_dict(d).ok)
 	var many := {"content_id": "x", "version": "1", "files": [{"path": "a.txt", "sha256": "0".repeat(64), "size": 1}], "dependencies": []}
 	for i in 9:
 		many["dependencies"].append({"id": "s%d" % i, "version": "1"})
-	_check("more than eight refused for a pack with files", not DotCloudManifest.from_dict(many).ok)
+	_check("more than eight refused for a pack with files", not GSCloudManifest.from_dict(many).ok)
 	var coll := base.duplicate()
 	coll["dependencies"] = []
 	for i in 40:
 		coll["dependencies"].append({"id": "s%d" % i, "version": "1"})
-	_check("a collection (no files) may list forty", DotCloudManifest.from_dict(coll).ok)
+	_check("a collection (no files) may list forty", GSCloudManifest.from_dict(coll).ok)
 	for i in 100:
 		coll["dependencies"].append({"id": "t%d" % i, "version": "1"})
-	_check("a collection is still capped", not DotCloudManifest.from_dict(coll).ok)
+	_check("a collection is still capped", not GSCloudManifest.from_dict(coll).ok)
 	_end()
 
 
@@ -143,7 +143,7 @@ func _section_nested() -> void:
 	_publish("deep_top", "1", {"t.txt": "t\n"}, [{"id": "map_a", "version": "1"}])
 	var client := _client("nested")
 	_ready_keys.clear()
-	client.content_ready.connect(func(m: DotCloudManifest, _p: String) -> void: _ready_keys.append(m.key()))
+	client.content_ready.connect(func(m: GSCloudManifest, _p: String) -> void: _ready_keys.append(m.key()))
 	var got := await client.ensure(&"deep_top", "1")
 	_check("chain mounts", got.ok, str(got.error) if not got.ok else "")
 	_check("deepest first", _ready_keys.size() == 3 and _ready_keys[0] == "lib_store@1" and _ready_keys[2] == "deep_top@1", str(_ready_keys))
@@ -153,7 +153,7 @@ func _section_nested() -> void:
 
 func _section_collection() -> void:
 	_begin("collection")
-	var pub := DotCloudPublisher.new()
+	var pub := GSCloudPublisher.new()
 	pub.content_id = "all_maps"
 	pub.version = "1"
 	pub.signing_key_pem = str(_keys["private"])
@@ -276,7 +276,7 @@ func _section_two_phase() -> void:
 
 
 func _collection(id: String, deps: Array) -> void:
-	var pub := DotCloudPublisher.new()
+	var pub := GSCloudPublisher.new()
 	pub.content_id = id
 	pub.version = "1"
 	pub.signing_key_pem = str(_keys["private"])
@@ -293,7 +293,7 @@ func _section_concurrent() -> void:
 	_begin("concurrent")
 	var res: Array = []
 	var done := [0]
-	var fire := func(c: DotCloudClient, id: StringName) -> void:
+	var fire := func(c: GSCloudClient, id: StringName) -> void:
 		res.append(await c.ensure(id, "1"))
 		done[0] += 1
 	var same := _client("conc_same")
@@ -332,22 +332,22 @@ func _section_concurrent() -> void:
 
 func _section_vram_tags() -> void:
 	_begin("vram tags")
-	var s3 := DotCloudPublisher.vram_platforms("_imported/albedo.webp-ab.s3tc.ctex")
-	var etc := DotCloudPublisher.vram_platforms("_imported/albedo.webp-ab.etc2.ctex")
+	var s3 := GSCloudPublisher.vram_platforms("_imported/albedo.webp-ab.s3tc.ctex")
+	var etc := GSCloudPublisher.vram_platforms("_imported/albedo.webp-ab.etc2.ctex")
 	_check("s3tc is desktop and web", s3.has("linux") and s3.has("windows") and s3.has("web") and not s3.has("android"))
 	_check("etc2 is mobile and web", etc.has("android") and etc.has("ios") and etc.has("web") and not etc.has("linux"))
-	_check("baked s3tc.res is desktop", "linux" in DotCloudPublisher.vram_platforms("pbr/a/albedo.s3tc.res") and not "android" in DotCloudPublisher.vram_platforms("pbr/a/albedo.s3tc.res"))
-	_check("baked etc2.res is mobile", "android" in DotCloudPublisher.vram_platforms("pbr/a/albedo.etc2.res") and not "linux" in DotCloudPublisher.vram_platforms("pbr/a/albedo.etc2.res"))
-	_check("plain ctex is for all", DotCloudPublisher.vram_platforms("_imported/x.ctex").is_empty())
-	_check("an ordinary file is for all", DotCloudPublisher.vram_platforms("pbr/a.bin").is_empty())
+	_check("baked s3tc.res is desktop", "linux" in GSCloudPublisher.vram_platforms("pbr/a/albedo.s3tc.res") and not "android" in GSCloudPublisher.vram_platforms("pbr/a/albedo.s3tc.res"))
+	_check("baked etc2.res is mobile", "android" in GSCloudPublisher.vram_platforms("pbr/a/albedo.etc2.res") and not "linux" in GSCloudPublisher.vram_platforms("pbr/a/albedo.etc2.res"))
+	_check("plain ctex is for all", GSCloudPublisher.vram_platforms("_imported/x.ctex").is_empty())
+	_check("an ordinary file is for all", GSCloudPublisher.vram_platforms("pbr/a.bin").is_empty())
 	_end()
 
 
 func _publish(id: String, version: String, files: Dictionary, deps: Array) -> void:
 	var src := WORK.path_join("src_" + id)
 	for path: String in files:
-		DotPaths.write_text(src.path_join(path), str(files[path]))
-	var pub := DotCloudPublisher.new()
+		GSPaths.write_text(src.path_join(path), str(files[path]))
+	var pub := GSCloudPublisher.new()
 	pub.content_id = id
 	pub.version = version
 	pub.signing_key_pem = str(_keys["private"])
@@ -362,11 +362,11 @@ func _published(id: String, version: String) -> String:
 	return WORK.path_join("published").path_join(id).path_join(version)
 
 
-func _read(id: String, version: String) -> DotCloudManifest:
-	var bytes := DotPaths.read_bytes(_published(id, version).path_join("manifest.json"))
+func _read(id: String, version: String) -> GSCloudManifest:
+	var bytes := GSPaths.read_bytes(_published(id, version).path_join("manifest.json"))
 	if not bytes.ok:
 		return null
-	var parsed := DotCloudManifest.from_json_bytes(bytes.value)
+	var parsed := GSCloudManifest.from_json_bytes(bytes.value)
 	return parsed.value if parsed.ok else null
 
 
@@ -374,12 +374,12 @@ var _server: Node = null
 
 
 ## [param http] serves the published packs over the test server, so manifest fetches really overlap (a local read never yields).
-func _client(tag: String, http := false) -> DotCloudClient:
-	var config := DotCloudConfig.new()
+func _client(tag: String, http := false) -> GSCloudClient:
+	var config := GSCloudConfig.new()
 	config.cache_dir = WORK.path_join("cache_" + tag)
 	config.require_signed_manifests = true
 	config.trusted_keys = {"demo": str(_keys["public"])}
-	var client := DotCloudClient.new()
+	var client := GSCloudClient.new()
 	client.name = "Cloud_" + tag
 	client.config = config
 	client.config_file = ""

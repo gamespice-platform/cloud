@@ -6,17 +6,17 @@ The pieces and where they live:
 
 | Piece | Where | Names |
 | --- | --- | --- |
-| What a pack provides | the pack source's `provides.json`, signed into the manifest as `provides` | `DotCloudProvides` (GameSpice Cloud `manifest/`) |
-| The runtime index | GameSpice Core `core/` | `DotContentIndex`, `DotContentEntry`, registry name `dot_content_index` |
-| Registering on mount, session tags, the code scan | GameSpice Cloud `client/`, `mount/` | `DotCloudClient.ensure_for_session`, `DotCloudScriptScan` |
-| The sync client | GameSpice Cloud `workshop/` | `DotCloudWorkshop` (registry name `dot_workshop`), `DotCloudWorkshopList`, `DotCloudWorkshopDevice` |
+| What a pack provides | the pack source's `provides.json`, signed into the manifest as `provides` | `GSCloudProvides` (GameSpice Cloud `manifest/`) |
+| The runtime index | GameSpice Core `core/` | `GSContentIndex`, `GSContentEntry`, registry name `dot_content_index` |
+| Registering on mount, session tags, the code scan | GameSpice Cloud `client/`, `mount/` | `GSCloudClient.ensure_for_session`, `GSCloudScriptScan` |
+| The sync client | GameSpice Cloud `workshop/` | `GSCloudWorkshop` (registry name `dot_workshop`), `GSCloudWorkshopList`, `GSCloudWorkshopDevice` |
 | The site API | website-city | `GET /api/app/v1/workshop`, `POST /api/app/v1/workshop/scope` |
 | Solo launch and the panel | GameSpice Server Deploy `client/` | `TmcSoloSession`, `TmcWorkshopPanel` |
 | Consumers | GameSpice Map, GameSpice Weapon, GameSpice Props, GameSpice NPC, game-playlot | `follow_content(index)` on each catalogue |
 
 ## Why the sync client is in GameSpice Cloud and not a new addon
 
-A `dot-workshop` addon on dot-cloud and dot-auth was the alternative. It would be a second repository, a `projects.tsv` row, a family entry, an `addons.lock` line and a new shell build for about four files, and it would be the third addon in the family that needs two others. dot-cloud already speaks to the site (`DotCloudRegistry` is the publishing half of the same backbone), and everything the client does after the list arrives is dot-cloud's own `ensure`. The one thing it needs from dot-auth is a bearer token, and that arrives as a `Callable` (`token_fn`) the host sets, so dot-cloud still imports nothing but dot-core. If the Workshop grows a UI of its own or a second backbone (a server-side subscription list for a community server), that is the point to split it out.
+A `dot-workshop` addon on dot-cloud and dot-auth was the alternative. It would be a second repository, a `projects.tsv` row, a family entry, an `addons.lock` line and a new shell build for about four files, and it would be the third addon in the family that needs two others. dot-cloud already speaks to the site (`GSCloudRegistry` is the publishing half of the same backbone), and everything the client does after the list arrives is dot-cloud's own `ensure`. The one thing it needs from dot-auth is a bearer token, and that arrives as a `Callable` (`token_fn`) the host sets, so dot-cloud still imports nothing but dot-core. If the Workshop grows a UI of its own or a second backbone (a server-side subscription list for a community server), that is the point to split it out.
 
 ## What a pack provides
 
@@ -43,7 +43,7 @@ A pack that wants to appear anywhere in a game says so in one file at the root o
 }
 ```
 
-`DotCloudPublisher` reads it, validates it, and writes it into the manifest as the `provides` key, so it is covered by the same signature as every hash. The file also ships in the pack, but nothing reads the copy: the manifest is the one source, because it is the only one that is verified before anything is downloaded. The site's packer (website-city's `pack-publish` worker) does the same for packs uploaded through the site.
+`GSCloudPublisher` reads it, validates it, and writes it into the manifest as the `provides` key, so it is covered by the same signature as every hash. The file also ships in the pack, but nothing reads the copy: the manifest is the one source, because it is the only one that is verified before anything is downloaded. The site's packer (website-city's `pack-publish` worker) does the same for packs uploaded through the site.
 
 Top-level fields:
 
@@ -65,15 +65,15 @@ Every entry has `kind`, `id` (unique within the pack and kind, `[a-z0-9_]+`), `n
 
 | Kind | Fields | Consumer |
 | --- | --- | --- |
-| `map` | `scene`, `map_kind` (a `DotMapDef.kind`), optional `zones`, `min_players`, `max_players`, `tier` | GameSpice Map `DotMapCatalogue` |
-| `weapon` | `def` (a `DotWeaponDef` `.tres`), optional `slot` | GameSpice Weapon `DotWeaponCatalogue` |
-| `prop` | `def` (a `DotPropDef` `.tres`) or `scene` | GameSpice Props `DotPropCatalogue` |
-| `npc` | `def` (a GameSpice NPC definition `.tres`) or `scene` | GameSpice NPC `DotNpcCatalogue` |
+| `map` | `scene`, `map_kind` (a `GSMapDef.kind`), optional `zones`, `min_players`, `max_players`, `tier` | GameSpice Map `GSMapCatalogue` |
+| `weapon` | `def` (a `GSWeaponDef` `.tres`), optional `slot` | GameSpice Weapon `GSWeaponCatalogue` |
+| `prop` | `def` (a `GSPropDef` `.tres`) or `scene` | GameSpice Props `GSPropCatalogue` |
+| `npc` | `def` (a GameSpice NPC definition `.tres`) or `scene` | GameSpice NPC `GSNpcCatalogue` |
 | `entity` | `script` (a path to a script a game spawns as an entity, game-playlot's shape) | the game |
 | `tool` | `script` | the game (game-playlot's tool gun) |
 | `sound` | `stream` | GameSpice Audio, or the game |
 | `script` | `script`, `hook` (the hook name, for example `playlot`) | the game's hook loader (game-playlot's `playlot_hook.gd` contract) |
-| `trail` | `def` (the pack's `trails.json`; every trail entry of a pack names the same one), `thumbnail` (the trail's image). Data only: the pack ships no code and is published with `--no-import`, so the images stay bytes | dot-trail `DotTrailStore.load_dir` on the def's directory (game-playlot wears it on the local player) |
+| `trail` | `def` (the pack's `trails.json`; every trail entry of a pack names the same one), `thumbnail` (the trail's image). Data only: the pack ships no code and is published with `--no-import`, so the images stay bytes | dot-trail `GSTrailStore.load_dir` on the def's directory (game-playlot wears it on the local player) |
 | `addon` | `dir` | **not mounted from a subscription** (see [online isolation](#online-isolation)) |
 | `game` | none; uses `accepts` | the site and the shell; never subscribable |
 
@@ -104,36 +104,36 @@ Changes to `provides` are additive only: a new kind, a new optional field, a new
 
 ### `runs_code`
 
-The publisher adds `runs_code` (bool) to the manifest's `provides`, computed by `DotCloudScriptScan`, never taken from the author's file. A pack runs code when it ships any of: `.gd`, `.gdc`, `.cs`, `.gdextension`, a native library; a text resource (`.tscn`, `.tres`) with a `GDScript` or `CSharpScript` sub-resource, or an `ext_resource` naming a script inside the pack; a binary resource (`.scn`, `.res`) whose bytes contain a script class name. Kinds `entity`, `tool` and `script` always run code. **The scan is a label for honest packs, not a sandbox**: a binary resource can be crafted to hide a script from any byte search, which is why the policy below rests on the site's signature and its review, and why the client re-scans between download and mount and refuses a pack whose files say more than its manifest did.
+The publisher adds `runs_code` (bool) to the manifest's `provides`, computed by `GSCloudScriptScan`, never taken from the author's file. A pack runs code when it ships any of: `.gd`, `.gdc`, `.cs`, `.gdextension`, a native library; a text resource (`.tscn`, `.tres`) with a `GDScript` or `CSharpScript` sub-resource, or an `ext_resource` naming a script inside the pack; a binary resource (`.scn`, `.res`) whose bytes contain a script class name. Kinds `entity`, `tool` and `script` always run code. **The scan is a label for honest packs, not a sandbox**: a binary resource can be crafted to hide a script from any byte search, which is why the policy below rests on the site's signature and its review, and why the client re-scans between download and mount and refuses a pack whose files say more than its manifest did.
 
 ## The runtime index
 
-### `DotContentIndex`
+### `GSContentIndex`
 
-GameSpice Core, `core/dot_content_index.gd`, beside `DotContent`. It is the answer to "what has been mounted that I could offer?" for every consumer, so no game, map menu or spawn menu ever names a pack path. It is an instance, not a static class, because it needs signals (the reason `DotLogBus` and `DotRegistryBus` exist), and it lives in `DotRegistry` under `dot_content_index` (`DotContentIndex.SERVICE`).
+GameSpice Core, `core/dot_content_index.gd`, beside `GSContent`. It is the answer to "what has been mounted that I could offer?" for every consumer, so no game, map menu or spawn menu ever names a pack path. It is an instance, not a static class, because it needs signals (the reason `GSLogBus` and `GSRegistryBus` exist), and it lives in `GSRegistry` under `dot_content_index` (`GSContentIndex.SERVICE`).
 
 ```gdscript
-static func shared() -> DotContentIndex      # the registered one, created and registered on first call
-signal pack_added(pack: Dictionary, entries: Array[DotContentEntry])
+static func shared() -> GSContentIndex      # the registered one, created and registered on first call
+signal pack_added(pack: Dictionary, entries: Array[GSContentEntry])
 signal session_changed(session: StringName)
 
-func add_pack(info: Dictionary) -> DotResult  # {content_id, version, prefix, provides, session, source}
+func add_pack(info: Dictionary) -> GSResult  # {content_id, version, prefix, provides, session, source}
 func tag_pack(content_id: StringName, version: String, session: StringName) -> void
 func set_session(session: StringName) -> void
 func session() -> StringName
-func entries(kind: StringName, session: StringName = &"") -> Array[DotContentEntry]  # "" = the current session
-func entry(key: String) -> DotContentEntry
+func entries(kind: StringName, session: StringName = &"") -> Array[GSContentEntry]  # "" = the current session
+func entry(key: String) -> GSContentEntry
 func packs(session: StringName = &"") -> Array[Dictionary]
 func describe_lines() -> PackedStringArray
 ```
 
-`shared()` creating on demand is what makes order irrelevant: a catalogue built before the first mount and a cloud client that mounts before any catalogue exists find the same object. A test replaces it with `DotRegistry.register(DotContentIndex.SERVICE, its_own)`. A deployment without GameSpice Cloud has an empty index, which is the same "content ships in the build" answer `DotContent` gives.
+`shared()` creating on demand is what makes order irrelevant: a catalogue built before the first mount and a cloud client that mounts before any catalogue exists find the same object. A test replaces it with `GSRegistry.register(GSContentIndex.SERVICE, its_own)`. A deployment without GameSpice Cloud has an empty index, which is the same "content ships in the build" answer `GSContent` gives.
 
-`DotContentEntry` (`RefCounted`) carries `kind`, `id`, `key` (`<content_id>@<version>:<kind>/<id>`, unique in the process), `content_id`, `version`, `pack_title`, `name`, `category`, `tags`, `meta`, `source` (`&"subscription"`, `&"server"`, `&"game"`), `sessions` (a set), `path(field) -> String` (the field resolved onto the mount prefix, `""` when absent) and `raw` (the entry dictionary as published). Consumers read typed fields and `path("scene")`; nobody joins a prefix by hand.
+`GSContentEntry` (`RefCounted`) carries `kind`, `id`, `key` (`<content_id>@<version>:<kind>/<id>`, unique in the process), `content_id`, `version`, `pack_title`, `name`, `category`, `tags`, `meta`, `source` (`&"subscription"`, `&"server"`, `&"game"`), `sessions` (a set), `path(field) -> String` (the field resolved onto the mount prefix, `""` when absent) and `raw` (the entry dictionary as published). Consumers read typed fields and `path("scene")`; nobody joins a prefix by hand.
 
 ### Session tags
 
-Two tags, `DotContentIndex.SESSION_SOLO` (`&"solo"`) and `SESSION_ONLINE` (`&"online"`). Every pack in the index carries the set of sessions it was mounted for, and the index has one current session, set by the host (the shell, a dedicated server, a game run from its repository):
+Two tags, `GSContentIndex.SESSION_SOLO` (`&"solo"`) and `SESSION_ONLINE` (`&"online"`). Every pack in the index carries the set of sessions it was mounted for, and the index has one current session, set by the host (the shell, a dedicated server, a game run from its repository):
 
 - `entries(kind)` returns the entries of packs tagged with the **current** session and nothing else. A consumer that wants another session asks for it by name, and only tests and `describe_lines()` do.
 - A subscription pack is tagged `solo` and never anything else.
@@ -143,20 +143,20 @@ Two tags, `DotContentIndex.SESSION_SOLO` (`&"solo"`) and `SESSION_ONLINE` (`&"on
 
 ### Registering on mount
 
-`DotCloudClient` calls `DotContentIndex.shared().add_pack(...)` after every successful mount whose manifest carries `provides`, with the session it was mounted for. `ensure()` and `acquire()` keep their signatures and tag with `DotCloudClient.session_tag` (default `&"online"`; the shell sets it). The Workshop mounts through `ensure_for_session(content_id, version, session, source, options) -> DotResult`, the one call that passes the tag and the mount options below explicitly. A manifest with no `provides` registers nothing: old packs keep working exactly as they do.
+`GSCloudClient` calls `GSContentIndex.shared().add_pack(...)` after every successful mount whose manifest carries `provides`, with the session it was mounted for. `ensure()` and `acquire()` keep their signatures and tag with `GSCloudClient.session_tag` (default `&"online"`; the shell sets it). The Workshop mounts through `ensure_for_session(content_id, version, session, source, options) -> GSResult`, the one call that passes the tag and the mount options below explicitly. A manifest with no `provides` registers nothing: old packs keep working exactly as they do.
 
-**A subscription mount never re-points a UID the process already knows.** `dot_cloud_mounter_uids.gd` (`register`, called by `DotCloudMounter`) calls `ResourceUID.set_id` for an id the host already has, which is right for a second version of the same pack and wrong for anybody else's: a subscription pack shipping a resource under the UID of the game's own texture would redirect the game's references to its copy, in solo and in every later online session of the process. `ensure_for_session` with `source = &"subscription"` passes `uid_policy = "add_only"`: an id already registered to a path outside this content id's own mounts is skipped and counted (`uids_skipped=N` in the mount line).
+**A subscription mount never re-points a UID the process already knows.** `dot_cloud_mounter_uids.gd` (`register`, called by `GSCloudMounter`) calls `ResourceUID.set_id` for an id the host already has, which is right for a second version of the same pack and wrong for anybody else's: a subscription pack shipping a resource under the UID of the game's own texture would redirect the game's references to its copy, in solo and in every later online session of the process. `ensure_for_session` with `source = &"subscription"` passes `uid_policy = "add_only"`: an id already registered to a path outside this content id's own mounts is skipped and counted (`uids_skipped=N` in the mount line).
 
 ## The sync client
 
-`addons/dot_cloud/workshop/`. `DotCloudWorkshop` is a `Node` the host places beside its `DotCloudClient` (found through `DotContent.SERVICE`); it registers as `dot_workshop` in `_ready`. Configuration is a `DotCloudWorkshopConfig` (`DotConfig`, layered like every other):
+`addons/dot_cloud/workshop/`. `GSCloudWorkshop` is a `Node` the host places beside its `GSCloudClient` (found through `GSContent.SERVICE`); it registers as `dot_workshop` in `_ready`. Configuration is a `GSCloudWorkshopConfig` (`GSConfig`, layered like every other):
 
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `workshop_enabled` | `true` | Off: `sync()` succeeds with nothing, and the panel says the Workshop is off on this build |
 | `workshop_backbone_url` | `""` | The site origin; the shell passes its dot-auth `backbone_url`, never anything from a page |
 | `workshop_script_packs` | `"approved"` | `never`, `approved`, `any`. See [script packs](#script-packs) |
-| `workshop_key_ids` | `[]` | Narrows the keys a subscription may be signed with. The keys are the content client's own `trusted_keys` (`DotCloudWorkshop.trusted_key_ids()`): empty takes that whole keyring, and an id the keyring lacks trusts nothing, so a subscription is never trusted beyond the build's own pack verification (a dev shell's keyring adds `tmc-dev`; a production one has `tmc` alone). Name ids to keep a server-content key (a box's `local`) out of strangers' subscriptions |
+| `workshop_key_ids` | `[]` | Narrows the keys a subscription may be signed with. The keys are the content client's own `trusted_keys` (`GSCloudWorkshop.trusted_key_ids()`): empty takes that whole keyring, and an id the keyring lacks trusts nothing, so a subscription is never trusted beyond the build's own pack verification (a dev shell's keyring adds `tmc-dev`; a production one has `tmc` alone). Name ids to keep a server-content key (a box's `local`) out of strangers' subscriptions |
 | `workshop_metered` | `"ask"` | `ask`, `allow`, `never`: what to do on a metered connection |
 | `workshop_ask_over_bytes` | 52428800 | On `ask`, the download size above which the player is asked even when the connection is not known to be metered |
 | `workshop_timeout_sec` | 10 | The list request's timeout; past it, the cached list is used |
@@ -167,13 +167,13 @@ The host sets two callables: `token_fn() -> String` (the signed-in player's bear
 
 ```gdscript
 signal progress(done: int, total: int, bytes_done: int, bytes_total: int, current: String)
-signal pack_failed(content_id: String, version: String, error: DotError)
+signal pack_failed(content_id: String, version: String, error: GSError)
 signal synced(summary: Dictionary)
 
-func sync(game_content_id: String) -> DotResult      # value: the summary below
-func set_scope(subscription_id: String, on: bool) -> DotResult      # this game only
-func set_all_games(subscription_id: String, on: bool) -> DotResult  # CODE_FORBIDDEN with a game-bound token
-func last_list() -> DotCloudWorkshopList
+func sync(game_content_id: String) -> GSResult      # value: the summary below
+func set_scope(subscription_id: String, on: bool) -> GSResult      # this game only
+func set_all_games(subscription_id: String, on: bool) -> GSResult  # CODE_FORBIDDEN with a game-bound token
+func last_list() -> GSCloudWorkshopList
 func describe() -> Dictionary
 func describe_lines() -> PackedStringArray
 ```
@@ -184,15 +184,15 @@ func describe_lines() -> PackedStringArray
 
 1. **Refuse online.** A registered `dot_client_link` or a current session of `online` fails with `CODE_FORBIDDEN`. This is the second lock; the shell never calls it there in the first place.
 2. **Guest.** `token_fn` returns `""`: success with `guest: true` and nothing mounted. The panel says "Sign in to use your subscriptions", and nothing is read from the cache, because a cached list belongs to the account that fetched it.
-3. **Fetch.** `GET {backbone}/api/app/v1/workshop?game=<id>&since=<revision>&platform=<web|desktop|mobile>` with the bearer. `unchanged: true` keeps the cached list; otherwise the response replaces it (it is always the complete list for that game, so there is nothing to merge). `removed` entries are dropped from the cache and logged at DEBUG with their reason. `platform` is `DotCloudWorkshop.request_platform()`: `client_platform()` (from `DotPlatform`), or `force_platform` when that is allowed. It matters: the site holds its code-review policy per platform (by default a script pack reaches a browser once the site's scanner found nothing web-relevant in it or a reviewer cleared it, and reaches a native build only once a reviewer cleared it), so the same subscription can be listed on the web and withheld on the desktop. A request without `platform` (a third-party client that never sends it) is treated as native, the strict case. The site's scan is a triage aid for its reviewers, not a sandbox, which is why `script_policy` here stays the client's own floor. The site trusts the claim only for the client's own safety, so the client never claims a looser platform than it is: `force_platform = "web"` is refused unless `DotPlatform.is_web()` (logged once at WARN, and the real platform is sent), because a pack cleared for the browser's sandbox may still call `OS.execute` or load a native library, which only a native build can run. Forcing `desktop` or `mobile` (both native, the strict case) is always allowed. The `approved` each list entry carries is therefore approval for code that can run on this machine, and `workshop_script_packs = "approved"` relies on exactly that.
+3. **Fetch.** `GET {backbone}/api/app/v1/workshop?game=<id>&since=<revision>&platform=<web|desktop|mobile>` with the bearer. `unchanged: true` keeps the cached list; otherwise the response replaces it (it is always the complete list for that game, so there is nothing to merge). `removed` entries are dropped from the cache and logged at DEBUG with their reason. `platform` is `GSCloudWorkshop.request_platform()`: `client_platform()` (from `GSPlatform`), or `force_platform` when that is allowed. It matters: the site holds its code-review policy per platform (by default a script pack reaches a browser once the site's scanner found nothing web-relevant in it or a reviewer cleared it, and reaches a native build only once a reviewer cleared it), so the same subscription can be listed on the web and withheld on the desktop. A request without `platform` (a third-party client that never sends it) is treated as native, the strict case. The site's scan is a triage aid for its reviewers, not a sandbox, which is why `script_policy` here stays the client's own floor. The site trusts the claim only for the client's own safety, so the client never claims a looser platform than it is: `force_platform = "web"` is refused unless `GSPlatform.is_web()` (logged once at WARN, and the real platform is sent), because a pack cleared for the browser's sandbox may still call `OS.execute` or load a native library, which only a native build can run. Forcing `desktop` or `mobile` (both native, the strict case) is always allowed. The `approved` each list entry carries is therefore approval for code that can run on this machine, and `workshop_script_packs = "approved"` relies on exactly that.
 4. **Offline.** A network failure, a timeout or a 5xx uses the cached list (`offline: true`, `from_cache: true`) and logs at INFO. A 401 drops the cache for that account and behaves as a guest. A cached list is keyed by the account id `/me` returned with it, and is ignored for any other account.
-5. **Device overrides.** `DotCloudWorkshopDevice` removes what this device has turned off (`skipped: device_off`).
+5. **Device overrides.** `GSCloudWorkshopDevice` removes what this device has turned off (`skipped: device_off`).
 6. **Policy.** A pack whose `runs_code` is true is skipped unless the policy admits it (`script_policy`).
-7. **Size.** The total of the remaining packs' `bytes` that are not already in the store is checked against `DotCloudStore`'s limit (the browser's quota estimate on the web; `mobile_cache_bytes` on a phone): what does not fit is skipped from the end of the list (`quota`), never evicting the game's own content to make room. On a metered connection (see below) or over `workshop_ask_over_bytes`, `ask_fn` is awaited once for the whole set.
-8. **Mount.** Each pack through `ensure_for_session(id, version, &"solo", &"subscription", {uid_policy: "add_only", allow_root: false})`, in list order, one at a time so `progress` is honest and one large pack cannot starve the rest. The manifest must verify against `trusted_keys` **and** name a key in `trusted_key_ids()` that, on its own, verifies it (the id in a manifest is an unsigned hint until that key checks it); its own id and version must match the list's; its `requires.json` must pass. Between download and mount, `DotCloudScriptScan` re-runs over the stored files, and a pack whose files run code when its manifest says they do not is refused as `CODE_FORBIDDEN`.
+7. **Size.** The total of the remaining packs' `bytes` that are not already in the store is checked against `GSCloudStore`'s limit (the browser's quota estimate on the web; `mobile_cache_bytes` on a phone): what does not fit is skipped from the end of the list (`quota`), never evicting the game's own content to make room. On a metered connection (see below) or over `workshop_ask_over_bytes`, `ask_fn` is awaited once for the whole set.
+8. **Mount.** Each pack through `ensure_for_session(id, version, &"solo", &"subscription", {uid_policy: "add_only", allow_root: false})`, in list order, one at a time so `progress` is honest and one large pack cannot starve the rest. The manifest must verify against `trusted_keys` **and** name a key in `trusted_key_ids()` that, on its own, verifies it (the id in a manifest is an unsigned hint until that key checks it); its own id and version must match the list's; its `requires.json` must pass. Between download and mount, `GSCloudScriptScan` re-runs over the stored files, and a pack whose files run code when its manifest says they do not is refused as `CODE_FORBIDDEN`.
 9. **One pack never blocks the game.** Every failure is logged once at WARN with the pack, the code and the message, emitted as `pack_failed`, added to `failed`, and the loop moves on. `sync()` itself fails only for a programmer error (no cloud client, an empty game id); every condition a player can cause is a successful summary.
 
-On the web, the cached list and the device file are written through `DotPaths` atomically and followed by `DotWeb.sync_filesystem()`.
+On the web, the cached list and the device file are written through `GSPaths` atomically and followed by `GSWeb.sync_filesystem()`.
 
 ### The cache and the device file
 
@@ -201,20 +201,20 @@ On the web, the cached list and the device file are written through `DotPaths` a
 
 ### Suggested packs
 
-A game can suggest packs it never requires, such as its separate map packs: `workshop.suggested = DotCloudSuggested.from_ids("maps", ids)`. A `sync()` whose mode allows them mounts them whether or not the player is signed in, newest published version (`<base>/<id>/latest.json`), through the client's own trusted keys. Players still pick maps one by one with the per-pack device switch.
+A game can suggest packs it never requires, such as its separate map packs: `workshop.suggested = GSCloudSuggested.from_ids("maps", ids)`. A `sync()` whose mode allows them mounts them whether or not the player is signed in, newest published version (`<base>/<id>/latest.json`), through the client's own trusted keys. Players still pick maps one by one with the per-pack device switch.
 
-The shell (GameSpice Server Deploy `client/shell.gd`, `docs/web-client.md`) does **not** mount them on a solo start by default: once the game is on screen it only declares them (the Subscriptions page lists them) and fetches nothing, so a game with many map packs never bulk-downloads ~1 GB or asks about it over play. A game that lists the suggested packs in its own map menu fetches one when that map is picked (game-fatal-contact `_fetch_picked`, game-airdrift); a game without such a fetch plays solo on its built-in and already-mounted maps only. Only a device set to "Download all in the background" or `--suggested=all` (or groups) makes that late sync fetch them, in the background and without a dialog unless metered; a server join never runs it. The library's own `workshop_suggested` default is still `all`: a caller that runs `sync()` itself gets the full mount unless it sets a mode. The mode is `all`, `none`, `ask` (like `all`, but the player is asked once through `ask_fn` before any suggested pack downloads; a refusal, or no `ask_fn` as on a headless client, skips only those with reason `suggested_declined`) or a comma list of groups, and the strongest source wins: the command line (`--no-suggested`, `--no-suggested-<group>`, `--suggested=<mode>`), then the device (`DotCloudWorkshopDevice.set_suggested_mode`, saved in `device.json`), then `workshop_suggested` (defaults, JSON, `GS_CLOUD_WORKSHOP_SUGGESTED`, `--cloud-workshop-suggested`). The server side reads the same list from the game's `game.yml` (GameSpice Server Deploy). The Subscriptions page (GameSpice Server Deploy `TmcWorkshopPanel`) shows the device choice as "When a map is picked" / "Download all in the background" (`DotCloudWorkshop.set_device_suggested_mode`). `describe()` reports `suggested: {mode, declared, kept}`.
+The shell (GameSpice Server Deploy `client/shell.gd`, `docs/web-client.md`) does **not** mount them on a solo start by default: once the game is on screen it only declares them (the Subscriptions page lists them) and fetches nothing, so a game with many map packs never bulk-downloads ~1 GB or asks about it over play. A game that lists the suggested packs in its own map menu fetches one when that map is picked (game-fatal-contact `_fetch_picked`, game-airdrift); a game without such a fetch plays solo on its built-in and already-mounted maps only. Only a device set to "Download all in the background" or `--suggested=all` (or groups) makes that late sync fetch them, in the background and without a dialog unless metered; a server join never runs it. The library's own `workshop_suggested` default is still `all`: a caller that runs `sync()` itself gets the full mount unless it sets a mode. The mode is `all`, `none`, `ask` (like `all`, but the player is asked once through `ask_fn` before any suggested pack downloads; a refusal, or no `ask_fn` as on a headless client, skips only those with reason `suggested_declined`) or a comma list of groups, and the strongest source wins: the command line (`--no-suggested`, `--no-suggested-<group>`, `--suggested=<mode>`), then the device (`GSCloudWorkshopDevice.set_suggested_mode`, saved in `device.json`), then `workshop_suggested` (defaults, JSON, `GS_CLOUD_WORKSHOP_SUGGESTED`, `--cloud-workshop-suggested`). The server side reads the same list from the game's `game.yml` (GameSpice Server Deploy). The Subscriptions page (GameSpice Server Deploy `TmcWorkshopPanel`) shows the device choice as "When a map is picked" / "Download all in the background" (`GSCloudWorkshop.set_device_suggested_mode`). `describe()` reports `suggested: {mode, declared, kept}`.
 
 ### Metered connections
 
-There is no engine API for it. `DotCloudWorkshop.is_metered()` is true when the browser reports `navigator.connection.saveData` or a `type` of `cellular`, read through `DotWeb`, or when `DotPlatform.is_mobile()` and nothing says otherwise. A platform that later exposes a real answer replaces that one method.
+There is no engine API for it. `GSCloudWorkshop.is_metered()` is true when the browser reports `navigator.connection.saveData` or a `type` of `cellular`, read through `GSWeb`, or when `GSPlatform.is_mobile()` and nothing says otherwise. A platform that later exposes a real answer replaces that one method.
 
 ## The solo launch flow
 
 The shell (GameSpice Server Deploy's `TmcSoloSession`), for every solo start: web `--solo`, desktop, and the app's Play solo.
 
 1. Sign in (`try_web_handoff()` on the web, the native sign-in on desktop). The web handoff yields a game-bound token, which is enough to read and toggle this game's list.
-2. `DotContentIndex.shared().set_session(&"solo")`, `cloud.session_tag = &"solo"`.
+2. `GSContentIndex.shared().set_session(&"solo")`, `cloud.session_tag = &"solo"`.
 3. Fetch and mount the game pack and `client/solo.json`'s map packs, as now.
 4. If the game's `provides.accepts` is absent, stop here: the game takes no subscriptions and the panel says so.
 5. `await workshop.sync(game_id)` behind the loading screen, its `progress` driving the bar ("Subscribed content 3/7, Utopia surf maps").
@@ -228,8 +228,8 @@ The in-shell Subscriptions panel (`TmcWorkshopPanel`) lists the game's items fro
 - **A consumer in an online session never sees a solo entry.** The index's session is `online` and `entries()` filters by it.
 - **A server-required pack is fetched by the join as it always was.** If the same id and version is already mounted or stored, it is reused and tagged `online`; no other relationship between a subscription and a server's content exists. A different version of the same pack is a different mount prefix and both coexist.
 - **Solo, then online, in one process.** Leaving solo frees the game's tree, which frees every node a pack's content made. The pack files stay mounted (they cannot be unmounted) and their entries are invisible under `online`. UIDs were never re-pointed (`add_only`), so nothing the server's game loads resolves into a subscription pack.
-- **But code stays resident.** A script pack's static variables, signal connections to static buses and anything it registered survive the tree, and a resident script in an online session is a cheat engine waiting for a server. So **if any `runs_code` subscription pack was mounted in this process, an online join restarts the process first**: a page reload carrying the join on the web, a relaunch on desktop, through the same machinery as an addon overlay (`DotCloudAddonSet.persisted` before a browser reload). Data-only packs need no restart. `DotCloudWorkshop.requires_restart_before_online()` is the question the shell asks.
-- **Addon packs (kind `addon`) are a per-game opt-in.** An addon mounts at the root and adds class names for the whole process, so it is never mounted under a prefix. A game whose `provides.json` `accepts.kinds` lacks `"addon"` refuses one as `CODE_FORBIDDEN` (and `ensure_for_session` with `allow_root: false` refuses any root overlay a list mislabels). A game that lists it (Playlot does) gets each approved addon pack back in `summary.addons` as `{dir, repo, id, version, title, running}`; `sync()` mounts nothing of it. The shell adds those entries to its solo `DotCloudAddonSet` overlay, which restarts the process once, the same way a solo's required addons do.
+- **But code stays resident.** A script pack's static variables, signal connections to static buses and anything it registered survive the tree, and a resident script in an online session is a cheat engine waiting for a server. So **if any `runs_code` subscription pack was mounted in this process, an online join restarts the process first**: a page reload carrying the join on the web, a relaunch on desktop, through the same machinery as an addon overlay (`GSCloudAddonSet.persisted` before a browser reload). Data-only packs need no restart. `GSCloudWorkshop.requires_restart_before_online()` is the question the shell asks.
+- **Addon packs (kind `addon`) are a per-game opt-in.** An addon mounts at the root and adds class names for the whole process, so it is never mounted under a prefix. A game whose `provides.json` `accepts.kinds` lacks `"addon"` refuses one as `CODE_FORBIDDEN` (and `ensure_for_session` with `allow_root: false` refuses any root overlay a list mislabels). A game that lists it (Playlot does) gets each approved addon pack back in `summary.addons` as `{dir, repo, id, version, title, running}`; `sync()` mounts nothing of it. The shell adds those entries to its solo `GSCloudAddonSet` overlay, which restarts the process once, the same way a solo's required addons do.
   - **Approved only.** An addon pack is code whatever its `runsCode` says: it is taken only when the site approved that version, under `any` too (skipped as `addon_unapproved`); `never` skips it as `script_policy`.
   - **The build's copy serves a subscription to an addon it ships.** When the pack's repository is in `res://addons.lock` (the Playlot shell ships `natural_disasters`, for one), it is skipped as `addon_built`: nothing is laid over the build, and a newer subscribed release only logs a warning. The player still has the addon, at the build's version.
   - **It may add an addon, never replace one.** Any other directory the build has (`res://addons/<dir>` or a repo in `res://addons.lock`), one the running overlay holds for another pack, or one a second subscription claims in the same sync fails loudly as `CODE_CONFLICT`. Nothing is overlaid silently.
@@ -248,6 +248,6 @@ Changing the default is one value here (`workshop_script_packs`) and one rule on
 
 ## Testing
 
-- **GameSpice Core**: a selftest for `DotContentIndex`: two packs, two sessions, `tag_pack` reuse, `session_changed`, unknown kinds kept and offered to nobody.
+- **GameSpice Core**: a selftest for `GSContentIndex`: two packs, two sessions, `tag_pack` reuse, `session_changed`, unknown kinds kept and offered to nobody.
 - **GameSpice Cloud**: `examples/workshop_demo.tscn` publishes a fixture pack with a map, a weapon and a prop, mounts it as `solo`, and checks the index; switches to `online` and checks nothing is visible; mounts a pack whose files carry a script its manifest did not declare and requires the refusal; mounts a pack whose resource reuses a host UID and requires it skipped. A fake backbone (`examples/workshop_backbone.gd`, a local HTTP server like `http_test_server.gd`) serves first sync, an unchanged delta, a `removed` entry, a timeout (cached list used), a 401 (guest), and one broken pack among three (the other two mount).
 - **GameSpice Server Deploy**: a solo launch with a subscribed fixture map pack shows it in the game's map menu, then an online join of the same game in the same process shows none of it. Rendered and looked at.

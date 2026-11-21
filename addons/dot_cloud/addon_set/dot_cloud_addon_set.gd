@@ -1,4 +1,4 @@
-class_name DotCloudAddonSet
+class_name GSCloudAddonSet
 extends RefCounted
 
 ## Newer addons for a build that already shipped, as packs, applied at the next boot.
@@ -24,7 +24,7 @@ extends RefCounted
 ##   the loader follows the build's remap to the build's bytes, and a newer `x.gd` mounted
 ##   beside it is never read.
 ## - [b]The global class list[/b], with this set's entries swapped in. See
-##   [DotCloudScriptClass].
+##   [GSCloudScriptClass].
 ##
 ## [b]Only ever upward.[/b] A server running an older addon than this build has keeps
 ## this build's: a client newer than its server is the case the envelope negotiation
@@ -75,7 +75,7 @@ const REMAPPED := _Overlay.REMAPPED
 var namespaces: PackedStringArray = PackedStringArray(["modcommunity/", "gamespice-platform/"])
 
 ## The client that fetches and verifies the packs.
-var cloud: DotCloudClient = null
+var cloud: GSCloudClient = null
 
 ## The most one overlay file holds; a larger overlay is written as several (the plan's `packs`).
 var part_bytes: int = _Overlay.PART_BYTES
@@ -83,10 +83,10 @@ var part_bytes: int = _Overlay.PART_BYTES
 ## The download groups ([code]groups.json[/code], API 22) the overlay takes beside each pack's
 ## ungrouped files; `*` is every group. The overlay holds what was fetched, side-filtered
 ## too, so a server-only file or an unwanted group is neither downloaded nor laid over.
-var groups: PackedStringArray = PackedStringArray([DotCloudFile.ALL_GROUPS])
+var groups: PackedStringArray = PackedStringArray([GSCloudFile.ALL_GROUPS])
 
 
-func _init(p_cloud: DotCloudClient = null) -> void:
+func _init(p_cloud: GSCloudClient = null) -> void:
 	cloud = p_cloud
 
 
@@ -128,20 +128,20 @@ static func read_plan() -> Dictionary:
 	return parsed if parsed is Dictionary else {}
 
 
-static func write_plan(plan: Dictionary) -> DotResult:
-	var parent := DotPaths.ensure_parent_dir(PLAN)
+static func write_plan(plan: Dictionary) -> GSResult:
+	var parent := GSPaths.ensure_parent_dir(PLAN)
 	if not parent.ok:
 		return parent
 
 	var f := FileAccess.open(PLAN, FileAccess.WRITE)
 
 	if f == null:
-		return DotResult.fail(DotError.CODE_IO, "Could not write the addon plan.", PLAN)
+		return GSResult.fail(GSError.CODE_IO, "Could not write the addon plan.", PLAN)
 
 	f.store_string(JSON.stringify(plan, "\t"))
 	f.close()
-	DotWeb.sync_filesystem()
-	return DotResult.success(true)
+	GSWeb.sync_filesystem()
+	return GSResult.success(true)
 
 
 ## Says the shell came up on the overlay the boot script mounted. Call it once the shell
@@ -178,14 +178,14 @@ static func confirm_boot() -> void:
 	if not stale.is_empty():
 		plan["state"] = STATE_FAILED
 		write_plan(plan)
-		DotLog.error(CHANNEL, "the addon overlay is mounted but these addons still run the build's own copy; it is off from the next start", {
+		GSLog.error(CHANNEL, "the addon overlay is mounted but these addons still run the build's own copy; it is off from the next start", {
 			"addons": stale,
 		})
 		return
 
 	plan["state"] = STATE_OK
 	write_plan(plan)
-	DotLog.info(CHANNEL, "booted on the addon overlay", {"addons": _Checks.summary(plan.get("addons", {}))})
+	GSLog.info(CHANNEL, "booted on the addon overlay", {"addons": _Checks.summary(plan.get("addons", {}))})
 
 
 ## Mounts the overlay the plan on disk names in this running process and confirms it, doing what the boot script
@@ -213,11 +213,11 @@ static func mount_now() -> MountNow:
 
 	# The build's own class list, kept before the overlay's replaces it: the next overlay is merged from it.
 	if FileAccess.get_file_as_string(SHELL_CLASSES_BUILD) != build:
-		var classes := FileAccess.get_file_as_string(DotCloudScriptClass.CACHE_PATH)
+		var classes := FileAccess.get_file_as_string(GSCloudScriptClass.CACHE_PATH)
 
 		if classes != "":
-			DotPaths.write_text(SHELL_CLASSES, classes)
-			DotPaths.write_text(SHELL_CLASSES_BUILD, build)
+			GSPaths.write_text(SHELL_CLASSES, classes)
+			GSPaths.write_text(SHELL_CLASSES_BUILD, build)
 
 	# Booting, as the boot script leaves it, so confirm_boot checks it; and nothing to resume, or the next visit would
 	# start this game again.
@@ -232,7 +232,7 @@ static func mount_now() -> MountNow:
 			plan["state"] = STATE_READY
 			plan["resume"] = resume
 			write_plan(plan)
-			DotLog.warn(CHANNEL, "the engine refused the addon overlay here; restart onto it instead", {"pack": str(part)})
+			GSLog.warn(CHANNEL, "the engine refused the addon overlay here; restart onto it instead", {"pack": str(part)})
 			return MountNow.REFUSED
 
 	var pack := str((packs as Array)[0])
@@ -249,7 +249,7 @@ static func mount_now() -> MountNow:
 	if str(read_plan().get("state", "")) != STATE_OK:
 		return MountNow.STALE
 
-	DotLog.info(CHANNEL, "mounted the addon overlay without a restart", {
+	GSLog.info(CHANNEL, "mounted the addon overlay without a restart", {
 		"pack": pack.get_file(), "addons": (plan.get("addons", {}) as Dictionary).keys(),
 	})
 	return MountNow.RUNNING
@@ -309,7 +309,7 @@ static func mounted_this_boot(plan: Dictionary) -> bool:
 
 ## What a server's addon set asks of this process.
 ##
-## [param server] is the server's list, as [method DotServer.addon_set] sends it: one
+## [param server] is the server's list, as [method GSServer.addon_set] sends it: one
 ## `{dir, repo, id, version}` per addon. Returns `{wanted, refused}`: [code]wanted[/code]
 ## is the full set the next overlay should hold (dir -> entry) -- empty when nothing has
 ## to change -- and [code]refused[/code] says, per entry, why it was not taken.
@@ -396,7 +396,7 @@ static func plan_files(plan: Dictionary) -> PackedStringArray:
 ## mounted.
 static func forget() -> void:
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(PLAN))
-	DotWeb.sync_filesystem()
+	GSWeb.sync_filesystem()
 
 
 ## The engine's object store inside the IndexedDB database that mirrors `user://`
@@ -414,7 +414,7 @@ const PERSIST_COMPARE_BYTES := 256 * 1024
 ##
 ## [b]What a browser restart has to wait for, and the only way to know.[/b] A browser's
 ## `user://` is an in-memory copy that reaches IndexedDB only through `FS.syncfs`, which
-## the engine runs one at a time from its main loop ([method DotWeb.sync_filesystem] only
+## the engine runs one at a time from its main loop ([method GSWeb.sync_filesystem] only
 ## asks for the next one) and which says nothing to a script when it is done. Each sync
 ## walks EVERY file under `user://` and writes what changed, so it takes as long as the
 ## player's cache is large: measured at 1 to 5 seconds with under 1 MiB cached, while the
@@ -426,16 +426,16 @@ const PERSIST_COMPARE_BYTES := 256 * 1024
 ## [code]CODE_UNSUPPORTED[/code] when the page has no IndexedDB copy of `user://` at all (a
 ## private window, storage refused): a restart there could only lose what was written, so
 ## the caller should not restart.
-static func persisted(paths: PackedStringArray, timeout_s: float = 30.0) -> DotResult:
-	if not DotWeb.available():
-		return DotResult.success(true)
+static func persisted(paths: PackedStringArray, timeout_s: float = 30.0) -> GSResult:
+	if not GSWeb.available():
+		return GSResult.success(true)
 
 	var want := {}
 	var db_name := ""
 
 	for path in paths:
 		if not FileAccess.file_exists(path):
-			return DotResult.fail(DotError.CODE_IO, "There is no file to keep.", path)
+			return GSResult.fail(GSError.CODE_IO, "There is no file to keep.", path)
 
 		var key := ProjectSettings.globalize_path(path)
 		var f := FileAccess.open(path, FileAccess.READ)
@@ -443,20 +443,20 @@ static func persisted(paths: PackedStringArray, timeout_s: float = 30.0) -> DotR
 		f.close()
 		# A large file by its length only: an overlay part is hundreds of MiB, too much to hold twice.
 		var small := size <= PERSIST_COMPARE_BYTES
-		want[key] = {"size": size, "sha": DotHash.sha256_bytes(FileAccess.get_file_as_bytes(path)) if small else ""}
+		want[key] = {"size": size, "sha": GSHash.sha256_bytes(FileAccess.get_file_as_bytes(path)) if small else ""}
 		# `/userfs/godot/app_userdata/<name>/...` is kept in the database `/userfs`.
 		var parts := key.split("/", false)
 		db_name = "/" + parts[0] if parts.size() > 0 else ""
 
 	if want.is_empty():
-		return DotResult.success(true)
+		return GSResult.success(true)
 
 	var tree := Engine.get_main_loop() as SceneTree
 	var deadline := Time.get_ticks_msec() + int(timeout_s * 1000.0)
 	var waiting: Array = want.keys()
 
 	while true:
-		DotWeb.sync_filesystem()
+		GSWeb.sync_filesystem()
 		await tree.create_timer(0.5).timeout
 
 		var read := await _idb_differs(db_name, want)
@@ -467,13 +467,13 @@ static func persisted(paths: PackedStringArray, timeout_s: float = 30.0) -> DotR
 		waiting = read.value
 
 		if waiting.is_empty():
-			return DotResult.success(true)
+			return GSResult.success(true)
 
 		if Time.get_ticks_msec() >= deadline:
 			break
 
-	return DotResult.fail(
-		DotError.CODE_TIMEOUT,
+	return GSResult.fail(
+		GSError.CODE_TIMEOUT,
 		"The browser did not save the files a restart needs in time.",
 		", ".join(PackedStringArray(waiting))
 	)
@@ -481,22 +481,22 @@ static func persisted(paths: PackedStringArray, timeout_s: float = 30.0) -> DotR
 
 ## The keys of [param want] whose IndexedDB record is missing or not what is on disk.
 ## Through the page's `indexedDB` object and callbacks, never an eval: the player's page
-## refuses `unsafe-eval` (see [method DotWeb.get_global]).
-static func _idb_differs(db_name: String, want: Dictionary) -> DotResult:
-	var idb: Variant = DotWeb.get_global("indexedDB")
+## refuses `unsafe-eval` (see [method GSWeb.get_global]).
+static func _idb_differs(db_name: String, want: Dictionary) -> GSResult:
+	var idb: Variant = GSWeb.get_global("indexedDB")
 
 	if idb == null or db_name == "":
-		return DotResult.fail(DotError.CODE_UNSUPPORTED, "This page has no IndexedDB.")
+		return GSResult.fail(GSError.CODE_UNSUPPORTED, "This page has no IndexedDB.")
 
 	var tree := Engine.get_main_loop() as SceneTree
 	# Containers, not scalars: a lambda captures a local by value (docs/gdscript-hazards).
 	var state := {"db": null, "done": false, "error": ""}
 	var request: Variant = idb.open(db_name)
-	request.onsuccess = DotWeb.create_callback("dot_cloud_idb_open", func(_args: Array) -> void:
+	request.onsuccess = GSWeb.create_callback("dot_cloud_idb_open", func(_args: Array) -> void:
 		state["db"] = request.result
 		state["done"] = true
 	)
-	request.onerror = DotWeb.create_callback("dot_cloud_idb_open_error", func(_args: Array) -> void:
+	request.onerror = GSWeb.create_callback("dot_cloud_idb_open_error", func(_args: Array) -> void:
 		state["error"] = "the database would not open"
 		state["done"] = true
 	)
@@ -506,37 +506,37 @@ static func _idb_differs(db_name: String, want: Dictionary) -> DotResult:
 	while not state["done"] and Time.get_ticks_msec() < give_up:
 		await tree.process_frame
 
-	DotWeb.release_callback("dot_cloud_idb_open")
-	DotWeb.release_callback("dot_cloud_idb_open_error")
+	GSWeb.release_callback("dot_cloud_idb_open")
+	GSWeb.release_callback("dot_cloud_idb_open_error")
 
 	var db: Variant = state["db"]
 
 	if db == null:
-		return DotResult.fail(DotError.CODE_UNSUPPORTED, "The browser's copy of user:// could not be read.",
+		return GSResult.fail(GSError.CODE_UNSUPPORTED, "The browser's copy of user:// could not be read.",
 			str(state["error"]) if str(state["error"]) != "" else "no answer")
 
 	# An empty database is one this call just created: the engine never had one, so nothing
 	# written in this session is kept anywhere.
 	if not bool(db.objectStoreNames.contains(IDB_STORE)):
 		db.close()
-		return DotResult.fail(DotError.CODE_UNSUPPORTED, "This page keeps nothing between loads.", db_name)
+		return GSResult.fail(GSError.CODE_UNSUPPORTED, "This page keeps nothing between loads.", db_name)
 
 	var store: Variant = db.transaction(IDB_STORE, "readonly").objectStore(IDB_STORE)
 	var differs: Array = []
 	var answered: Array = []
-	var bridge := DotWeb.bridge()
+	var bridge := GSWeb.bridge()
 
 	for key: String in want:
 		var ask: Variant = store.get(key)
 		var name := "dot_cloud_idb_get_%d" % answered.size()
 		answered.append(false)
 		var slot := answered.size() - 1
-		ask.onsuccess = DotWeb.create_callback(name, func(_args: Array) -> void:
+		ask.onsuccess = GSWeb.create_callback(name, func(_args: Array) -> void:
 			if not _Checks.record_matches(bridge, ask.result, want[key]):
 				differs.append(key)
 			answered[slot] = true
 		)
-		ask.onerror = DotWeb.create_callback(name + "_error", func(_args: Array) -> void:
+		ask.onerror = GSWeb.create_callback(name + "_error", func(_args: Array) -> void:
 			differs.append(key)
 			answered[slot] = true
 		)
@@ -545,15 +545,15 @@ static func _idb_differs(db_name: String, want: Dictionary) -> DotResult:
 		await tree.process_frame
 
 	for i in answered.size():
-		DotWeb.release_callback("dot_cloud_idb_get_%d" % i)
-		DotWeb.release_callback("dot_cloud_idb_get_%d_error" % i)
+		GSWeb.release_callback("dot_cloud_idb_get_%d" % i)
+		GSWeb.release_callback("dot_cloud_idb_get_%d_error" % i)
 
 	db.close()
 
 	if answered.has(false):
-		return DotResult.fail(DotError.CODE_TIMEOUT, "The browser's copy of user:// did not answer.")
+		return GSResult.fail(GSError.CODE_TIMEOUT, "The browser's copy of user:// did not answer.")
 
-	return DotResult.success(differs)
+	return GSResult.success(differs)
 
 
 func _refusal(dir: String, repo: String, id: String, version: String) -> String:
@@ -610,14 +610,14 @@ static func compare_versions(a: String, b: String) -> int:
 ##
 ## Nothing is mounted: the boot script does that, at the next start. [param resume] is
 ## kept in the plan for the shell to act on after the restart (where it was connecting).
-func build(wanted: Dictionary, resume: Dictionary = {}) -> DotResult:
+func build(wanted: Dictionary, resume: Dictionary = {}) -> GSResult:
 	if cloud == null:
-		return DotResult.fail(DotError.CODE_STATE, "No content client to fetch addons with.")
+		return GSResult.fail(GSError.CODE_STATE, "No content client to fetch addons with.")
 
 	var fingerprint := build_fingerprint()
 
 	if fingerprint == "":
-		return DotResult.fail(DotError.CODE_STATE, "This build does not say which addons it has.", BUILT_LOCK)
+		return GSResult.fail(GSError.CODE_STATE, "This build does not say which addons it has.", BUILT_LOCK)
 
 	var manifests := {}
 
@@ -628,13 +628,13 @@ func build(wanted: Dictionary, resume: Dictionary = {}) -> DotResult:
 		if not resolved.ok:
 			return resolved.wrap("Could not find %s %s." % [entry["id"], entry["version"]])
 
-		var manifest: DotCloudManifest = resolved.value
+		var manifest: GSCloudManifest = resolved.value
 
 		# [b]An addon pack holds the addon's directory, and its plugin.cfg says where.[/b] Without
 		# one the files would land over `res://addons/<dir>/` at the wrong depth.
 		if _Overlay.base(manifest, dir) == _Overlay.NOT_AN_ADDON:
-			return DotResult.fail(
-				DotError.CODE_INVALID,
+			return GSResult.fail(
+				GSError.CODE_INVALID,
 				"%s is not an addon pack." % manifest.key(),
 				"it has no plugin.cfg at its root or at addons/%s/" % dir
 			)
@@ -676,17 +676,17 @@ func build(wanted: Dictionary, resume: Dictionary = {}) -> DotResult:
 
 	_prune(str(plan["pack"]))
 
-	DotLog.info(CHANNEL, "addon overlay ready for the next start", {
+	GSLog.info(CHANNEL, "addon overlay ready for the next start", {
 		"pack": plan["pack"], "addons": _Checks.summary(wanted),
 	})
 
-	return DotResult.success(plan)
+	return GSResult.success(plan)
 
 
 ## The overlay: every file at `res://addons/<dir>/<path>`, a self-pointing remap per
 ## resource, and the merged class list.
-func _assemble(manifests: Dictionary, fingerprint: String) -> DotResult:
-	var made := DotPaths.ensure_dir(DIR)
+func _assemble(manifests: Dictionary, fingerprint: String) -> GSResult:
+	var made := GSPaths.ensure_dir(DIR)
 	if not made.ok:
 		return made
 
@@ -697,8 +697,8 @@ func _assemble(manifests: Dictionary, fingerprint: String) -> DotResult:
 	var existing := _Overlay.existing_parts(pack_path)
 	var reuse := not existing.is_empty()
 	var scratch := DIR.path_join("staging")
-	DotPaths.remove_tree(scratch)
-	DotPaths.ensure_dir(scratch)
+	GSPaths.remove_tree(scratch)
+	GSPaths.ensure_dir(scratch)
 
 	var packer := _Overlay.Parts.new(pack_path, part_bytes)
 	var err := OK
@@ -710,14 +710,14 @@ func _assemble(manifests: Dictionary, fingerprint: String) -> DotResult:
 	var remap_index := 0
 
 	for dir: String in manifests:
-		var manifest: DotCloudManifest = manifests[dir]
+		var manifest: GSCloudManifest = manifests[dir]
 		var root := "res://addons/%s" % dir
 		var at := _Overlay.base(manifest, dir)
 		replaced.append(root)
 
 		for f in manifest.wanted_files(groups):
 			if not cloud.store.has(f.sha256):
-				return DotResult.fail(DotError.CODE_STATE, "An addon file is not downloaded.", f.path)
+				return GSResult.fail(GSError.CODE_STATE, "An addon file is not downloaded.", f.path)
 
 			var target := _Overlay.target(manifest, dir, at, f.path)
 			var source := cloud.store.path_for(f.sha256)
@@ -726,7 +726,7 @@ func _assemble(manifests: Dictionary, fingerprint: String) -> DotResult:
 				source = _Overlay.unrelocate(manifest, dir, at, f.path, source, scratch.path_join("t%d" % remap_index))
 				err = _Overlay.add(packer, target, source, scratch.path_join("r%d.remap" % remap_index))
 				if err != OK:
-					return DotResult.failure(DotError.from_engine(err, "adding %s" % target))
+					return GSResult.failure(GSError.from_engine(err, "adding %s" % target))
 			remap_index += 1
 
 			var ext := f.path.get_extension().to_lower()
@@ -738,43 +738,43 @@ func _assemble(manifests: Dictionary, fingerprint: String) -> DotResult:
 				_Overlay.note_uid(uids, ext, source, target)
 
 	if reuse:
-		DotPaths.remove_tree(scratch)
-		return DotResult.success({"pack": pack_path, "packs": existing, "uids": uids, "probes": probes, "classes": 0, "reused": true})
+		GSPaths.remove_tree(scratch)
+		return GSResult.success({"pack": pack_path, "packs": existing, "uids": uids, "probes": probes, "classes": 0, "reused": true})
 
 	var added := _write_class_cache(scripts, replaced, scratch)
 	var cache_file := scratch.path_join("global_script_class_cache.cfg")
 
-	err = packer.add_file(DotCloudScriptClass.CACHE_PATH, cache_file)
+	err = packer.add_file(GSCloudScriptClass.CACHE_PATH, cache_file)
 	if err != OK:
-		return DotResult.failure(DotError.from_engine(err, "adding the class list"))
+		return GSResult.failure(GSError.from_engine(err, "adding the class list"))
 
 	err = packer.finish()
 	if err != OK:
-		return DotResult.failure(DotError.from_engine(err, "writing the addon overlay"))
+		return GSResult.failure(GSError.from_engine(err, "writing the addon overlay"))
 
-	DotPaths.remove_tree(scratch)
-	DotWeb.sync_filesystem()
+	GSPaths.remove_tree(scratch)
+	GSWeb.sync_filesystem()
 
-	return DotResult.success({"pack": pack_path, "packs": packer.paths, "uids": uids, "probes": probes, "classes": added.size()})
+	return GSResult.success({"pack": pack_path, "packs": packer.paths, "uids": uids, "probes": probes, "classes": added.size()})
 
 
 ## Writes the merged class list into [param scratch]; returns the entries this set added.
 static func _write_class_cache(scripts: Dictionary, replaced: PackedStringArray, scratch: String) -> Array:
 	# The build's list as the build shipped it -- saved by the boot script before any
 	# overlay replaced it -- and only then this set's entries.
-	var base := DotCloudScriptClass.read_cache(SHELL_CLASSES)
+	var base := GSCloudScriptClass.read_cache(SHELL_CLASSES)
 	if base.is_empty():
-		base = DotCloudScriptClass.read_cache()
+		base = GSCloudScriptClass.read_cache()
 
 	var known := {}
 	for e in base:
 		if e is Dictionary:
 			known[str(e.get("class", ""))] = e
 
-	var added := DotCloudScriptClass.entries_for(scripts, known)
-	var merged := DotCloudScriptClass.merge(base, replaced, added)
+	var added := GSCloudScriptClass.entries_for(scripts, known)
+	var merged := GSCloudScriptClass.merge(base, replaced, added)
 	var c := FileAccess.open(scratch.path_join("global_script_class_cache.cfg"), FileAccess.WRITE)
-	c.store_string(DotCloudScriptClass.cache_text(merged))
+	c.store_string(GSCloudScriptClass.cache_text(merged))
 	c.close()
 	return added
 

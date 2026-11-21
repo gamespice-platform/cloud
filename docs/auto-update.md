@@ -1,20 +1,20 @@
 # Server auto-update
 
-`DotCloudAutoUpdate` (`addons/dot_cloud/server/`) keeps a dedicated server on the newest published version of the packs it runs. It is on by default. Clients are never touched, and in a browser (`DotPlatform.is_web()`, or any build that cannot listen) it does nothing.
+`GSCloudAutoUpdate` (`addons/dot_cloud/server/`) keeps a dedicated server on the newest published version of the packs it runs. It is on by default. Clients are never touched, and in a browser (`GSPlatform.is_web()`, or any build that cannot listen) it does nothing.
 
-Every game gets it without code of its own: GameSpice Game's `DotGameModule` starts one per headless server process the first time a game module loads (`DotGameModule.start_auto_update`), loads this script by path (GameSpice Cloud stays optional), parents it to the `DotServer` so a game change keeps it, and registers it as `dot_cloud_autoupdate`. A host that builds its own sets the callables below and adds the node itself; `start_auto_update` then finds it in the registry and adds no second one.
+Every game gets it without code of its own: GameSpice Game's `GSGameModule` starts one per headless server process the first time a game module loads (`GSGameModule.start_auto_update`), loads this script by path (GameSpice Cloud stays optional), parents it to the `GSServer` so a game change keeps it, and registers it as `dot_cloud_autoupdate`. A host that builds its own sets the callables below and adds the node itself; `start_auto_update` then finds it in the registry and adds no second one.
 
 ## What it checks
 
-`watch_fn` returns the packs this process runs as `{id, version}`. dot-game's returns, for every delivered game in the server's `DotGameManager`, the game's own pack and every pack in `dependencies`, `server_dependencies` and `maps`. A game built into the binary contributes nothing, so a game repository's own `game.sh server` watches nothing and never restarts.
+`watch_fn` returns the packs this process runs as `{id, version}`. dot-game's returns, for every delivered game in the server's `GSGameManager`, the game's own pack and every pack in `dependencies`, `server_dependencies` and `maps`. A game built into the binary contributes nothing, so a game repository's own `game.sh server` watches nothing and never restarts.
 
-Each check asks `latest_fn(id)`. The default reads `<base>/<id>/latest.json` from the registered `DotCloudClient`'s HTTP bases (the same pointer a publish writes and dot-server-deploy's installer reads; `moved_to` is followed one hop), then fetches that version's manifest through `DotCloudClient.resolve_manifest`, which verifies it against the client's trusted keys exactly as a client download would. An unsigned manifest is refused. A server with no HTTP bases (content from local directories only) has nothing to ask and stays quiet.
+Each check asks `latest_fn(id)`. The default reads `<base>/<id>/latest.json` from the registered `GSCloudClient`'s HTTP bases (the same pointer a publish writes and dot-server-deploy's installer reads; `moved_to` is followed one hop), then fetches that version's manifest through `GSCloudClient.resolve_manifest`, which verifies it against the client's trusted keys exactly as a client download would. An unsigned manifest is refused. A server with no HTTP bases (content from local directories only) has nothing to ask and stays quiet.
 
 ## Applying an update is a restart
 
 A mounted resource pack can never be unmounted, and packs mount at `res://dot_cloud/<id>/<version>/`, so a new version cannot replace the old one in a running process. The update is applied by exiting and starting again: the start installs the newest version (dot-server-deploy's `./server` runs `install-games` before the engine, which resolves every unpinned pack to `latest.json`).
 
-**The contract:** the process exits with `restart_exit_code`, **75** by default (EX_TEMPFAIL), after `DotServer.shutdown()` has told every player why. Whatever supervises the process restarts it on that code:
+**The contract:** the process exits with `restart_exit_code`, **75** by default (EX_TEMPFAIL), after `GSServer.shutdown()` has told every player why. Whatever supervises the process restarts it on that code:
 
 | Supervisor | Honours 75 |
 | --- | --- |
@@ -34,15 +34,15 @@ Once an update is found (INFO `update found`):
 1. **Nobody connected** (`players_fn` returns 0; GameSpice Game counts every session, including players still loading): restart at once, with no warning.
 2. **Players present, `when_empty` on** (the default): keep waiting, re-reading the player count every frame, and restart the moment it is empty. With `max_wait` above 0, once that many seconds have passed since the update was found, start the warning countdown anyway. `max_wait: 0` never forces: the server restarts only when empty.
 3. **Players present, `when_empty` off**: start the countdown at once.
-4. **The countdown**: one warning at `warn_seconds`, then one at each `warn_steps` value below it, sent through `warn_fn` (GameSpice Game: `DotServer.broadcast_message`, a system chat line) and logged at INFO. At 0 it restarts. If the server empties during the countdown it restarts then. `warn_seconds: 0` restarts without a countdown.
+4. **The countdown**: one warning at `warn_seconds`, then one at each `warn_steps` value below it, sent through `warn_fn` (GameSpice Game: `GSServer.broadcast_message`, a system chat line) and logged at INFO. At 0 it restarts. If the server empties during the countdown it restarts then. `warn_seconds: 0` restarts without a countdown.
 
 Turning `enabled` off drops a pending update.
 
 ## Configuration
 
-`DotCloudAutoUpdateConfig`, layered like every `DotConfig`: exported defaults < `autoupdate.yml` < environment < command line, and the cvars for a running server.
+`GSCloudAutoUpdateConfig`, layered like every `GSConfig`: exported defaults < `autoupdate.yml` < environment < command line, and the cvars for a running server.
 
-The file follows the family's addon layout (`DotAddonConfig.file_layers("dot-cloud", "autoupdate.yml")`): `cfg/addons/dot_cloud/autoupdate.yml`, the game's `cfg/game/<game>/dot_cloud/`, then the operator's `cfg/server/addons/dot_cloud/autoupdate.yml`, which is where a box sets its own. Environment is `DOT_CLOUD_AUTOUPDATE_<KEY>`, command line `--autoupdate-<key>=value`.
+The file follows the family's addon layout (`GSAddonConfig.file_layers("dot-cloud", "autoupdate.yml")`): `cfg/addons/dot_cloud/autoupdate.yml`, the game's `cfg/game/<game>/dot_cloud/`, then the operator's `cfg/server/addons/dot_cloud/autoupdate.yml`, which is where a box sets its own. Environment is `DOT_CLOUD_AUTOUPDATE_<KEY>`, command line `--autoupdate-<key>=value`.
 
 | Key | Default | Cvar | Meaning |
 | --- | --- | --- | --- |

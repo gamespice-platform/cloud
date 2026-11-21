@@ -1,8 +1,8 @@
 @tool
-class_name DotCloudFile
+class_name GSCloudFile
 extends Resource
 
-## One downloadable file in a [DotCloudManifest].
+## One downloadable file in a [GSCloudManifest].
 ##
 ## Content-addressed: the SHA-256 is the file's identity in the cache, and
 ## [member path] is only where it goes once mounted. Two games shipping the same
@@ -10,7 +10,7 @@ extends Resource
 ## textures did not change re-downloads nothing.
 
 ## Where this file lives inside the mounted content, relative to the manifest's
-## mount prefix. Always validated with [method DotPaths.safe_relative] before use
+## mount prefix. Always validated with [method GSPaths.safe_relative] before use
 ## — it comes from a server.
 @export var path: String = ""
 
@@ -57,7 +57,7 @@ const SIDE_SERVER := "server"
 ## verifies and caches for nothing; a client never runs the server's own tables. The tag
 ## is in the manifest payload and therefore under the signature: a server or mirror that
 ## flips it breaks the signature rather than talking a client out of a file it needs.
-## The side asking is the fetcher's own setting ([member DotCloudConfig.side]), never
+## The side asking is the fetcher's own setting ([member GSCloudConfig.side]), never
 ## something the document or a server says about the reader.
 ##
 ## [b]A field, not a platform tag.[/b] [member platforms] matches [method OS.has_feature],
@@ -69,8 +69,8 @@ const SIDE_SERVER := "server"
 @export var side: String = SIDE_BOTH
 
 
-static func from_dict(d: Dictionary) -> DotResult:
-	var f := DotCloudFile.new()
+static func from_dict(d: Dictionary) -> GSResult:
+	var f := GSCloudFile.new()
 
 	f.path = str(d.get("path", ""))
 	f.sha256 = str(d.get("sha256", "")).to_lower()
@@ -89,7 +89,7 @@ static func from_dict(d: Dictionary) -> DotResult:
 	if not checked.ok:
 		return checked
 
-	return DotResult.success(f)
+	return GSResult.success(f)
 
 
 func to_dict() -> Dictionary:
@@ -121,28 +121,28 @@ func to_dict() -> Dictionary:
 ## Called on every entry at parse time, before anything is fetched. A manifest
 ## with one bad entry is refused whole: partially trusting a document that is
 ## demonstrably wrong about itself is how a traversal gets through.
-func validate() -> DotResult:
-	var safe := DotPaths.safe_relative(path)
+func validate() -> GSResult:
+	var safe := GSPaths.safe_relative(path)
 	if not safe.ok:
 		return safe.wrap("Manifest entry has an unsafe path.")
 	path = safe.value
 
 	if sha256.length() != 64 or not sha256.is_valid_hex_number(false):
-		return DotResult.fail(
-			DotError.CODE_INVALID,
+		return GSResult.fail(
+			GSError.CODE_INVALID,
 			"Manifest entry has a malformed SHA-256.",
 			"%s: '%s'" % [path, sha256]
 		)
 
 	if size < 0:
-		return DotResult.fail(
-			DotError.CODE_INVALID,
+		return GSResult.fail(
+			GSError.CODE_INVALID,
 			"Manifest entry has a negative size.",
 			path
 		)
 
 	if url_path != "":
-		var safe_url := DotPaths.safe_relative(url_path)
+		var safe_url := GSPaths.safe_relative(url_path)
 		if not safe_url.ok:
 			return safe_url.wrap("Manifest entry has an unsafe url_path.")
 
@@ -153,13 +153,13 @@ func validate() -> DotResult:
 	# and the value is still inside the signed payload. A side is a fetch hint, never access
 	# control: every object of a pack is on the same public mirrors. See [method wanted_on_side].
 	if side.length() > 32:
-		return DotResult.fail(
-			DotError.CODE_INVALID,
+		return GSResult.fail(
+			GSError.CODE_INVALID,
 			"Manifest entry has an over-long side.",
 			"%s: %d characters" % [path, side.length()]
 		)
 
-	return DotResult.success(true)
+	return GSResult.success(true)
 
 
 ## Whether this file should be fetched on the current platform.
@@ -221,6 +221,6 @@ func object_path() -> String:
 
 
 func _to_string() -> String:
-	return "DotCloudFile(%s, %s, %s)" % [
-		path, sha256.substr(0, 12), DotPaths.format_bytes(size)
+	return "GSCloudFile(%s, %s, %s)" % [
+		path, sha256.substr(0, 12), GSPaths.format_bytes(size)
 	]

@@ -1,9 +1,9 @@
-class_name DotCloudMirrorList
+class_name GSCloudMirrorList
 extends RefCounted
 
 ## The site's signed list of community mirrors of a game origin (API 13).
 ## A mirror is untrusted (it can withhold or corrupt, never substitute; manifests never come from one), so the
-## list is a [DotCloudEnvelope] signed by a key trusted for [constant SCOPE_ID].
+## list is a [GSCloudEnvelope] signed by a key trusted for [constant SCOPE_ID].
 
 const CHANNEL := "cloud.mirrors"
 
@@ -30,15 +30,15 @@ var dropped: PackedStringArray = PackedStringArray()
 ## Unwraps, verifies and parses a published mirror list. Malformed entries are dropped one by
 ## one; a bad envelope, signature, kind, format, origin or expiry refuses the whole list, and so
 ## does an [code]issued_at[/code] older than [param newest_seen] (a replayed list that is still valid).
-static func parse_signed(bytes: PackedByteArray, trusted_keys: Dictionary, now_unix: int, newest_seen: int = 0) -> DotResult:
-	var unwrapped := DotCloudEnvelope.unwrap(bytes)
+static func parse_signed(bytes: PackedByteArray, trusted_keys: Dictionary, now_unix: int, newest_seen: int = 0) -> GSResult:
+	var unwrapped := GSCloudEnvelope.unwrap(bytes)
 	if not unwrapped.ok:
 		return unwrapped.wrap("The mirror list is not a valid envelope.")
 	var env: Dictionary = unwrapped.value
 	if not bool(env["signed"]):
-		return DotResult.fail(DotError.CODE_INTEGRITY, "The mirror list is not signed.")
+		return GSResult.fail(GSError.CODE_INTEGRITY, "The mirror list is not signed.")
 	var payload: PackedByteArray = env["payload"]
-	var verified := DotCloudSignature.verify_for(
+	var verified := GSCloudSignature.verify_for(
 		payload, str(env["signature"]), trusted_keys, SCOPE_ID, str(env["key_id"])
 	)
 	if not verified.ok:
@@ -46,20 +46,20 @@ static func parse_signed(bytes: PackedByteArray, trusted_keys: Dictionary, now_u
 
 	var parsed: Variant = JSON.parse_string(payload.get_string_from_utf8())
 	if not (parsed is Dictionary):
-		return DotResult.fail(DotError.CODE_PARSE, "The mirror list is not a JSON object.")
+		return GSResult.fail(GSError.CODE_PARSE, "The mirror list is not a JSON object.")
 	var d := parsed as Dictionary
 	if str(d.get("kind", "")) != KIND:
-		return DotResult.fail(DotError.CODE_INVALID, "This is not a mirror list.", str(d.get("kind", "")))
+		return GSResult.fail(GSError.CODE_INVALID, "This is not a mirror list.", str(d.get("kind", "")))
 	var fmt := int(d.get("format", 0))
 	if fmt < 1 or fmt > FORMAT:
-		return DotResult.fail(DotError.CODE_VERSION, "Unsupported mirror list format %d." % fmt)
-	var list := DotCloudMirrorList.new()
+		return GSResult.fail(GSError.CODE_VERSION, "Unsupported mirror list format %d." % fmt)
+	var list := GSCloudMirrorList.new()
 	list.issued_at = int(d.get("issued_at", 0))
 	list.expires_at = int(d.get("expires_at", 0))
 	if list.expires_at <= 0 or now_unix > list.expires_at:
-		return DotResult.fail(DotError.CODE_INVALID, "The mirror list has expired.", "expires_at %d" % list.expires_at)
+		return GSResult.fail(GSError.CODE_INVALID, "The mirror list has expired.", "expires_at %d" % list.expires_at)
 	if list.issued_at < newest_seen:
-		return DotResult.fail(DotError.CODE_INVALID, "The mirror list is older than one already accepted.",
+		return GSResult.fail(GSError.CODE_INVALID, "The mirror list is older than one already accepted.",
 			"issued_at %d < %d" % [list.issued_at, newest_seen])
 	var origin_ok := check_base_url(str(d.get("origin", "")))
 	if not origin_ok.ok:
@@ -68,10 +68,10 @@ static func parse_signed(bytes: PackedByteArray, trusted_keys: Dictionary, now_u
 
 	var raw: Variant = d.get("mirrors", [])
 	if not (raw is Array):
-		return DotResult.fail(DotError.CODE_PARSE, "The mirror list's mirrors is not an array.")
+		return GSResult.fail(GSError.CODE_PARSE, "The mirror list's mirrors is not an array.")
 	if (raw as Array).size() > MAX_MIRRORS:
-		return DotResult.fail(
-			DotError.CODE_INVALID, "The mirror list names too many mirrors.",
+		return GSResult.fail(
+			GSError.CODE_INVALID, "The mirror list names too many mirrors.",
 			"%d, at most %d" % [(raw as Array).size(), MAX_MIRRORS]
 		)
 	for entry: Variant in raw:
@@ -85,15 +85,15 @@ static func parse_signed(bytes: PackedByteArray, trusted_keys: Dictionary, now_u
 			continue
 		list.mirrors.append(md)
 	if not list.dropped.is_empty():
-		DotLog.debug(CHANNEL, "mirror entries dropped", {"dropped": list.dropped})
-	return DotResult.success(list)
+		GSLog.debug(CHANNEL, "mirror entries dropped", {"dropped": list.dropped})
+	return GSResult.success(list)
 
 
 ## The newest [code]issued_at[/code] recorded at [param path], or 0.
 static func newest_seen(path: String) -> int:
 	if not FileAccess.file_exists(path):
 		return 0
-	var read := DotPaths.read_json(path)
+	var read := GSPaths.read_json(path)
 	return maxi(0, int((read.value as Dictionary).get("issued_at", 0))) if read.ok and read.value is Dictionary else 0
 
 
@@ -101,14 +101,14 @@ static func newest_seen(path: String) -> int:
 static func remember(path: String, issued_at: int) -> void:
 	if issued_at <= newest_seen(path):
 		return
-	var written := DotPaths.write_json(path, {"issued_at": issued_at}, false)
+	var written := GSPaths.write_json(path, {"issued_at": issued_at}, false)
 	if not written.ok:
-		DotLog.warn(CHANNEL, "could not record the mirror list's issue time", {"detail": written.error.detail})
-	DotWeb.sync_filesystem()
+		GSLog.warn(CHANNEL, "could not record the mirror list's issue time", {"detail": written.error.detail})
+	GSWeb.sync_filesystem()
 
 
 ## An http(s) base with a host and no userinfo, query or fragment, returned without a trailing slash.
-static func check_base_url(url: String) -> DotResult:
+static func check_base_url(url: String) -> GSResult:
 	var u := url.strip_edges()
 	var rest := ""
 	if u.begins_with("https://"):
@@ -116,24 +116,24 @@ static func check_base_url(url: String) -> DotResult:
 	elif u.begins_with("http://"):
 		rest = u.substr(7)
 	else:
-		return DotResult.fail(DotError.CODE_INVALID, "A mirror URL must be http or https.", url)
+		return GSResult.fail(GSError.CODE_INVALID, "A mirror URL must be http or https.", url)
 	if "?" in u or "#" in u or " " in u or "\\" in u:
-		return DotResult.fail(DotError.CODE_INVALID, "A mirror URL must not carry a query or fragment.", url)
+		return GSResult.fail(GSError.CODE_INVALID, "A mirror URL must not carry a query or fragment.", url)
 	var authority := rest.split("/")[0]
 	if authority == "" or "@" in authority:
-		return DotResult.fail(DotError.CODE_INVALID, "A mirror URL needs a host and no user info.", url)
+		return GSResult.fail(GSError.CODE_INVALID, "A mirror URL needs a host and no user info.", url)
 	if "/../" in (u + "/") or "/./" in (u + "/"):
-		return DotResult.fail(DotError.CODE_INVALID, "A mirror URL must not contain dot segments.", url)
-	return DotResult.success(u.trim_suffix("/"))
+		return GSResult.fail(GSError.CODE_INVALID, "A mirror URL must not contain dot segments.", url)
+	return GSResult.success(u.trim_suffix("/"))
 
 
-static func _parse_entry(entry: Variant) -> DotResult:
+static func _parse_entry(entry: Variant) -> GSResult:
 	if not (entry is Dictionary):
-		return DotResult.fail(DotError.CODE_PARSE, "a mirror entry is not an object")
+		return GSResult.fail(GSError.CODE_PARSE, "a mirror entry is not an object")
 	var e := entry as Dictionary
 	var base := check_base_url(str(e.get("base_url", "")))
 	if not base.ok:
-		return DotResult.fail(DotError.CODE_INVALID, "%s: %s" % [str(e.get("id", "?")), base.error.message])
+		return GSResult.fail(GSError.CODE_INVALID, "%s: %s" % [str(e.get("id", "?")), base.error.message])
 	var packs := PackedStringArray()
 	var raw_packs: Variant = e.get("packs", [])
 	if raw_packs is Array:
@@ -145,7 +145,7 @@ static func _parse_entry(entry: Variant) -> DotResult:
 	if raw_regions is Array:
 		for r: Variant in raw_regions:
 			regions.append(str(r))
-	return DotResult.success({
+	return GSResult.success({
 		"id": str(e.get("id", "")),
 		"base_url": str(base.value),
 		"operator": str(e.get("operator", "")),
@@ -167,7 +167,7 @@ func _has_base(base: String) -> bool:
 static func pack_matches(pattern: String, content_id: String) -> bool:
 	if pattern == "*" or pattern == content_id:
 		return true
-	return DotCloudSignature._match_segments(pattern, content_id)
+	return GSCloudSignature._match_segments(pattern, content_id)
 
 
 ## Content roots (`<base_url>/content`) of every mirror carrying [param content_id], in rank order.
@@ -199,9 +199,9 @@ func alternatives(url: String) -> PackedStringArray:
 
 
 ## Probes each mirror once (HEAD `<base_url>/content/mirrors.json`) at most [param timeout_sec]
-## each, all at once, and sorts by latency with unreachable mirrors last. Give it a [DotHttp]
+## each, all at once, and sorts by latency with unreachable mirrors last. Give it a [GSHttp]
 ## nobody else is using: its timeout and retries are overridden while this runs.
-func rank(http: DotHttp, timeout_sec: float = 3.0) -> void:
+func rank(http: GSHttp, timeout_sec: float = 3.0) -> void:
 	if http == null or mirrors.is_empty():
 		return
 	var saved_timeout := http.timeout_sec
@@ -222,14 +222,14 @@ func rank(http: DotHttp, timeout_sec: float = 3.0) -> void:
 			return lb < 0
 		return la < lb
 	)
-	DotLog.debug(CHANNEL, "mirrors ranked", {"order": _ids()})
+	GSLog.debug(CHANNEL, "mirrors ranked", {"order": _ids()})
 
 
 signal _probe_done
 var _probes_finished := 0
 
 
-func _probe_one(http: DotHttp, i: int) -> void:
+func _probe_one(http: GSHttp, i: int) -> void:
 	var t0 := Time.get_ticks_msec()
 	var res := await http.probe(str(mirrors[i]["base_url"]) + "/content/mirrors.json")
 	mirrors[i]["latency_ms"] = (Time.get_ticks_msec() - t0) if res.ok else -2

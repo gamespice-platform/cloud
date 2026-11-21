@@ -1,4 +1,4 @@
-class_name DotCloudSliceLoader
+class_name GSCloudSliceLoader
 extends RefCounted
 
 ## Loads a list of resources a few at a time across frames, so a loading cover keeps animating.
@@ -44,7 +44,7 @@ const SLOWEST_KEPT := 8
 ## Loads every path, yielding between slices. Threaded where [param threaded] says so (default:
 ## the platform can); a browser without threads loads on the main thread, a slice per frame.
 ## Returns success(count) or the first failing path.
-func load_all(tree: SceneTree, paths: PackedStringArray, threaded: bool = DotPlatform.has_threads()) -> DotResult:
+func load_all(tree: SceneTree, paths: PackedStringArray, threaded: bool = GSPlatform.has_threads()) -> GSResult:
 	frames_yielded = 0
 	loaded.clear()
 	slowest.clear()
@@ -70,7 +70,7 @@ func load_all(tree: SceneTree, paths: PackedStringArray, threaded: bool = DotPla
 		var res: Resource = load(path) if ResourceLoader.exists(path) else null
 		_note_slow(Time.get_ticks_msec() - t_load, path)
 		if res == null:
-			return DotResult.fail(DotError.CODE_IO, "could not load a resource", path)
+			return GSResult.fail(GSError.CODE_IO, "could not load a resource", path)
 
 		loaded.append(res)
 		done += 1
@@ -86,7 +86,7 @@ func load_all(tree: SceneTree, paths: PackedStringArray, threaded: bool = DotPla
 			await tree.process_frame
 			slice_start = Time.get_ticks_msec()
 
-	return DotResult.success(done)
+	return GSResult.success(done)
 
 
 ## Loads [member remaining] in the background, at most [param budget] msec per frame, appending to [member loaded].
@@ -114,12 +114,12 @@ func _note_slow(ms: int, path: String) -> void:
 		slowest.resize(SLOWEST_KEPT)
 
 
-func _load_threaded(tree: SceneTree, paths: PackedStringArray) -> DotResult:
+func _load_threaded(tree: SceneTree, paths: PackedStringArray) -> GSResult:
 	var pending: Array[String] = []
 
 	for path in paths:
 		if not ResourceLoader.exists(path):
-			return DotResult.fail(DotError.CODE_IO, "could not load a resource", path)
+			return GSResult.fail(GSError.CODE_IO, "could not load a resource", path)
 
 		if ResourceLoader.load_threaded_request(path) == OK:
 			pending.append(path)
@@ -127,7 +127,7 @@ func _load_threaded(tree: SceneTree, paths: PackedStringArray) -> DotResult:
 
 		var res: Resource = load(path)
 		if res == null:
-			return DotResult.fail(DotError.CODE_IO, "could not load a resource", path)
+			return GSResult.fail(GSError.CODE_IO, "could not load a resource", path)
 		loaded.append(res)
 
 	var done := paths.size() - pending.size()
@@ -144,7 +144,7 @@ func _load_threaded(tree: SceneTree, paths: PackedStringArray) -> DotResult:
 					done += 1
 					progress.emit(done, paths.size(), path)
 				_:
-					return DotResult.fail(DotError.CODE_IO, "could not load a resource", path)
+					return GSResult.fail(GSError.CODE_IO, "could not load a resource", path)
 
 		pending = still
 
@@ -152,7 +152,7 @@ func _load_threaded(tree: SceneTree, paths: PackedStringArray) -> DotResult:
 			frames_yielded += 1
 			await tree.process_frame
 
-	return DotResult.success(done)
+	return GSResult.success(done)
 
 
 ## The global-class scripts the sources at [param paths] name, not yet cached, in class-list order.
@@ -186,10 +186,10 @@ static func named_class_scripts(paths: PackedStringArray, read_from: PackedStrin
 
 
 ## The scripts under [param root] loaded so far, relative to it: global classes first in class-list order (how
-## [method DotCloudClient.warm_content] compiles them), then by path. A pack's warm list (setting
+## [method GSCloudClient.warm_content] compiles them), then by path. A pack's warm list (setting
 ## `dot_cloud/warm/list_file`, default `warm.txt` at its root): call it when the scene is playable in a native run
 ## (threads, so nothing was warmed ahead) and write one path per line. Directories named in [param skip_dirs]
-## ([constant DotCloudClient.WARM_SKIP_DIRS]) and hidden ones are not walked.
+## ([constant GSCloudClient.WARM_SKIP_DIRS]) and hidden ones are not walked.
 static func cached_scripts(root: String = "res://", skip_dirs: Array = []) -> PackedStringArray:
 	var base := root.trim_suffix("/") + "/"
 	var cached := {}

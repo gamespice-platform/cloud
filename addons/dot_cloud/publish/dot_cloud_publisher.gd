@@ -1,8 +1,8 @@
-class_name DotCloudPublisher
+class_name GSCloudPublisher
 extends RefCounted
 
 ## Turns a directory of content into a manifest plus a content-addressed object tree, ready to serve over HTTP.
-## The layout is what [DotCloudSourceHttp] expects, so the target is a static directory behind any CDN:
+## The layout is what [GSCloudSourceHttp] expects, so the target is a static directory behind any CDN:
 ## [codeblock]
 ## <out>/manifest.json              the signed manifest
 ## <out>/objects/<aa>/<full-hash>   one file per unique content hash
@@ -10,7 +10,7 @@ extends RefCounted
 ## [/codeblock]
 ## Paths are immutable, so a CDN caches them forever and a republish with one changed texture uploads one object.
 ## [codeblock]
-## var pub := DotCloudPublisher.new()
+## var pub := GSCloudPublisher.new()
 ## pub.content_id = "dm_arena"
 ## pub.version = "1.2.0"
 ## pub.signing_key_pem = FileAccess.get_file_as_string("res://keys/content.key")
@@ -44,7 +44,7 @@ var mount_root: String = "dot_cloud"
 var entry_scene: String = ""
 var min_engine_version: String = ""
 
-## Content this pack needs mounted first, each `{id, version}` (see [member DotCloudManifest.dependencies]).
+## Content this pack needs mounted first, each `{id, version}` (see [member GSCloudManifest.dependencies]).
 var dependencies: Array[Dictionary] = []
 
 ## Base URLs written into the manifest, so clients know where to fetch from.
@@ -140,7 +140,7 @@ static func _is_text_resource(rel: String) -> bool:
 ## Rewrites `res://X` to `res://<mount_root>/<id>/<version>/<where this pack put X>` for every X this pack
 ## contains. [param inside] maps a reference's path to its path in the pack (identity except imported outputs).
 ## Returns the staged path, or "" when nothing changed, so the caller keeps hashing the original.
-func _rewrite_paths(abs: String, staged: String, inside: Dictionary) -> DotResult:
+func _rewrite_paths(abs: String, staged: String, inside: Dictionary) -> GSResult:
 	return _Rewrite.rewrite_paths(abs, staged, inside, mount_root, content_id, version)
 
 
@@ -158,7 +158,7 @@ var optional_prefixes: PackedStringArray = PackedStringArray()
 var platform_rules: Dictionary = {}
 
 ## Files only one side of a game fetches, as [code]pattern -> "client" | "server"[/code] (API 8), merged
-## with the source's [constant SIDES_FILE] and written into [member DotCloudFile.side] inside the signed payload.
+## with the source's [constant SIDES_FILE] and written into [member GSCloudFile.side] inside the signed payload.
 ## A pattern ending in `/` is a directory prefix; any other is a [method String.match] glob over the pack path.
 ## An imported asset's marker and relocated output take its source's side.
 ## Lives in the source tree because several tools pack a game and all read the source.
@@ -182,20 +182,20 @@ func need_on_side(path: String, side: String) -> void:
 
 
 ## Builds a manifest and object tree from [param source_dir] into [param out_dir].
-## Synchronous: for a build step or CLI, not a frame; [method DotHash.sha256_file] blocks.
-func publish(source_dir: String, out_dir: String) -> DotResult:
+## Synchronous: for a build step or CLI, not a frame; [method GSHash.sha256_file] blocks.
+func publish(source_dir: String, out_dir: String) -> GSResult:
 	if content_id == "":
-		return DotResult.fail(
-			DotError.CODE_INVALID, "publish() needs a content_id."
+		return GSResult.fail(
+			GSError.CODE_INVALID, "publish() needs a content_id."
 		)
 
 	if not DirAccess.dir_exists_absolute(source_dir):
-		return DotResult.fail(
-			DotError.CODE_IO, "Source directory not found.", source_dir
+		return GSResult.fail(
+			GSError.CODE_IO, "Source directory not found.", source_dir
 		)
 
 	var objects_dir := out_dir.path_join("objects")
-	var made := DotPaths.ensure_dir(objects_dir)
+	var made := GSPaths.ensure_dir(objects_dir)
 	if not made.ok:
 		return made
 
@@ -213,7 +213,7 @@ func publish(source_dir: String, out_dir: String) -> DotResult:
 	var imported := _imported_outputs_for(source_dir, relatives)
 	var missing: PackedStringArray = imported["missing"]
 	if not missing.is_empty():
-		return DotResult.fail(DotError.CODE_INVALID, (
+		return GSResult.fail(GSError.CODE_INVALID, (
 			"%d .import marker(s) name an output the project has not imported (first: %s); "
 			+ "run `godot --headless --path <project> --import` before publishing"
 		) % [missing.size(), ", ".join(missing.slice(0, 3))])
@@ -243,8 +243,8 @@ func publish(source_dir: String, out_dir: String) -> DotResult:
 			relatives.append(rel)
 
 	if relatives.is_empty() and dependencies.is_empty():
-		return DotResult.fail(
-			DotError.CODE_INVALID,
+		return GSResult.fail(
+			GSError.CODE_INVALID,
 			"No publishable files in the source directory.",
 			source_dir
 		)
@@ -260,7 +260,7 @@ func publish(source_dir: String, out_dir: String) -> DotResult:
 		if doc is Dictionary:
 			doc = (doc as Dictionary).get("licences")
 		if not (doc is Array):
-			return DotResult.fail(DotError.CODE_PARSE, "licence.json must be a list of {paths, licence, author, url}, or an object holding one as \"licences\".")
+			return GSResult.fail(GSError.CODE_PARSE, "licence.json must be a list of {paths, licence, author, url}, or an object holding one as \"licences\".")
 		manifest.licences = doc
 
 	var sided := _Sides.sides_for(self, source_dir, relatives, imported["owners"])
@@ -281,7 +281,7 @@ func publish(source_dir: String, out_dir: String) -> DotResult:
 
 	var staging := out_dir.path_join(".rewritten")
 	if rewrite_resource_paths:
-		DotPaths.remove_tree(staging)
+		GSPaths.remove_tree(staging)
 
 	var stored := _store_files(manifest, relatives, extra, source_dir, inside, sides, grouped.value, objects_dir, staging)
 	if not stored.ok:
@@ -307,21 +307,21 @@ func publish(source_dir: String, out_dir: String) -> DotResult:
 	var document: PackedByteArray = signed_doc.value
 
 	var manifest_path := out_dir.path_join("manifest.json")
-	var saved := DotPaths.write_bytes(manifest_path, document)
+	var saved := GSPaths.write_bytes(manifest_path, document)
 	if not saved.ok:
 		return saved
 
 	# Staged rewrites are already hashed into objects/; leaving them would double the published size.
 	if rewrite_resource_paths:
-		DotPaths.remove_tree(staging)
-	DotPaths.remove_tree(out_dir.path_join(".tokens"))
+		GSPaths.remove_tree(staging)
+	GSPaths.remove_tree(out_dir.path_join(".tokens"))
 
 	_Finish.log_published(manifest, out_dir, {
 		"objects": seen.size(), "deduped": deduped, "dropped": dropped.size(), "sided": sides.size(),
 		"written": written, "bytes": total_bytes, "rewritten": rewritten,
 	})
 
-	return DotResult.success({
+	return GSResult.success({
 		"manifest": manifest,
 		"manifest_path": manifest_path,
 		"files": manifest.files.size(),
@@ -337,8 +337,8 @@ func publish(source_dir: String, out_dir: String) -> DotResult:
 
 
 ## A manifest carrying this publisher's identity and settings, no files yet.
-func _new_manifest() -> DotCloudManifest:
-	var manifest := DotCloudManifest.new()
+func _new_manifest() -> GSCloudManifest:
+	var manifest := GSCloudManifest.new()
 	manifest.content_id = content_id
 	manifest.version = version
 	manifest.display_name = display_name
@@ -382,7 +382,7 @@ static func _inside_map(relatives: PackedStringArray, dropped: Dictionary, remap
 
 
 ## Hashes, rewrites and stores every file; returns {written, deduped, bytes, rewritten, seen}.
-func _store_files(manifest: DotCloudManifest, relatives: PackedStringArray, extra: Dictionary, source_dir: String, inside: Dictionary, sides: Dictionary, file_groups: Dictionary, objects_dir: String, staging: String) -> DotResult:
+func _store_files(manifest: GSCloudManifest, relatives: PackedStringArray, extra: Dictionary, source_dir: String, inside: Dictionary, sides: Dictionary, file_groups: Dictionary, objects_dir: String, staging: String) -> GSResult:
 	var written := 0
 	var deduped := 0
 	var total_bytes := 0
@@ -402,26 +402,26 @@ func _store_files(manifest: DotCloudManifest, relatives: PackedStringArray, extr
 				abs = str(staged.value)
 				rewritten += 1
 
-		var safe := DotPaths.safe_relative(rel)
+		var safe := GSPaths.safe_relative(rel)
 		if not safe.ok:
 			# Refuse rather than skip: a silently missing file surfaces as a missing texture on a player's machine.
 			return safe.wrap("Cannot publish '%s'." % rel)
 
-		var hashed := DotHash.sha256_file(abs)
+		var hashed := GSHash.sha256_file(abs)
 		if not hashed.ok:
 			return hashed.wrap("Could not hash '%s'." % rel)
 
 		var digest: String = hashed.value
-		var size := DotPaths.file_size(abs)
+		var size := GSPaths.file_size(abs)
 
-		var entry := DotCloudFile.new()
+		var entry := GSCloudFile.new()
 		entry.path = safe.value
 		entry.sha256 = digest
 		entry.size = size
 		entry.required = not _is_optional(entry.path)
 		entry.groups = _groups_for(entry.path, file_groups.get(rel, PackedStringArray()))
 		entry.platforms = _platforms_for(entry.path)
-		entry.side = str(sides.get(rel, DotCloudFile.SIDE_BOTH))
+		entry.side = str(sides.get(rel, GSCloudFile.SIDE_BOTH))
 
 		var checked := entry.validate()
 		if not checked.ok:
@@ -438,7 +438,7 @@ func _store_files(manifest: DotCloudManifest, relatives: PackedStringArray, extr
 		var dest := objects_dir.path_join("%s/%s" % [digest.substr(0, 2), digest])
 
 		# Objects are named by their hash, so an existing one is already correct.
-		if FileAccess.file_exists(dest) and DotPaths.file_size(dest) == size:
+		if FileAccess.file_exists(dest) and GSPaths.file_size(dest) == size:
 			continue
 
 		var copied := _copy(abs, dest)
@@ -446,28 +446,28 @@ func _store_files(manifest: DotCloudManifest, relatives: PackedStringArray, extr
 			return copied
 		written += 1
 
-	return DotResult.success({"written": written, "deduped": deduped, "bytes": total_bytes, "rewritten": rewritten, "seen": seen})
+	return GSResult.success({"written": written, "deduped": deduped, "bytes": total_bytes, "rewritten": rewritten, "seen": seen})
 
 
 ## Writes `bundles/<sha256>.zip` with every unique object at or under the size cap, each entry
 ## named by its hash. Returns the manifest declaration, or an empty dictionary when too few
 ## objects qualify. ZIP because every platform the client runs on can read one with ZIPReader.
-func _write_bundle(manifest: DotCloudManifest, out_dir: String) -> DotResult:
+func _write_bundle(manifest: GSCloudManifest, out_dir: String) -> GSResult:
 	var small := {}
 	for f in manifest.files:
 		if f.size <= bundle_max_object_bytes:
 			small[f.sha256] = f.size
 	if small.size() < bundle_min_objects:
-		return DotResult.success({})
+		return GSResult.success({})
 
 	var tmp := out_dir.path_join("bundles/pending.zip")
-	var parent := DotPaths.ensure_parent_dir(tmp)
+	var parent := GSPaths.ensure_parent_dir(tmp)
 	if not parent.ok:
 		return parent
 	var zip := ZIPPacker.new()
 	var err := zip.open(tmp)
 	if err != OK:
-		return DotResult.failure(DotError.from_engine(err, "creating the bundle"))
+		return GSResult.failure(GSError.from_engine(err, "creating the bundle"))
 
 	var names := small.keys()
 	names.sort()
@@ -479,7 +479,7 @@ func _write_bundle(manifest: DotCloudManifest, out_dir: String) -> DotResult:
 		zip.close_file()
 	zip.close()
 
-	var hashed := DotHash.sha256_file(tmp)
+	var hashed := GSHash.sha256_file(tmp)
 	if not hashed.ok:
 		return hashed
 	var digest: String = hashed.value
@@ -493,9 +493,9 @@ func _write_bundle(manifest: DotCloudManifest, out_dir: String) -> DotResult:
 			if n != "%s.zip" % digest:
 				dir.remove(n)
 
-	return DotResult.success({
+	return GSResult.success({
 		"sha256": digest,
-		"size": DotPaths.file_size(out_dir.path_join(final_rel)),
+		"size": GSPaths.file_size(out_dir.path_join(final_rel)),
 		"count": names.size(),
 		"max_object_bytes": bundle_max_object_bytes,
 		"url_path": final_rel,
@@ -513,16 +513,16 @@ static func engine_stamp() -> String:
 ## rebased onto the mount. Returns the remaining relative paths.
 func _swap_in_script_tokens(
 	out_dir: String, relatives: PackedStringArray, extra: Dictionary, dropped: Dictionary
-) -> DotResult:
+) -> GSResult:
 	var stamp := script_tokens_dir.path_join(TOKENS_ENGINE_FILE)
 	if FileAccess.file_exists(stamp):
 		var made_by := FileAccess.get_file_as_string(stamp).strip_edges()
 		if made_by != engine_stamp():
-			DotLog.warn(CHANNEL, "script tokens are from another engine build, shipping text scripts", {"tokens": made_by, "engine": engine_stamp()})
-			return DotResult.success(relatives)
+			GSLog.warn(CHANNEL, "script tokens are from another engine build, shipping text scripts", {"tokens": made_by, "engine": engine_stamp()})
+			return GSResult.success(relatives)
 	var prefix := "res://%s/%s/%s/" % [mount_root, content_id, version]
 	var staging := out_dir.path_join(".tokens")
-	DotPaths.remove_tree(staging)
+	GSPaths.remove_tree(staging)
 	var kept := PackedStringArray()
 	for rel in relatives:
 		var tok := script_tokens_dir.path_join(rel + "c")
@@ -530,16 +530,16 @@ func _swap_in_script_tokens(
 			kept.append(rel)
 			continue
 		var remap_abs := staging.path_join(rel + ".remap")
-		var parent := DotPaths.ensure_parent_dir(remap_abs)
+		var parent := GSPaths.ensure_parent_dir(remap_abs)
 		if not parent.ok:
 			return parent
-		var written := DotPaths.write_text(remap_abs, '[remap]\n\npath="%s%sc"\n' % [prefix, rel])
+		var written := GSPaths.write_text(remap_abs, '[remap]\n\npath="%s%sc"\n' % [prefix, rel])
 		if not written.ok:
 			return written
 		extra[rel + "c"] = tok
 		extra[rel + ".remap"] = remap_abs
 		dropped[rel] = true
-	return DotResult.success(kept)
+	return GSResult.success(kept)
 
 
 ## Refuses a text resource that references a file its own side will not have (a scene both sides load naming a
@@ -552,33 +552,33 @@ func _check_side_references(
 	source_dir: String,
 	inside: Dictionary,
 	sides: Dictionary
-) -> DotResult:
+) -> GSResult:
 	if sides.is_empty():
-		return DotResult.success(true)
+		return GSResult.success(true)
 
 	for rel in relatives:
 		if not _is_text_resource(rel):
 			continue
-		var own := str(sides.get(rel, DotCloudFile.SIDE_BOTH))
+		var own := str(sides.get(rel, GSCloudFile.SIDE_BOTH))
 		var abs: String = extra.get(rel, source_dir.path_join(rel))
 		for ref in _res_paths_in(FileAccess.get_file_as_string(abs)):
 			var path := ref.get_slice("::", 0)
 			if not inside.has(path):
 				continue
 			var target := str(inside[path])
-			var theirs := str(sides.get(target, sides.get(target + ".import", DotCloudFile.SIDE_BOTH)))
-			if theirs == DotCloudFile.SIDE_BOTH or theirs == own:
+			var theirs := str(sides.get(target, sides.get(target + ".import", GSCloudFile.SIDE_BOTH)))
+			if theirs == GSCloudFile.SIDE_BOTH or theirs == own:
 				continue
-			return DotResult.fail(
-				DotError.CODE_INVALID,
+			return GSResult.fail(
+				GSError.CODE_INVALID,
 				"'%s' references '%s', which only the %s gets." % [rel, target, theirs],
 				"%s loads '%s'; put both on one side, or load the %s file from code on that side" % [
-					"every side" if own == DotCloudFile.SIDE_BOTH else "the " + own,
+					"every side" if own == GSCloudFile.SIDE_BOTH else "the " + own,
 					rel, theirs,
 				]
 			)
 
-	return DotResult.success(true)
+	return GSResult.success(true)
 
 
 ## Files to publish, as paths relative to [param source_dir].
@@ -589,7 +589,7 @@ func _collect(source_dir: String) -> PackedStringArray:
 	var keep_markers := include_imported and _project_root_of(source_dir) != ""
 	var ignored := _ignored_dir_patterns(source_dir) if skip_ignored_dirs else PackedStringArray()
 
-	for rel in DotPaths.list_files_recursive(source_dir):
+	for rel in GSPaths.list_files_recursive(source_dir):
 		# The engine's imported form and its markers are decided before the exclusions, because `.godot` (excluded dir)
 		# and `.import` (excluded suffix) would drop them. An output is kept from any directory; a MARKER is not,
 		# since its directory is the asset's own and keeping one for a file not shipped drags in its textures.
@@ -697,7 +697,7 @@ static func is_ignored_dir_path(rel: String, patterns: PackedStringArray) -> boo
 ## the remap lets [method _rewrite_paths] send a marker to [constant IMPORTED_DIR], where the output landed.
 ## Empty only when the source is not inside a Godot project.
 ## Resolved from the markers, not by listing `.godot/imported/`, because that directory holds an output
-## for every asset ever imported. [method DotPaths.list_files_recursive] skips hidden entries, so `_collect`
+## for every asset ever imported. [method GSPaths.list_files_recursive] skips hidden entries, so `_collect`
 ## never finds `.godot`, and a pack from a project root would otherwise carry markers without their `.ctex`.
 func _imported_outputs_for(
 	source_dir: String, relatives: PackedStringArray
@@ -793,16 +793,16 @@ static func _is_imported_form(rel: String) -> bool:
 	return rel.begins_with(".godot/imported/") or rel.ends_with(".import")
 
 
-func _copy(from: String, to: String) -> DotResult:
-	var parent := DotPaths.ensure_parent_dir(to)
+func _copy(from: String, to: String) -> GSResult:
+	var parent := GSPaths.ensure_parent_dir(to)
 	if not parent.ok:
 		return parent
 
-	var read := DotPaths.read_bytes(from)
+	var read := GSPaths.read_bytes(from)
 	if not read.ok:
 		return read
 
-	return DotPaths.write_bytes(to, read.value)
+	return GSPaths.write_bytes(to, read.value)
 
 
 func _is_optional(path: String) -> bool:
@@ -855,32 +855,32 @@ static func vram_platforms(path: String) -> PackedStringArray:
 ## Generates a signing keypair and writes both halves.
 ## The private half gets default permissions, not enough for a key that authorises code on every player's
 ## machine: move it into a secrets manager and delete the file.
-static func generate_keys(private_path: String, public_path: String) -> DotResult:
-	var pair := DotCloudSignature.generate_keypair()
+static func generate_keys(private_path: String, public_path: String) -> GSResult:
+	var pair := GSCloudSignature.generate_keypair()
 	if not pair.ok:
 		return pair
 
 	var d: Dictionary = pair.value
 
-	var priv := DotPaths.write_text(private_path, str(d["private"]))
+	var priv := GSPaths.write_text(private_path, str(d["private"]))
 	if not priv.ok:
 		return priv
 
-	var pub := DotPaths.write_text(public_path, str(d["public"]))
+	var pub := GSPaths.write_text(public_path, str(d["public"]))
 	if not pub.ok:
 		return pub
 
-	DotLog.info(
+	GSLog.info(
 		CHANNEL,
 		"generated signing keypair",
 		{"private": private_path, "public": public_path}
 	)
 
-	DotLog.warn(
+	GSLog.warn(
 		CHANNEL,
 		"the private key is on disk with default permissions — move it into a "
 		+ "secrets store and delete the file",
 		{"path": private_path}
 	)
 
-	return DotResult.success(d)
+	return GSResult.success(d)

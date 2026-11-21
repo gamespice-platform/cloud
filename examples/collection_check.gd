@@ -10,7 +10,7 @@ var _failures := 0
 
 
 func _ready() -> void:
-	DotLog.set_level(DotLog.Level.WARN)
+	GSLog.set_level(GSLog.Level.WARN)
 	var args := _parse(OS.get_cmdline_user_args())
 	if not args.has("base") or not args.has("id"):
 		print("collection_check: pass --base URL --id ID --version V --key PEM|--key-b64 B64 [--key-id ID] [--download] [--min-packs N]; nothing to check")
@@ -45,11 +45,11 @@ func _check(name: String, ok: bool, detail: String = "") -> void:
 func _run(args: Dictionary) -> void:
 	var pem := Marshalls.base64_to_utf8(str(args["key-b64"])) if args.has("key-b64") else FileAccess.get_file_as_string(str(args.get("key", "")))
 	var cache := OS.get_temp_dir().path_join("dot_cloud_collection_check_%d" % OS.get_process_id())
-	var config := DotCloudConfig.new()
+	var config := GSCloudConfig.new()
 	config.cache_dir = cache
 	config.require_signed_manifests = true
 	config.trusted_keys = {str(args.get("key-id", "default")): pem}
-	var client := DotCloudClient.new()
+	var client := GSCloudClient.new()
 	client.config = config
 	client.config_file = ""
 	client.register_service = false
@@ -63,7 +63,7 @@ func _run(args: Dictionary) -> void:
 	_check("collection manifest verifies (signature, id, version)", res.ok, str(res.error) if not res.ok else "")
 	if not res.ok:
 		return
-	var coll: DotCloudManifest = res.value
+	var coll: GSCloudManifest = res.value
 	_check("the collection carries at most its licence file", coll.files.size() <= 1, str(coll.files.size()))
 	var deps: Array[Dictionary] = coll.dependencies
 	_check("it names at least %d packs" % int(args.get("min-packs", 1)), deps.size() >= int(args.get("min-packs", 1)), str(deps.size()))
@@ -76,12 +76,12 @@ func _run(args: Dictionary) -> void:
 		if not dr.ok:
 			bad.append("%s@%s" % [d["id"], d["version"]])
 			continue
-		var m: DotCloudManifest = dr.value
+		var m: GSCloudManifest = dr.value
 		total_files += m.wanted_files().size()
 		for f in m.wanted_files():
 			total_bytes += f.size
 	_check("every dependency manifest verifies", bad.is_empty(), ", ".join(bad))
-	print("  plan: %d packs, %d files, %s" % [deps.size(), total_files, DotPaths.format_bytes(total_bytes)])
+	print("  plan: %d packs, %d files, %s" % [deps.size(), total_files, GSPaths.format_bytes(total_bytes)])
 
 	if args.has("download"):
 		var snaps: Array = []
@@ -111,5 +111,5 @@ func _run(args: Dictionary) -> void:
 		var s: Dictionary = snaps[-1]
 		_check("one job counted every pack", int(s.get("total_packs", 0)) >= deps.size() and int(s.get("done_packs", 0)) == int(s.get("total_packs", 0)), str(s))
 		print("  job: %d of %d packs, %d of %d bytes, unpacked %d of %d" % [s.get("done_packs", 0), s.get("total_packs", 0), s.get("done_bytes", 0), s.get("total_bytes", 0), s.get("unpack_done", 0), s.get("unpack_total", 0)])
-	DotPaths.remove_tree(cache)
+	GSPaths.remove_tree(cache)
 	print("\ncollection_check: %d failed" % _failures)

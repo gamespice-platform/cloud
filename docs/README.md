@@ -11,9 +11,9 @@ The reasoning behind content delivery, one subject per file. [CLAUDE.md](../CLAU
 | [store.md](store.md) | Content addressing, the index against the directory, partials, platform notes |
 | [sources.md](sources.md) | The three sources, why a source is skipped, the in-band bounds, resume, the downloader |
 | [cdn-publish.md](cdn-publish.md) | Publishing through the site with a creator token: claim, manifest, presigned PUTs, finalize, the licence gate, `content.lock.json`, stores as packs |
-| [publishing.md](publishing.md) | The CLI, imported assets, path rewriting, binary imports, `DotCloudRegistry` |
+| [publishing.md](publishing.md) | The CLI, imported assets, path rewriting, binary imports, `GSCloudRegistry` |
 | [addon-packs.md](addon-packs.md) | Newer addons over a build: the engine facts, the safeguards, the browser, the test |
-| [auto-update.md](auto-update.md) | `DotCloudAutoUpdate`: a dedicated server restarting itself onto newer packs; the exit-code contract, when-empty, the warning countdown, the config keys and cvars |
-| [workshop.md](workshop.md) | The Workshop contract: `provides`, `DotContentIndex`, session tags, the sync client, solo launch, online isolation, script packs |
+| [auto-update.md](auto-update.md) | `GSCloudAutoUpdate`: a dedicated server restarting itself onto newer packs; the exit-code contract, when-empty, the warning countdown, the config keys and cvars |
+| [workshop.md](workshop.md) | The Workshop contract: `provides`, `GSContentIndex`, session tags, the sync client, solo launch, online isolation, script packs |
 | [testing.md](testing.md) | The seven demos and the fan-out trap |
 | [history.md](history.md) | The bugs, and how each looked |

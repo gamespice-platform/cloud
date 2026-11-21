@@ -17,40 +17,40 @@ var _key_pair: Dictionary = {}
 
 
 func _ready() -> void:
-	DotLog.set_level(DotLog.Level.INFO)
+	GSLog.set_level(GSLog.Level.INFO)
 	await _run()
 
 
 func _run() -> void:
-	DotPaths.remove_tree(WORK)
-	var keys := DotCloudSignature.generate_keypair(2048)
+	GSPaths.remove_tree(WORK)
+	var keys := GSCloudSignature.generate_keypair(2048)
 	_key_pair = keys.value
 	var src := WORK.path_join("source")
-	DotPaths.ensure_dir(src)
+	GSPaths.ensure_dir(src)
 	for i in SMALL:
 		var body := PackedByteArray()
 		body.resize(200 + i)
 		for j in body.size():
 			body[j] = (i * 7 + j) & 0xFF
-		DotPaths.write_bytes(src.path_join("imp/file_%03d.ctex" % i), body)
+		GSPaths.write_bytes(src.path_join("imp/file_%03d.ctex" % i), body)
 	var big := PackedByteArray()
 	big.resize(3 * 1024 * 1024)
 	for j in big.size():
 		big[j] = (j * 13 + (j >> 9)) & 0xFF
-	DotPaths.write_bytes(src.path_join("big.bin"), big)
+	GSPaths.write_bytes(src.path_join("big.bin"), big)
 
 	# Folders a repository keeps beside its content are not runtime content and stay out of the pack.
 	for junk in ["reports/sheet.png", "tools/make.py", "art-src/model.blend", "docs/notes.txt"]:
-		DotPaths.write_bytes(src.path_join(junk), PackedByteArray([1, 2, 3, 4]))
+		GSPaths.write_bytes(src.path_join(junk), PackedByteArray([1, 2, 3, 4]))
 
-	var pub := DotCloudPublisher.new()
+	var pub := GSCloudPublisher.new()
 	pub.content_id = "bundle_fc"
 	pub.version = "1.0.0"
 	pub.entry_scene = "big.bin"
 	pub.signing_key_pem = str(_key_pair["private"])
 	var published := pub.publish(src, WORK.path_join("published"))
 	_check("published", published.ok, "" if published.ok else str(published.error))
-	var manifest: DotCloudManifest = published.value["manifest"]
+	var manifest: GSCloudManifest = published.value["manifest"]
 	var shipped_junk := 0
 	for f in manifest.files:
 		for root in ["reports/", "tools/", "art-src/", "docs/"]:
@@ -62,7 +62,7 @@ func _run() -> void:
 	_check("manifest declares a bundle of the small objects", int(decl.get("count", 0)) == SMALL, str(decl.get("count")))
 	_check("the bundle is far smaller than the pack", int(decl.get("size", 1 << 30)) < 3 * 1024 * 1024)
 
-	var S := DotCloudSourceHttp
+	var S := GSCloudSourceHttp
 	_check("unpack budget: a fast frame keeps the floor", S.unpack_slice_budget(1) == S.UNPACK_SLICE_MIN_MS and S.unpack_slice_budget(16) == S.UNPACK_SLICE_MIN_MS)
 	_check("unpack budget: a 33 ms frame gets a longer slice", S.unpack_slice_budget(33) == 49, str(S.unpack_slice_budget(33)))
 	_check("unpack budget: capped", S.unpack_slice_budget(5000) == S.UNPACK_SLICE_MAX_MS)
@@ -70,12 +70,12 @@ func _run() -> void:
 	_check("unpack budget: monotonic", S.unpack_slice_budget(40) <= S.unpack_slice_budget(50))
 
 	var solo_meta := {"solo": true}
-	var omitted := DotCloudRegistry.complete_body(1, 2, 3, "sha")
-	var declared := DotCloudRegistry.complete_body(1, 2, 3, "sha", {}, DotCloudRegistry.solo_from_metadata(solo_meta))
+	var omitted := GSCloudRegistry.complete_body(1, 2, 3, "sha")
+	var declared := GSCloudRegistry.complete_body(1, 2, 3, "sha", {}, GSCloudRegistry.solo_from_metadata(solo_meta))
 	_check("solo is omitted from complete unless declared", not omitted.has("solo"))
 	_check("metadata.solo true is sent as solo in complete", declared.get("solo", false) == true)
 	_check("metadata without solo, or solo false, reads false",
-		not DotCloudRegistry.solo_from_metadata({}) and not DotCloudRegistry.solo_from_metadata({"solo": false}))
+		not GSCloudRegistry.solo_from_metadata({}) and not GSCloudRegistry.solo_from_metadata({"solo": false}))
 	_check("the published manifest carries metadata", manifest.metadata is Dictionary)
 
 	_server = TestServer.new()
@@ -139,13 +139,13 @@ func _count(needle: String) -> int:
 	return n
 
 
-func _make_client(tag: String, base: String) -> DotCloudClient:
-	var config := DotCloudConfig.new()
+func _make_client(tag: String, base: String) -> GSCloudClient:
+	var config := GSCloudConfig.new()
 	config.cache_dir = WORK.path_join("cache_%s" % tag)
 	config.trusted_keys = {"demo": str(_key_pair["public"])}
 	config.require_signed_manifests = true
 	config.parallel_downloads = 4
-	var client := DotCloudClient.new()
+	var client := GSCloudClient.new()
 	client.config = config
 	client.config_file = ""
 	client.http_base_urls = PackedStringArray([base])
@@ -155,7 +155,7 @@ func _make_client(tag: String, base: String) -> DotCloudClient:
 	return client
 
 
-func _drop(client: DotCloudClient) -> void:
+func _drop(client: GSCloudClient) -> void:
 	remove_child(client)
 	client.queue_free()
 

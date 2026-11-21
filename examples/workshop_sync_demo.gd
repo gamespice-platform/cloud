@@ -1,10 +1,10 @@
 extends Node
 
-## The Workshop's sync client against a fake site: [DotCloudWorkshop] fetching a list, caching it,
+## The Workshop's sync client against a fake site: [GSCloudWorkshop] fetching a list, caching it,
 ## mounting what survives the device's rules, and refusing everything an online session is.
 ##
-## The packs are real: published with [DotCloudPublisher], signed, served over HTTP by
-## [code]http_test_server.gd[/code], verified and mounted by a real [DotCloudClient]. Only the
+## The packs are real: published with [GSCloudPublisher], signed, served over HTTP by
+## [code]http_test_server.gd[/code], verified and mounted by a real [GSCloudClient]. Only the
 ## site is fake ([code]workshop_backbone.gd[/code]). Each refusal is armed -- the check beside it
 ## shows the unguarded path doing the thing -- so a test that cannot fail shows up.
 ##
@@ -21,11 +21,11 @@ const ACCEPTS := {"kinds": ["map", "prop", "script"], "map_kinds": ["sandbox"]}
 var _failures := 0
 var _checks := 0
 var _key_pem := ""
-var _cloud: DotCloudClient
-var _index: DotContentIndex
+var _cloud: GSCloudClient
+var _index: GSContentIndex
 var _content: Node
 var _bb: Node
-var _ws: DotCloudWorkshop
+var _ws: GSCloudWorkshop
 var _token := "tok-alice"
 var _world := {"mode": "ok", "revision": "w1:one", "items": [], "removed": [], "account": "acct-alice"}
 var _packs := {}
@@ -36,36 +36,36 @@ var _accepts: Dictionary = ACCEPTS.duplicate(true)
 
 
 func _ready() -> void:
-	DotLog.set_level(DotLog.Level.ERROR)
+	GSLog.set_level(GSLog.Level.ERROR)
 	_line("[b]the Workshop sync client against a fake site[/b]")
-	DotPaths.remove_tree(WORK)
+	GSPaths.remove_tree(WORK)
 
-	var keys := DotCloudSignature.generate_keypair(2048)
+	var keys := GSCloudSignature.generate_keypair(2048)
 	_check(keys.ok, "a signing key pair is generated")
 	if not keys.ok:
 		_done()
 		return
 	_key_pem = str((keys.value as Dictionary)["private"])
 
-	_index = DotContentIndex.new()
-	DotRegistry.register(DotContentIndex.SERVICE, _index)
+	_index = GSContentIndex.new()
+	GSRegistry.register(GSContentIndex.SERVICE, _index)
 	_index.set_session(&"solo")
 
 	_content = preload("res://examples/http_test_server.gd").new()
 	add_child(_content)
 	_content.root = WORK.path_join("pub")
-	var content_up: DotResult = _content.start(0)
+	var content_up: GSResult = _content.start(0)
 	_check(content_up.ok, "the content server listens", str(content_up.error))
 
 	_bb = preload("res://examples/workshop_backbone.gd").new()
 	add_child(_bb)
 	_bb.handler = _site
-	var bb_up: DotResult = _bb.start()
+	var bb_up: GSResult = _bb.start()
 	_check(bb_up.ok, "the fake site listens", str(bb_up.error))
 
-	_cloud = DotCloudClient.new()
+	_cloud = GSCloudClient.new()
 	_cloud.name = "Cloud"
-	_cloud.config = DotCloudConfig.new()
+	_cloud.config = GSCloudConfig.new()
 	_cloud.config.cache_dir = WORK.path_join("cache")
 	_cloud.config.trusted_keys = {
 		"tmc": {"key": str((keys.value as Dictionary)["public"]), "content_ids": ["ws_*"]},
@@ -75,10 +75,10 @@ func _ready() -> void:
 	_cloud.register_service = false
 	add_child(_cloud)
 
-	_ws = DotCloudWorkshop.new()
+	_ws = GSCloudWorkshop.new()
 	_ws.name = "Workshop"
 	_ws.cloud = _cloud
-	_ws.config = DotCloudWorkshopConfig.new()
+	_ws.config = GSCloudWorkshopConfig.new()
 	_ws.config.workshop_backbone_url = _bb.base_url()
 	# 1 s was too short for the first request on a loaded build VM (offline_no_cache on PH).
 	_ws.config.workshop_timeout_sec = 5.0
@@ -86,7 +86,7 @@ func _ready() -> void:
 	_ws.cache_dir = WORK.path_join("workshop")
 	_ws.token_fn = func() -> String: return _token
 	_ws.force_metered = 0
-	_ws.pack_failed.connect(func(id: String, _v: String, _e: DotError) -> void: _failed_signals.append(id))
+	_ws.pack_failed.connect(func(id: String, _v: String, _e: GSError) -> void: _failed_signals.append(id))
 	_ws.progress.connect(func(d: int, t: int, bd: int, bt: int, cur: String) -> void:
 		_progress.append([d, t, bd, bt, cur]))
 	add_child(_ws)
@@ -163,24 +163,24 @@ func _make_pack(id: String, kind: String, code: bool = false, pad: int = 0, key_
 	match kind:
 		"addon":
 			var at := addon_dir if addon_dir != "" else id
-			DotPaths.write_text(dir.path_join("addons/%s/plugin.cfg" % at),
+			GSPaths.write_text(dir.path_join("addons/%s/plugin.cfg" % at),
 				"[plugin]\n\nname=\"%s\"\ndescription=\"\"\nauthor=\"demo\"\nversion=\"1.0.0\"\nscript=\"p.gd\"\n" % id)
-			DotPaths.write_text(dir.path_join("addons/%s/p.gd" % at), "@tool\nextends EditorPlugin\n")
+			GSPaths.write_text(dir.path_join("addons/%s/p.gd" % at), "@tool\nextends EditorPlugin\n")
 			entries.append({"kind": "addon", "id": at, "dir": "addons/" + at})
 		"map":
-			DotPaths.write_text(dir.path_join("maps/m.tscn"), "[gd_scene format=3]\n\n[node name=\"M\" type=\"Node3D\"]\n")
+			GSPaths.write_text(dir.path_join("maps/m.tscn"), "[gd_scene format=3]\n\n[node name=\"M\" type=\"Node3D\"]\n")
 			entries.append({"kind": "map", "id": "m", "name": id + " map", "scene": "maps/m.tscn", "map_kind": "sandbox"})
 		"prop":
-			DotPaths.write_text(dir.path_join("props/p.tscn"), "[gd_scene format=3]\n\n[node name=\"P\" type=\"Node3D\"]\n")
+			GSPaths.write_text(dir.path_join("props/p.tscn"), "[gd_scene format=3]\n\n[node name=\"P\" type=\"Node3D\"]\n")
 			entries.append({"kind": "prop", "id": "p", "name": id + " prop", "scene": "props/p.tscn"})
 		"script":
-			DotPaths.write_text(dir.path_join("hooks/h.gd"), "extends Node\n")
+			GSPaths.write_text(dir.path_join("hooks/h.gd"), "extends Node\n")
 			entries.append({"kind": "script", "id": "h", "name": id + " hook", "script": "hooks/h.gd", "hook": "playlot"})
 	if pad > 0:
-		DotPaths.write_text(dir.path_join("pad.bin"), "x".repeat(4096))
-	DotPaths.write_text(dir.path_join("provides.json"), JSON.stringify({
+		GSPaths.write_text(dir.path_join("pad.bin"), "x".repeat(4096))
+	GSPaths.write_text(dir.path_join("provides.json"), JSON.stringify({
 		"schema": 1, "title": id, "kinds": [kind], "games": "*", "entries": entries}))
-	var pub := DotCloudPublisher.new()
+	var pub := GSCloudPublisher.new()
 	pub.content_id = id
 	pub.version = "1.0.0"
 	pub.signing_key_pem = pem if pem != "" else _key_pem
@@ -248,13 +248,13 @@ func _check_first_sync_and_cache() -> void:
 	var req := _last_request()
 	_check(req.get("headers", {}).get("authorization") == "Bearer tok-alice", "the bearer came from token_fn")
 	_check(req.get("query", {}).get("game") == GAME and not req.get("query", {}).has("since"), "the request names the game and, with no cache, no since")
-	_check(req.get("query", {}).get("platform") == DotCloudWorkshop.client_platform() and DotCloudWorkshop.client_platform() in ["web", "desktop", "mobile"], "the request names the platform, from DotPlatform", str(req.get("query", {}).get("platform")))
+	_check(req.get("query", {}).get("platform") == GSCloudWorkshop.client_platform() and GSCloudWorkshop.client_platform() in ["web", "desktop", "mobile"], "the request names the platform, from GSPlatform", str(req.get("query", {}).get("platform")))
 	_check(_index.entries(&"map").size() == before + 1 and _index.entries(&"prop").size() == 1, "the index offers the map and the prop to the solo session")
 	var e := _index.entry("ws_a@1.0.0:map/m")
 	_check(e != null and e.source == &"subscription" and _index.packs(&"solo").size() >= 2, "tagged as a subscription in the solo session")
 	_check(not _progress.is_empty() and _progress[_progress.size() - 1][0] == 2 and _progress[_progress.size() - 1][1] == 2, "progress ends at 2 of 2", str(_progress.back()) if not _progress.is_empty() else "")
 	_check(not _progress.is_empty() and _progress[0][0] == 0 and _progress[0][4] == "ws_a", "and began at 0, naming the pack")
-	var cache_files := DotPaths.list_files_recursive(WORK.path_join("workshop"))
+	var cache_files := GSPaths.list_files_recursive(WORK.path_join("workshop"))
 	_check(not cache_files.is_empty(), "the list was cached in user://")
 	_check(not _ws.requires_restart_before_online(), "data packs need no restart before an online join")
 
@@ -267,20 +267,20 @@ func _check_unchanged() -> void:
 	var on_log := func(rec: Dictionary) -> void:
 		if str(rec.get("message", "")).begins_with("force_platform refused"):
 			refusals.append(rec)
-	DotLog.set_channel_level(DotCloudWorkshop.CHANNEL, DotLog.Level.WARN)
-	DotLog.signals().record.connect(on_log)
+	GSLog.set_channel_level(GSCloudWorkshop.CHANNEL, GSLog.Level.WARN)
+	GSLog.signals().record.connect(on_log)
 	_ws.force_platform = "Web"
 	var res := await _ws.sync(GAME)
 	var again := _ws.request_platform()
 	_ws.force_platform = " Mobile "
 	var mobile := _ws.request_platform()
 	_ws.force_platform = ""
-	DotLog.signals().record.disconnect(on_log)
-	DotLog.set_channel_level(DotCloudWorkshop.CHANNEL, DotLog.Level.ERROR)
+	GSLog.signals().record.disconnect(on_log)
+	GSLog.set_channel_level(GSCloudWorkshop.CHANNEL, GSLog.Level.ERROR)
 	var s: Dictionary = res.value
 	var req := _last_request()
 	_check(req.get("query", {}).get("since") == "w1:one", "the request carries the cached revision as since")
-	var own := DotCloudWorkshop.client_platform()
+	var own := GSCloudWorkshop.client_platform()
 	if own == "web":
 		_check(req.get("query", {}).get("platform") == "web" and again == "web", "a browser build may force web", str(req.get("query", {}).get("platform")))
 		_check(refusals.is_empty(), "and nothing is refused")
@@ -360,7 +360,7 @@ func _check_broken_pack() -> void:
 	_world["items"] = [_item("ws_wrongkey")]
 	_world["revision"] = "w1:four"
 	var wrong := await _ws.sync(GAME)
-	_check(wrong.value["failed"].size() == 1 and wrong.value["failed"][0]["code"] == DotError.CODE_FORBIDDEN and wrong.value["mounted"].is_empty(), "a pack signed with a key outside workshop_key_ids is refused", str(wrong.value["failed"]))
+	_check(wrong.value["failed"].size() == 1 and wrong.value["failed"][0]["code"] == GSError.CODE_FORBIDDEN and wrong.value["mounted"].is_empty(), "a pack signed with a key outside workshop_key_ids is refused", str(wrong.value["failed"]))
 	_ws.config.workshop_key_ids = PackedStringArray()
 
 
@@ -370,7 +370,7 @@ func _check_broken_pack() -> void:
 func _check_environment_keyring() -> void:
 	_line("")
 	_line("[b]the client's keyring decides, per environment[/b]")
-	var dev := DotCloudSignature.generate_keypair(2048)
+	var dev := GSCloudSignature.generate_keypair(2048)
 	_check(dev.ok, "a second (dev) key pair is generated")
 	if not dev.ok:
 		return
@@ -386,7 +386,7 @@ func _check_environment_keyring() -> void:
 	_world["items"] = [_item("ws_dev")]
 	_world["revision"] = "w1:keys-prod"
 	var prod: Dictionary = (await _ws.sync(GAME)).value
-	_check(prod["failed"].size() == 1 and prod["failed"][0]["code"] == DotError.CODE_FORBIDDEN and prod["mounted"].is_empty(), "a production config refuses a tmc-dev pack", str(prod["failed"]))
+	_check(prod["failed"].size() == 1 and prod["failed"][0]["code"] == GSError.CODE_FORBIDDEN and prod["mounted"].is_empty(), "a production config refuses a tmc-dev pack", str(prod["failed"]))
 	_check(not _cloud.is_mounted(&"ws_dev", "1.0.0"), "and nothing of it is mounted")
 	_ws.config.workshop_key_ids = PackedStringArray()
 
@@ -400,7 +400,7 @@ func _check_environment_keyring() -> void:
 	_world["items"] = [_item("ws_forged")]
 	_world["revision"] = "w1:keys-forged"
 	var forged: Dictionary = (await _ws.sync(GAME)).value
-	_check(forged["failed"].size() == 1 and forged["failed"][0]["code"] == DotError.CODE_FORBIDDEN and forged["mounted"].is_empty(), "a manifest naming tmc-dev but signed with tmc is refused", str(forged["failed"]))
+	_check(forged["failed"].size() == 1 and forged["failed"][0]["code"] == GSError.CODE_FORBIDDEN and forged["mounted"].is_empty(), "a manifest naming tmc-dev but signed with tmc is refused", str(forged["failed"]))
 
 	_world["items"] = [_item("ws_dev")]
 	_world["revision"] = "w1:keys-dev"
@@ -444,7 +444,7 @@ func _check_device_and_policy() -> void:
 
 ## Stands in for the build's res://addons.lock; fails the run when it cannot be written.
 func _write_lock(text: String) -> void:
-	var f := FileAccess.open(DotCloudAddonSet.BUILT_LOCK, FileAccess.WRITE)
+	var f := FileAccess.open(GSCloudAddonSet.BUILT_LOCK, FileAccess.WRITE)
 	if f == null:
 		_check(false, "armed: the stand-in addons.lock is writable", error_string(FileAccess.get_open_error()))
 		return
@@ -458,14 +458,14 @@ func _check_addons() -> void:
 	_world["items"] = [_item("ws_addon")]
 	_world["revision"] = "w1:addon-1"
 	var refused: Dictionary = (await _ws.sync(GAME)).value
-	_check(refused["failed"].size() == 1 and refused["failed"][0]["code"] == DotError.CODE_FORBIDDEN and refused["addons"].is_empty(), "a game that does not accept kind addon refuses an addon pack", str(refused["failed"]))
+	_check(refused["failed"].size() == 1 and refused["failed"][0]["code"] == GSError.CODE_FORBIDDEN and refused["addons"].is_empty(), "a game that does not accept kind addon refuses an addon pack", str(refused["failed"]))
 	_check(not _cloud.is_mounted(&"ws_addon", "1.0.0"), "and nothing of it is mounted")
 
 	_accepts = {"kinds": ["map", "prop", "script", "addon"], "map_kinds": ["sandbox"]}
 	_world["revision"] = "w1:addon-2"
 	var taken: Dictionary = (await _ws.sync(GAME)).value
 	var want := [{"dir": "ws_addon", "repo": "ws_addon", "id": "ws_addon", "version": "1.0.0", "title": "ws_addon", "running": false}]
-	_check(DotValue.same(taken["addons"], want), "a game that accepts addon hands an approved one to the host's overlay", str(taken["addons"]) + str(taken["failed"]))
+	_check(GSValue.same(taken["addons"], want), "a game that accepts addon hands an approved one to the host's overlay", str(taken["addons"]) + str(taken["failed"]))
 	_check(taken["failed"].is_empty() and taken["mounted"].is_empty() and not _cloud.is_mounted(&"ws_addon", "1.0.0"), "armed: it is never mounted under a prefix, where its class names would not register")
 
 	_world["items"] = [_item("ws_addon", false)]
@@ -496,15 +496,15 @@ func _check_addons() -> void:
 	_world["items"] = [_item("ws_addon_clash")]
 	_world["revision"] = "w1:addon-8"
 	var clash: Dictionary = (await _ws.sync(GAME)).value
-	_check(clash["failed"].size() == 1 and clash["failed"][0]["code"] == DotError.CODE_CONFLICT and clash["addons"].is_empty(), "an addon at a directory the build has fails loudly as a conflict", str(clash["failed"]))
-	_check(DirAccess.dir_exists_absolute("res://addons/dot_cloud") and DotCloudWorkshop.addon_clash("ws_fresh", "ws_fresh") == "", "armed: a directory nobody has is no clash")
+	_check(clash["failed"].size() == 1 and clash["failed"][0]["code"] == GSError.CODE_CONFLICT and clash["addons"].is_empty(), "an addon at a directory the build has fails loudly as a conflict", str(clash["failed"]))
+	_check(DirAccess.dir_exists_absolute("res://addons/dot_cloud") and GSCloudWorkshop.addon_clash("ws_fresh", "ws_fresh") == "", "armed: a directory nobody has is no clash")
 	_world["items"] = [_item("ws_addon"), _item("ws_addon_twin")]
 	_world["revision"] = "w1:addon-9"
 	var twin: Dictionary = (await _ws.sync(GAME)).value
-	_check(twin["addons"].size() == 1 and twin["addons"][0]["id"] == "ws_addon" and twin["failed"].size() == 1 and twin["failed"][0]["content_id"] == "ws_addon_twin" and twin["failed"][0]["code"] == DotError.CODE_CONFLICT, "two subscriptions at one directory: the second fails as a conflict", str(twin["failed"]))
+	_check(twin["addons"].size() == 1 and twin["addons"][0]["id"] == "ws_addon" and twin["failed"].size() == 1 and twin["failed"][0]["content_id"] == "ws_addon_twin" and twin["failed"][0]["code"] == GSError.CODE_CONFLICT, "two subscriptions at one directory: the second fails as a conflict", str(twin["failed"]))
 
 	# The build ships the subscribed addon: its copy serves the subscription, nothing is laid over it.
-	_check(not FileAccess.file_exists(DotCloudAddonSet.BUILT_LOCK), "armed: this project has no addons.lock of its own to stand in for")
+	_check(not FileAccess.file_exists(GSCloudAddonSet.BUILT_LOCK), "armed: this project has no addons.lock of its own to stand in for")
 	_write_lock("ws_addon\tv1.0.0\n")
 	_world["items"] = [_item("ws_addon")]
 	_world["revision"] = "w1:addon-built-1"
@@ -512,7 +512,7 @@ func _check_addons() -> void:
 	_write_lock("ws_addon\tv0.9.0\n")
 	_world["revision"] = "w1:addon-built-2"
 	var built_older: Dictionary = (await _ws.sync(GAME)).value
-	DirAccess.remove_absolute(ProjectSettings.globalize_path(DotCloudAddonSet.BUILT_LOCK))
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(GSCloudAddonSet.BUILT_LOCK))
 	_check(built_same["addons"].is_empty() and built_same["failed"].is_empty() and _reasons(built_same["skipped"]) == "ws_addon:addon_built", "an addon the build ships is met by the build's copy: skipped, not taken, not failed", _reasons(built_same["skipped"]) + str(built_same["failed"]))
 	_check(built_older["addons"].is_empty() and built_older["failed"].is_empty() and _reasons(built_older["skipped"]) == "ws_addon:addon_built", "even a newer subscribed release never replaces the build's copy", _reasons(built_older["skipped"]))
 
@@ -524,7 +524,7 @@ func _check_addons() -> void:
 	_accepts = ACCEPTS.duplicate(true)
 	_world["revision"] = "w1:addon-11"
 	var lied_closed: Dictionary = (await _ws.sync(GAME)).value
-	_check(lied["addons"].is_empty() and lied["failed"].size() == 1 and lied["failed"][0]["code"] == DotError.CODE_FORBIDDEN and lied_closed["failed"].size() == 1 and lied_closed["mounted"].is_empty(), "a list that calls an addon a prop is refused by its signed manifest", str(lied["failed"]))
+	_check(lied["addons"].is_empty() and lied["failed"].size() == 1 and lied["failed"][0]["code"] == GSError.CODE_FORBIDDEN and lied_closed["failed"].size() == 1 and lied_closed["mounted"].is_empty(), "a list that calls an addon a prop is refused by its signed manifest", str(lied["failed"]))
 
 
 func _check_metered_and_quota() -> void:
@@ -606,10 +606,10 @@ func _check_guest_and_disabled() -> void:
 
 	_token = "tok-bad"
 	_world["revision"] = "w1:fourteen"
-	var cache_before := DotPaths.list_files_recursive(WORK.path_join("workshop")).size()
+	var cache_before := GSPaths.list_files_recursive(WORK.path_join("workshop")).size()
 	var refused := await _ws.sync(GAME)
 	_check(refused.value["guest"] and refused.value["mounted"].is_empty(), "a 401 behaves as a guest")
-	_check(DotPaths.list_files_recursive(WORK.path_join("workshop")).size() == cache_before - 1, "and drops that game's cached list", "%d files before" % cache_before)
+	_check(GSPaths.list_files_recursive(WORK.path_join("workshop")).size() == cache_before - 1, "and drops that game's cached list", "%d files before" % cache_before)
 	_token = "tok-alice"
 
 	_ws.config.workshop_enabled = false
@@ -619,34 +619,34 @@ func _check_guest_and_disabled() -> void:
 	_ws.config.workshop_enabled = true
 
 	var empty := await _ws.sync("")
-	_check(not empty.ok and empty.error.code == DotError.CODE_INVALID, "an empty game id is a programmer error")
-	var lonely := DotCloudWorkshop.new()
+	_check(not empty.ok and empty.error.code == GSError.CODE_INVALID, "an empty game id is a programmer error")
+	var lonely := GSCloudWorkshop.new()
 	lonely.register_service = false
 	add_child(lonely)
 	var no_cloud := await lonely.sync(GAME)
-	_check(not no_cloud.ok and no_cloud.error.code == DotError.CODE_STATE, "so is no cloud client")
+	_check(not no_cloud.ok and no_cloud.error.code == GSError.CODE_STATE, "so is no cloud client")
 	lonely.queue_free()
 
 
 func _check_suggested() -> void:
 	_line("")
 	_line("[b]suggested packs: on by default, off by mode, one by one[/b]")
-	_check(DotCloudSuggested.wants("all", "maps") and not DotCloudSuggested.wants("none", "maps"), "all and none")
-	_check(DotCloudSuggested.wants("maps,props", "props") and not DotCloudSuggested.wants("maps", "props"), "a list names groups")
+	_check(GSCloudSuggested.wants("all", "maps") and not GSCloudSuggested.wants("none", "maps"), "all and none")
+	_check(GSCloudSuggested.wants("maps,props", "props") and not GSCloudSuggested.wants("maps", "props"), "a list names groups")
 	var argv := PackedStringArray(["--no-suggested-maps"])
-	_check(DotCloudSuggested.mode_from_args(argv, PackedStringArray(["maps", "props"]), "all") == "props", "--no-suggested-maps drops that group only")
-	_check(DotCloudSuggested.mode_from_args(PackedStringArray(["--suggested=none"]), PackedStringArray(["maps"]), "all") == "none", "--suggested=none")
-	_check(DotCloudSuggested.mode_from_args(PackedStringArray(["--no-suggested"]), PackedStringArray(["maps"]), "all") == "none", "--no-suggested")
-	_check(DotCloudSuggested.mode_from_args(PackedStringArray(), PackedStringArray(["maps"]), "none") == "none", "no flag keeps the fallback")
-	_check(not DotCloudSuggested.valid_mode("a b") and DotCloudSuggested.valid_mode("maps,props"), "modes are validated")
+	_check(GSCloudSuggested.mode_from_args(argv, PackedStringArray(["maps", "props"]), "all") == "props", "--no-suggested-maps drops that group only")
+	_check(GSCloudSuggested.mode_from_args(PackedStringArray(["--suggested=none"]), PackedStringArray(["maps"]), "all") == "none", "--suggested=none")
+	_check(GSCloudSuggested.mode_from_args(PackedStringArray(["--no-suggested"]), PackedStringArray(["maps"]), "all") == "none", "--no-suggested")
+	_check(GSCloudSuggested.mode_from_args(PackedStringArray(), PackedStringArray(["maps"]), "none") == "none", "no flag keeps the fallback")
+	_check(not GSCloudSuggested.valid_mode("a b") and GSCloudSuggested.valid_mode("maps,props"), "modes are validated")
 
 	_make_pack("ws_s1", "map")
 	_make_pack("ws_s2", "map")
 	for id in ["ws_s1", "ws_s2"]:
-		DotPaths.write_text(str(_content.root).path_join(id).path_join("latest.json"), JSON.stringify({"version": "1.0.0"}))
+		GSPaths.write_text(str(_content.root).path_join(id).path_join("latest.json"), JSON.stringify({"version": "1.0.0"}))
 	_cloud.http_base_urls = PackedStringArray([_content.base_url()])
 	_cloud.manifest_url_template = "{base}/{id}/manifest.json"
-	_ws.suggested = DotCloudSuggested.from_ids("maps", PackedStringArray(["ws_s1", "ws_s2"]))
+	_ws.suggested = GSCloudSuggested.from_ids("maps", PackedStringArray(["ws_s1", "ws_s2"]))
 	_token = ""
 	var on := await _ws.sync(GAME)
 	var ids: Array = []
@@ -657,8 +657,8 @@ func _check_suggested() -> void:
 	_check(int(on.value.get("suggested", _ws.describe()["suggested"]).get("kept", -1)) == 2 or _ws.describe()["suggested"]["kept"] == 2, "the summary says two were kept")
 
 	_make_pack("ws_s3", "map")
-	DotPaths.write_text(str(_content.root).path_join("ws_s3").path_join("latest.json"), JSON.stringify({"version": "1.0.0"}))
-	_ws.suggested = DotCloudSuggested.from_ids("maps", PackedStringArray(["ws_s3"]))
+	GSPaths.write_text(str(_content.root).path_join("ws_s3").path_join("latest.json"), JSON.stringify({"version": "1.0.0"}))
+	_ws.suggested = GSCloudSuggested.from_ids("maps", PackedStringArray(["ws_s3"]))
 	_ws.config.workshop_suggested = "none"
 	var none := await _ws.sync(GAME)
 	_check(none.ok and none.value["mounted"].is_empty() and not _cloud.is_mounted(&"ws_s3", "1.0.0"), "mode none: nothing suggested is fetched")
@@ -686,9 +686,9 @@ func _check_suggested() -> void:
 	var yes_r := await _ws.sync(GAME)
 	_check(_ids(yes_r.value["mounted"]) == PackedStringArray(["ws_s3"]), "mode ask: accepting mounts it")
 	_ws.ask_fn = Callable()
-	_check(DotCloudSuggested.device_choice("none") == "off" and DotCloudSuggested.device_choice("ask") == "ask"
-		and DotCloudSuggested.device_choice("") == "auto" and DotCloudSuggested.mode_for_choice("auto") == ""
-		and DotCloudSuggested.mode_for_choice("off") == "none", "the menu's off/ask/auto map to modes and back")
+	_check(GSCloudSuggested.device_choice("none") == "off" and GSCloudSuggested.device_choice("ask") == "ask"
+		and GSCloudSuggested.device_choice("") == "auto" and GSCloudSuggested.mode_for_choice("auto") == ""
+		and GSCloudSuggested.mode_for_choice("off") == "none", "the menu's off/ask/auto map to modes and back")
 	_ws.device.set_suggested_mode("")
 	_ws.set_device_off("ws_s3", true)
 	var one := await _ws.sync(GAME)
@@ -697,7 +697,7 @@ func _check_suggested() -> void:
 		reasons.append(sk["reason"])
 	_check(one.ok and one.value["mounted"].is_empty() and reasons.has("device_off"), "one pack switched off by hand is skipped")
 	_ws.set_device_off("ws_s3", false)
-	_ws.suggested = DotCloudSuggested.from_ids("maps", PackedStringArray(["ws_s_missing"]))
+	_ws.suggested = GSCloudSuggested.from_ids("maps", PackedStringArray(["ws_s_missing"]))
 	var gone := await _ws.sync(GAME)
 	_check(gone.ok and (gone.value["failed"] as Array).size() == 1, "an unpublished suggested pack is a failure, not an abort")
 	_ws.suggested = []
@@ -710,13 +710,13 @@ func _check_online_refused() -> void:
 	var before := _list_requests()
 	_index.set_session(&"online")
 	var res := await _ws.sync(GAME)
-	_check(not res.ok and res.error.code == DotError.CODE_FORBIDDEN and _list_requests() == before, "an online index session is refused before any request")
+	_check(not res.ok and res.error.code == GSError.CODE_FORBIDDEN and _list_requests() == before, "an online index session is refused before any request")
 	_index.set_session(&"solo")
 	var link := Node.new()
-	DotRegistry.register(&"dot_client_link", link)
+	GSRegistry.register(&"dot_client_link", link)
 	var linked := await _ws.sync(GAME)
-	_check(not linked.ok and linked.error.code == DotError.CODE_FORBIDDEN, "so is a registered client link (a join in progress)")
-	DotRegistry.unregister(&"dot_client_link")
+	_check(not linked.ok and linked.error.code == GSError.CODE_FORBIDDEN, "so is a registered client link (a join in progress)")
+	GSRegistry.unregister(&"dot_client_link")
 	link.free()
 	_world["revision"] = "w1:fifteen"
 	var back := await _ws.sync(GAME)
@@ -737,13 +737,13 @@ func _check_scope_write() -> void:
 	_check(res_all.ok, "set_all_games reaches the site with a device token")
 	_token = "tok-game"
 	var forbidden := await _ws.set_all_games("sub-ws_a", true)
-	_check(not forbidden.ok and forbidden.error.code == DotError.CODE_FORBIDDEN, "a game-bound token is refused as forbidden")
+	_check(not forbidden.ok and forbidden.error.code == GSError.CODE_FORBIDDEN, "a game-bound token is refused as forbidden")
 	_token = "tok-alice"
 	await _ws.sync(GAME)
 	_check(not _last_request().get("query", {}).has("since"), "after a write the next sync fetches the whole list (the cached revision is not trusted)")
 	_ws.config.workshop_backbone_url = ""
 	var nowhere := await _ws.set_scope("sub-ws_a", true)
-	_check(not nowhere.ok and nowhere.error.code == DotError.CODE_STATE, "no backbone configured is a state error")
+	_check(not nowhere.ok and nowhere.error.code == GSError.CODE_STATE, "no backbone configured is a state error")
 	_ws.config.workshop_backbone_url = _bb.base_url()
 	_check(_list_requests() > before, "armed: the list route was used in this section")
 
@@ -754,8 +754,8 @@ func _check_reporting() -> void:
 	var lines := _ws.describe_lines()
 	_check(lines.size() >= 2 and "\n".join(lines).contains("workshop: on"), "describe_lines says what the Workshop holds", "\n".join(lines).substr(0, 200))
 	_check(_ws.describe().has("last"), "describe carries the last sync")
-	_check(DotRegistry.get_service(DotCloudWorkshop.SERVICE) == _ws, "registered as dot_workshop")
-	var cfg := DotCloudWorkshopConfig.new()
+	_check(GSRegistry.get_service(GSCloudWorkshop.SERVICE) == _ws, "registered as dot_workshop")
+	var cfg := GSCloudWorkshopConfig.new()
 	var applied := cfg.apply_dictionary({"workshop_metered": "never", "workshop_key_ids": ["tmc", "x"]})
 	_check(cfg.workshop_metered == "never" and cfg.workshop_key_ids.size() == 2 and cfg.validate().ok, "config layers read workshop_* keys")
 	cfg.workshop_script_packs = "bogus"

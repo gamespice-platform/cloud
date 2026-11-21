@@ -3,8 +3,8 @@ extends Node
 ## Client-only and server-only files in one signed pack (GameSpice Cloud API 8).
 ##
 ## A source declares sides in `sides.json`; the publisher writes each entry's
-## [member DotCloudFile.side] into the signed payload; a client fetches and mounts as the
-## side its [member DotCloudConfig.side] says. Covered here: the tags as published, a
+## [member GSCloudFile.side] into the signed payload; a client fetches and mounts as the
+## side its [member GSCloudConfig.side] says. Covered here: the tags as published, a
 ## flipped or dropped tag failing the signature, a server fetching no client-only object
 ## and still mounting with every required file of its side present, a client fetching no
 ## server-only object, `both`, the config's resolution and refusals, the publisher's
@@ -33,15 +33,15 @@ var _source := WORK.path_join("source")
 
 
 func _ready() -> void:
-	DotLog.set_level(DotLog.Level.WARN)
+	GSLog.set_level(GSLog.Level.WARN)
 	await _run()
 
 
 func _run() -> void:
 	print("dot-cloud sides (API 8)")
-	DotPaths.remove_tree(WORK)
+	GSPaths.remove_tree(WORK)
 
-	var keys := DotCloudSignature.generate_keypair(2048)
+	var keys := GSCloudSignature.generate_keypair(2048)
 	if not keys.ok:
 		print("keygen failed: %s" % keys.error)
 		_finish(1)
@@ -49,7 +49,7 @@ func _run() -> void:
 	_keys = keys.value
 	# Kept, so a build of an older GameSpice Cloud can be pointed at this run's packs by hand and
 	# shown to mount a tagged pack (docs/mounting.md, "An older build mounts a tagged pack").
-	DotPaths.write_text(WORK.path_join("public.pem"), str(_keys["public"]))
+	GSPaths.write_text(WORK.path_join("public.pem"), str(_keys["public"]))
 
 	var made := _write_source(_source, SIDES_JSON)
 	if not made.ok:
@@ -86,7 +86,7 @@ func _section_published_tags() -> void:
 	var pub := _publish("1.0.0")
 	if pub.is_empty():
 		return
-	var manifest: DotCloudManifest = pub["manifest"]
+	var manifest: GSCloudManifest = pub["manifest"]
 	var by_path := {}
 	for f in manifest.files:
 		by_path[f.path] = f.side
@@ -115,18 +115,18 @@ func _section_tampered_tag() -> void:
 	# Same length on purpose: a flip that changes no byte count is the one a careless
 	# check would miss.
 	var flipped := text.replace('"side": "server"', '"side": "client"').to_utf8_buffer()
-	var flip := DotCloudSignature.verify(flipped, manifest.signature, str(_keys["public"]))
+	var flip := GSCloudSignature.verify(flipped, manifest.signature, str(_keys["public"]))
 	_check("flipped tag refused", not flip.ok)
 
 	var dropped := text.replace(',\n\t\t\t"side": "client"', "").to_utf8_buffer()
 	_check("tag was dropped", dropped.size() < manifest.raw_bytes.size())
-	var drop := DotCloudSignature.verify(dropped, manifest.signature, str(_keys["public"]))
+	var drop := GSCloudSignature.verify(dropped, manifest.signature, str(_keys["public"]))
 	_check("dropped tag refused", not drop.ok)
 
 	# And through the client's own path: the envelope re-wrapped round the edited payload
 	# with the original signature, parsed, then verified the way fetch_manifest does.
-	var forged_bytes := DotCloudEnvelope.wrap(flipped, manifest.signature, "demo").to_utf8_buffer()
-	var forged := DotCloudManifest.from_json_bytes(forged_bytes)
+	var forged_bytes := GSCloudEnvelope.wrap(flipped, manifest.signature, "demo").to_utf8_buffer()
+	var forged := GSCloudManifest.from_json_bytes(forged_bytes)
 	var client := _make_client("verify", "client", _published("1.0.0"))
 	var verdict := client.verify_manifest(forged.value) if forged.ok else forged
 	_check("client refuses forged tag", not verdict.ok, str(verdict.error) if not verdict.ok else "ACCEPTED")
@@ -144,7 +144,7 @@ func _section_server_fetch() -> void:
 	var client := _make_client("server", "server", _published("1.0.0"))
 
 	# plan_for asks the store, which exists only once the client has started.
-	var started: DotResult = await client.start()
+	var started: GSResult = await client.start()
 	_check("client starts", started.ok, str(started.error) if not started.ok else "")
 	var plan := client.plan_for(manifest)
 	_check("plan leaves client files out", int(plan["missing_files"]) == 4, str(plan["missing_files"]))
@@ -226,14 +226,14 @@ func _section_widen() -> void:
 
 func _section_config() -> void:
 	_begin("config")
-	var c := DotCloudConfig.new()
+	var c := GSCloudConfig.new()
 	c.require_signed_manifests = false
-	_check("auto is server headless", c.resolved_side() == ("server" if DotPlatform.is_headless() else "client"), c.resolved_side())
+	_check("auto is server headless", c.resolved_side() == ("server" if GSPlatform.is_headless() else "client"), c.resolved_side())
 	c.side = "both"
 	_check("both resolves to every entry", c.resolved_side() == "")
 	c.side = "sever"
 	var bad := c.validate()
-	_check("a misspelt side refused", not bad.ok and bad.error.code == DotError.CODE_INVALID)
+	_check("a misspelt side refused", not bad.ok and bad.error.code == GSError.CODE_INVALID)
 	_end()
 
 
@@ -248,7 +248,7 @@ func _section_publisher_refusals() -> void:
 	pub.entry_scene = "game/main.txt"
 	pub.side_rules = {"game/": "server"}
 	var res := pub.publish(_source, WORK.path_join("refused"))
-	_check("server-only entry scene", not res.ok and res.error.code == DotError.CODE_INVALID)
+	_check("server-only entry scene", not res.ok and res.error.code == GSError.CODE_INVALID)
 
 	# A scene both sides load that names a client-only lightmap would fail on the server
 	# after a clean publish, fetch and mount: Godot loads ext_resources unconditionally.
@@ -261,7 +261,7 @@ func _section_publisher_refusals() -> void:
 	var needy := _publisher("9.0.2")
 	needy.need_on_side("server/rules.json", "client")
 	var needed := needy.publish(_source, WORK.path_join("refused"))
-	_check("a file the other side needs", not needed.ok and needed.error.code == DotError.CODE_INVALID)
+	_check("a file the other side needs", not needed.ok and needed.error.code == GSError.CODE_INVALID)
 	needy.need_on_side("server/rules.json", "server")
 	_check("two sides needing a file make it both", str(needy.side_needs["server/rules.json"]) == "both")
 	_end()
@@ -271,16 +271,16 @@ func _section_parser() -> void:
 	_begin("parser")
 	var base := {"path": "a.txt", "sha256": "ab".repeat(32), "size": 1}
 
-	var plain := DotCloudFile.from_dict(base)
-	_check("untagged is both", plain.ok and (plain.value as DotCloudFile).side == "")
-	_check("untagged writes no side", plain.ok and not (plain.value as DotCloudFile).to_dict().has("side"))
+	var plain := GSCloudFile.from_dict(base)
+	_check("untagged is both", plain.ok and (plain.value as GSCloudFile).side == "")
+	_check("untagged writes no side", plain.ok and not (plain.value as GSCloudFile).to_dict().has("side"))
 
 	var odd := base.duplicate()
 	odd["side"] = "sideways"
-	var parsed := DotCloudFile.from_dict(odd)
+	var parsed := GSCloudFile.from_dict(odd)
 	# A side a later API level adds is fetched by everyone here, never a refused manifest.
 	_check("unknown side parses", parsed.ok, str(parsed.error) if not parsed.ok else "")
-	var future: DotCloudFile = parsed.value if parsed.ok else DotCloudFile.new()
+	var future: GSCloudFile = parsed.value if parsed.ok else GSCloudFile.new()
 	_check("unknown side is fetched by both", future.wanted_on_side("client") and future.wanted_on_side("server"))
 	_check("unknown side kept as written", str(future.to_dict().get("side", "")) == "sideways")
 	_end()
@@ -292,8 +292,8 @@ func _published(version: String) -> String:
 	return WORK.path_join("published_" + version)
 
 
-func _publisher(version: String) -> DotCloudPublisher:
-	var pub := DotCloudPublisher.new()
+func _publisher(version: String) -> GSCloudPublisher:
+	var pub := GSCloudPublisher.new()
 	pub.content_id = "sides_demo"
 	pub.version = version
 	pub.signing_key_pem = str(_keys["private"])
@@ -310,12 +310,12 @@ func _publish(version: String) -> Dictionary:
 	return {"result": res.value, "manifest": _read_manifest(version)}
 
 
-func _read_manifest(version: String) -> DotCloudManifest:
-	var bytes := DotPaths.read_bytes(_published(version).path_join("manifest.json"))
+func _read_manifest(version: String) -> GSCloudManifest:
+	var bytes := GSPaths.read_bytes(_published(version).path_join("manifest.json"))
 	if not bytes.ok:
 		_check("read manifest %s" % version, false, str(bytes.error))
 		return null
-	var parsed := DotCloudManifest.from_json_bytes(bytes.value)
+	var parsed := GSCloudManifest.from_json_bytes(bytes.value)
 	if not parsed.ok:
 		_check("parse manifest %s" % version, false, str(parsed.error))
 		return null
@@ -325,25 +325,25 @@ func _read_manifest(version: String) -> DotCloudManifest:
 ## Publishes a throwaway source with [param sides] as its sides.json; true when refused.
 func _refused(sides: String, with_requires: bool = false, extra: Dictionary = {}) -> bool:
 	var dir := WORK.path_join("refusal_src")
-	DotPaths.remove_tree(dir)
+	GSPaths.remove_tree(dir)
 	if not _write_source(dir, sides).ok:
 		return false
 	if with_requires:
-		DotPaths.write_text(dir.path_join(DotAddonApi.REQUIREMENTS_FILE), "{}\n")
+		GSPaths.write_text(dir.path_join(GSAddonApi.REQUIREMENTS_FILE), "{}\n")
 	for rel: String in extra:
-		DotPaths.write_text(dir.path_join(rel), str(extra[rel]))
+		GSPaths.write_text(dir.path_join(rel), str(extra[rel]))
 	var res := _publisher("9.0.1").publish(dir, WORK.path_join("refused"))
-	return not res.ok and res.error.code == DotError.CODE_INVALID
+	return not res.ok and res.error.code == GSError.CODE_INVALID
 
 
-func _make_client(tag: String, side: String, published: String) -> DotCloudClient:
-	var config := DotCloudConfig.new()
+func _make_client(tag: String, side: String, published: String) -> GSCloudClient:
+	var config := GSCloudConfig.new()
 	config.cache_dir = WORK.path_join("cache_" + tag)
 	config.require_signed_manifests = true
 	config.trusted_keys = {"demo": str(_keys["public"])}
 	config.side = side
 
-	var client := DotCloudClient.new()
+	var client := GSCloudClient.new()
 	client.name = "Cloud_" + tag
 	client.config = config
 	client.config_file = ""
@@ -354,14 +354,14 @@ func _make_client(tag: String, side: String, published: String) -> DotCloudClien
 	return client
 
 
-func _has_any(client: DotCloudClient, manifest: DotCloudManifest, side: String) -> bool:
+func _has_any(client: GSCloudClient, manifest: GSCloudManifest, side: String) -> bool:
 	for f in manifest.files:
 		if f.side == side and client.store.has(f.sha256):
 			return true
 	return false
 
 
-func _has_all(client: DotCloudClient, manifest: DotCloudManifest, side: String) -> bool:
+func _has_all(client: GSCloudClient, manifest: GSCloudManifest, side: String) -> bool:
 	var n := 0
 	for f in manifest.files:
 		if f.side != side:
@@ -374,7 +374,7 @@ func _has_all(client: DotCloudClient, manifest: DotCloudManifest, side: String) 
 
 ## Every file's bytes are distinct, so "this side's object is absent" cannot be satisfied by
 ## a deduplicated twin from the other side.
-func _write_source(dir: String, sides: String) -> DotResult:
+func _write_source(dir: String, sides: String) -> GSResult:
 	var files := {
 		"game/main.txt": "the game\n",
 		"lightmaps/hall.res": "baked light for the hall\n",
@@ -384,10 +384,10 @@ func _write_source(dir: String, sides: String) -> DotResult:
 		"sides.json": sides + "\n",
 	}
 	for path: String in files:
-		var res := DotPaths.write_text(dir.path_join(path), str(files[path]))
+		var res := GSPaths.write_text(dir.path_join(path), str(files[path]))
 		if not res.ok:
 			return res
-	return DotResult.success(files.size())
+	return GSResult.success(files.size())
 
 
 func _begin(name: String) -> void:

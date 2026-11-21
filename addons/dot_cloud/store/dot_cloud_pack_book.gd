@@ -1,4 +1,4 @@
-class_name DotCloudPackBook
+class_name GSCloudPackBook
 extends RefCounted
 
 ## Which packs the store holds, for the inventory: id, version, kind, game, the objects each needs, last use and whether the player pinned it.
@@ -27,7 +27,7 @@ func _init(p_path: String) -> void:
 func load_file() -> void:
 	records.clear()
 	pinned_games = PackedStringArray()
-	var res := DotPaths.read_json(path)
+	var res := GSPaths.read_json(path)
 	if not res.ok or not (res.value is Dictionary):
 		return
 	var d := res.value as Dictionary
@@ -51,15 +51,15 @@ func load_file() -> void:
 func save() -> void:
 	if not dirty:
 		return
-	var written := DotPaths.write_json(path, {"version": VERSION, "packs": records, "pinned_games": Array(pinned_games)}, false)
+	var written := GSPaths.write_json(path, {"version": VERSION, "packs": records, "pinned_games": Array(pinned_games)}, false)
 	if written.ok:
 		dirty = false
 	else:
-		DotLog.warn(CHANNEL, "could not write the pack inventory", {"detail": written.error.detail})
+		GSLog.warn(CHANNEL, "could not write the pack inventory", {"detail": written.error.detail})
 
 
 ## Notes that [param manifest] is in the store, creating or refreshing its record.
-func record(manifest: DotCloudManifest, now: int) -> void:
+func record(manifest: GSCloudManifest, now: int) -> void:
 	var key := manifest.key()
 	var kind := str(manifest.metadata.get("kind", "game"))
 	var game := str(manifest.metadata.get("game", ""))

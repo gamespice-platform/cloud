@@ -1,4 +1,4 @@
-class_name DotCloudChunker
+class_name GSCloudChunker
 extends RefCounted
 
 ## Content-defined chunking and delta planning for the "chunks" manifest block (designed in docs/sources.md, not yet wired into the publisher or downloader). Pure functions, no I/O.

@@ -1,4 +1,4 @@
-class_name DotCloudJobProgress
+class_name GSCloudJobProgress
 extends RefCounted
 
 ## One progress model for a download job made of many packs (a game, its weapons, forty map packs).
@@ -176,14 +176,14 @@ func snapshot_basic() -> int:
 func text() -> String:
 	var s := snapshot()
 	var out := "%s / %s, %d/%d packs" % [
-		DotPaths.format_bytes(int(s["done_bytes"])), DotPaths.format_bytes(int(s["total_bytes"])),
+		GSPaths.format_bytes(int(s["done_bytes"])), GSPaths.format_bytes(int(s["total_bytes"])),
 		int(s["done_packs"]), int(s["total_packs"]),
 	]
 	var rate := float(s["bytes_per_sec"])
 	if rate > 1.0:
-		out += " (%s/s" % DotPaths.format_bytes(int(rate))
+		out += " (%s/s" % GSPaths.format_bytes(int(rate))
 		if float(s["eta_sec"]) >= 0.0:
-			out += ", %s left" % DotCloudDownloader._format_duration(float(s["eta_sec"]))
+			out += ", %s left" % GSCloudDownloader._format_duration(float(s["eta_sec"]))
 		out += ")"
 	return out
 

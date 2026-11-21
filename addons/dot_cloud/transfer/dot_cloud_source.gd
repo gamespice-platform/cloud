@@ -1,16 +1,16 @@
 @tool
-class_name DotCloudSource
+class_name GSCloudSource
 extends Resource
 
 ## Base class for somewhere content can be fetched from.
 ##
 ## Three exist, and a deployment usually wants more than one:
 ##
-## - [DotCloudSourceHttp] — a web server or CDN. The normal case, and the only
+## - [GSCloudSourceHttp] — a web server or CDN. The normal case, and the only
 ##   one that scales, because the game server never touches the bytes.
-## - [DotCloudSourceLocal] — a directory already on disk. For development, for
+## - [GSCloudSourceLocal] — a directory already on disk. For development, for
 ##   LAN play from a shared folder, and for content shipped with the build.
-## - [DotCloudSourceNetchan] — the bytes come down the multiplayer connection
+## - [GSCloudSourceNetchan] — the bytes come down the multiplayer connection
 ##   itself. The fallback for a server with no web host, equivalent to how game
 ##   servers delivered content before HTTP download hosts: it works everywhere, including in a browser, and it
 ##   costs the server's own bandwidth.
@@ -47,21 +47,21 @@ func source_name() -> String:
 ## Answered without a manifest, so it can only speak to the platform and to
 ## whatever the source was handed at build time. "Can this source serve [i]this[/i]
 ## content?" is [method can_serve].
-func is_supported() -> DotResult:
-	return DotResult.success(true)
+func is_supported() -> GSResult:
+	return GSResult.success(true)
 
 
 ## Whether this source could serve this particular manifest's content at all.
 ##
 ## Distinct from [method is_supported] and from [method is_available], and the
 ## distinction earns its keep: a source that is perfectly healthy can still have
-## no way to reach a given content set — an [DotCloudSourceHttp] with no
-## [member DotCloudSourceHttp.base_urls] and a manifest carrying no mirrors is
+## no way to reach a given content set — an [GSCloudSourceHttp] with no
+## [member GSCloudSourceHttp.base_urls] and a manifest carrying no mirrors is
 ## the case that motivated this.
 ##
 ## Such a source used to be tried anyway, and cost real things. It sat at
 ## priority 50, ahead of the in-band fallback, and burned one of
-## [member DotCloudConfig.max_attempts_per_file] on every file to produce the
+## [member GSCloudConfig.max_attempts_per_file] on every file to produce the
 ## same error every time. Worse, it never called [method note_failure] for it —
 ## correctly, since nothing failed — so it never entered cooldown and never
 ## stopped being "available". When the source that [i]could[/i] serve the content
@@ -71,27 +71,27 @@ func is_supported() -> DotResult:
 ##
 ## Returning a failure here means "skip me for this manifest, and say why";
 ## it is not recorded as a failure against the circuit breaker.
-func can_serve(_manifest: DotCloudManifest) -> DotResult:
-	return DotResult.success(true)
+func can_serve(_manifest: GSCloudManifest) -> GSResult:
+	return GSResult.success(true)
 
 
 ## Fetches one file into the store's partial slot, then commits it.
 ##
 ## Implementations must:
-## 1. write to [method DotCloudStore.partial_path] for the file's hash,
-## 2. resume from [method DotCloudStore.partial_size] when they can,
-## 3. call [method DotCloudStore.commit_partial], which verifies the hash.
+## 1. write to [method GSCloudStore.partial_path] for the file's hash,
+## 2. resume from [method GSCloudStore.partial_size] when they can,
+## 3. call [method GSCloudStore.commit_partial], which verifies the hash.
 ##
 ## Never write into the object directory directly — commit is the only place
 ## verification happens, and bypassing it is how unverified content gets mounted.
 func fetch(
-	_file: DotCloudFile,
-	_manifest: DotCloudManifest,
-	_store: DotCloudStore,
-	_scheduler: DotScheduler
-) -> DotResult:
-	return DotResult.fail(
-		DotError.CODE_INTERNAL,
+	_file: GSCloudFile,
+	_manifest: GSCloudManifest,
+	_store: GSCloudStore,
+	_scheduler: GSScheduler
+) -> GSResult:
+	return GSResult.fail(
+		GSError.CODE_INTERNAL,
 		"%s does not implement fetch()." % source_name()
 	)
 
@@ -117,7 +117,7 @@ func is_available() -> bool:
 
 func note_success() -> void:
 	if _failures > 0:
-		DotLog.debug(CHANNEL, "source recovered", {"source": source_name()})
+		GSLog.debug(CHANNEL, "source recovered", {"source": source_name()})
 	_failures = 0
 
 
@@ -126,7 +126,7 @@ func note_failure() -> void:
 	_last_failure_ms = Time.get_ticks_msec()
 
 	if _failures == failure_threshold:
-		DotLog.warn(
+		GSLog.warn(
 			CHANNEL,
 			"source is failing; backing off",
 			{"source": source_name(), "cooldown": cooldown_sec}
@@ -143,7 +143,7 @@ func cooldown_remaining_sec() -> float:
 
 ## Why this source is being skipped right now, or "" when it is not.
 ##
-## Lives here rather than in [DotCloudDownloader] so there is one place that
+## Lives here rather than in [GSCloudDownloader] so there is one place that
 ## knows what the breaker's state means. A caller reading a failed download
 ## otherwise has to guess between "misconfigured" and "backing off", which are
 ## opposite things to do about.

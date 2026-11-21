@@ -1,9 +1,9 @@
 @tool
-class_name DotCloudConfig
-extends DotConfig
+class_name GSCloudConfig
+extends GSConfig
 
 ## Everything configurable about content delivery.
-## Layered like every [DotConfig]: exported defaults, JSON file, [code]DOT_CLOUD_*[/code] environment, [code]--cloud-*[/code] arguments.
+## Layered like every [GSConfig]: exported defaults, JSON file, [code]DOT_CLOUD_*[/code] environment, [code]--cloud-*[/code] arguments.
 
 @export_group("Cache")
 
@@ -42,7 +42,7 @@ var limit_hint: String = ""
 ## scripts. Turn off only for LAN play, first-party servers or development; it warns every time.
 @export var require_signed_manifests: bool = true
 
-## Trusted signing keys, as [code]key_id -> PEM public key[/code]; several is normal while rotating (see [DotCloudSignature]).
+## Trusted signing keys, as [code]key_id -> PEM public key[/code]; several is normal while rotating (see [GSCloudSignature]).
 ## An entry can also say what it is trusted FOR, which matters with more than one publisher:
 ## [codeblock]
 ## {
@@ -71,7 +71,7 @@ var limit_hint: String = ""
 
 ## Files fetched at once. A game pack is hundreds of small files, so a cold download is bound by round trips: the reference pack (~460 objects) acquired in 8.2 s at 6
 ## and 6.6 s at 12 over 40 ms, 50 Mbit/s. Browsers queue past ~6 HTTP/1.1 connections; over HTTP/2 all 12 share one. Stay at or under
-## [code]DotHttp.MAX_POOL[/code] (16), which bounds the request nodes.
+## [code]GSHttp.MAX_POOL[/code] (16), which bounds the request nodes.
 @export_range(1, 32, 1) var parallel_downloads: int = 12
 
 ## Packs downloaded at once (API 19): a collection's dependencies run side by side, each pack with its own share of [member parallel_downloads]. 1 restores one pack at a time.
@@ -114,7 +114,7 @@ var limit_hint: String = ""
 ## which addresses fetch which packs, so off means the origin only.
 @export var use_mirrors: bool = true
 
-## Most bytes one [method DotCloudClient.prefetch] downloads; a pack that would exceed what is left is skipped.
+## Most bytes one [method GSCloudClient.prefetch] downloads; a pack that would exceed what is left is skipped.
 @export var prefetch_max_bytes: int = 256 * 1024 * 1024
 
 ## Most packs one prefetch document may name; the rest are skipped.
@@ -126,7 +126,7 @@ var limit_hint: String = ""
 @export_group("Mounting")
 
 ## Which side of a game this process fetches packs as: [code]auto[/code], [code]client[/code],
-## [code]server[/code] or [code]both[/code] (API 8). Entries tagged for the other side ([member DotCloudFile.side])
+## [code]server[/code] or [code]both[/code] (API 8). Entries tagged for the other side ([member GSCloudFile.side])
 ## are never downloaded, cached, mounted or checked for.
 ## `auto` is server on a headless process, client elsewhere; a client shell run headless in tests sets
 ## `client` so it fetches what a player's does. `both` is a listen server or a republishing tool.
@@ -134,17 +134,17 @@ var limit_hint: String = ""
 @export_enum("auto", "client", "server", "both") var side: String = "auto"
 
 ## Verify that no mounted path escapes the manifest's mount prefix.
-## [DotPaths.safe_relative] already refuses traversal at parse time; a miss would overwrite the host's
+## [GSPaths.safe_relative] already refuses traversal at parse time; a miss would overwrite the host's
 ## scripts, so it is checked twice.
 @export var enforce_mount_prefix: bool = true
 
 ## Load packs with [code]replace_files = true[/code]. [b]Leave off[/b]: version-namespaced mount paths
-## need no replacing, and it lets downloaded content shadow shipped files. See [DotCloudMounter].
+## need no replacing, and it lets downloaded content shadow shipped files. See [GSCloudMounter].
 @export var allow_replace_files: bool = false
 
 @export_group("Progress")
 
-## Seconds between [signal DotCloudClient.progress_changed] emissions; sampled because parallel
+## Seconds between [signal GSCloudClient.progress_changed] emissions; sampled because parallel
 ## downloads produce thousands of chunk callbacks a second.
 @export_range(0.05, 5.0, 0.05) var progress_interval_sec: float = 0.2
 
@@ -164,15 +164,15 @@ func sensitive_keys() -> PackedStringArray:
 	return PackedStringArray(["trusted_keys"])
 
 
-func validate() -> DotResult:
+func validate() -> GSResult:
 	if cache_dir.strip_edges() == "":
-		return DotResult.fail(
-			DotError.CODE_INVALID, "cache_dir must not be empty."
+		return GSResult.fail(
+			GSError.CODE_INVALID, "cache_dir must not be empty."
 		)
 
 	if require_signed_manifests and trusted_keys.is_empty():
-		return DotResult.fail(
-			DotError.CODE_INVALID,
+		return GSResult.fail(
+			GSError.CODE_INVALID,
 			"require_signed_manifests is on but no trusted_keys are configured.",
 			"add a key, or set require_signed_manifests = false and accept that "
 			+ "any server can mount arbitrary content in this client"
@@ -183,27 +183,27 @@ func validate() -> DotResult:
 	for key_id in trusted_keys:
 		var entry: Variant = trusted_keys[key_id]
 
-		if DotCloudSignature.key_pem(entry).strip_edges() == "":
-			return DotResult.fail(
-				DotError.CODE_INVALID,
+		if GSCloudSignature.key_pem(entry).strip_edges() == "":
+			return GSResult.fail(
+				GSError.CODE_INVALID,
 				"trusted_keys['%s'] has no public key." % str(key_id),
 				"an entry is a PEM string, or { \"key\": PEM, \"content_ids\": [...] }"
 			)
 
-		if DotCloudSignature.key_scope(entry).is_empty():
+		if GSCloudSignature.key_scope(entry).is_empty():
 			unscoped.append(str(key_id))
 
 	# Nothing scoped is a coherent model (a self-hosted operator trusting their own key beside ours): info.
 	# Some scoped and some not makes the restriction decorative: warn. Neither is fatal.
 	if trusted_keys.size() > 1 and not unscoped.is_empty():
 		if unscoped.size() == trusted_keys.size():
-			DotLog.info(
+			GSLog.info(
 				"cloud",
 				"every trusted key may sign any content",
 				{"keys": trusted_keys.size()}
 			)
 		else:
-			DotLog.warn(
+			GSLog.warn(
 				"cloud",
 				"a trusted key is unscoped while others are scoped, so the scopes "
 				+ "restrict nothing",
@@ -215,53 +215,53 @@ func validate() -> DotResult:
 			)
 
 	if parallel_downloads < 1:
-		return DotResult.fail(
-			DotError.CODE_INVALID, "parallel_downloads must be at least 1."
+		return GSResult.fail(
+			GSError.CODE_INVALID, "parallel_downloads must be at least 1."
 		)
 
 	if prefetch_max_bytes < 0 or prefetch_max_packs < 0:
-		return DotResult.fail(DotError.CODE_INVALID, "prefetch_max_bytes and prefetch_max_packs must not be negative.")
+		return GSResult.fail(GSError.CODE_INVALID, "prefetch_max_bytes and prefetch_max_packs must not be negative.")
 
 	# A typo here (`sever`) would otherwise read as "both" and fetch everything, which works
 	# and quietly undoes the setting; or as a side that matches nothing.
 	if not side in ["auto", "client", "server", "both"]:
-		return DotResult.fail(
-			DotError.CODE_INVALID,
+		return GSResult.fail(
+			GSError.CODE_INVALID,
 			"side must be auto, client, server or both.",
 			"got '%s'" % side
 		)
 
-	return DotResult.success(null)
+	return GSResult.success(null)
 
 
-## [member side] as the value a manifest filters on: [constant DotCloudFile.SIDE_CLIENT],
-## [constant DotCloudFile.SIDE_SERVER], or [constant DotCloudFile.SIDE_BOTH] for both.
+## [member side] as the value a manifest filters on: [constant GSCloudFile.SIDE_CLIENT],
+## [constant GSCloudFile.SIDE_SERVER], or [constant GSCloudFile.SIDE_BOTH] for both.
 func resolved_side() -> String:
 	# Web builds are clients only (no listening sockets, no dedicated export), so a config
 	# file shared with the desktop build cannot make a browser skip client content.
-	if DotPlatform.is_web():
-		return DotCloudFile.SIDE_CLIENT
+	if GSPlatform.is_web():
+		return GSCloudFile.SIDE_CLIENT
 	match side:
 		"client":
-			return DotCloudFile.SIDE_CLIENT
+			return GSCloudFile.SIDE_CLIENT
 		"server":
-			return DotCloudFile.SIDE_SERVER
+			return GSCloudFile.SIDE_SERVER
 		"both":
-			return DotCloudFile.SIDE_BOTH
-	return DotCloudFile.SIDE_SERVER if DotPlatform.is_headless() else DotCloudFile.SIDE_CLIENT
+			return GSCloudFile.SIDE_BOTH
+	return GSCloudFile.SIDE_SERVER if GSPlatform.is_headless() else GSCloudFile.SIDE_CLIENT
 
 
 ## The cache ceiling for the platform actually running, resolved so one config file is right everywhere:
 ## 4 GiB suits desktop, not a phone, and means nothing on web.
 func effective_cache_bytes() -> int:
-	if DotPlatform.is_mobile():
+	if GSPlatform.is_mobile():
 		return mobile_cache_bytes
 	return cache_bytes
 
 
 ## The key that sets [method effective_cache_bytes] here, for a message that tells an operator what to change.
 func limit_key() -> String:
-	return "mobile_cache_bytes" if DotPlatform.is_mobile() else "cache_bytes"
+	return "mobile_cache_bytes" if GSPlatform.is_mobile() else "cache_bytes"
 
 
 func objects_dir() -> String:
@@ -269,16 +269,16 @@ func objects_dir() -> String:
 
 
 ## Where in-progress downloads live, apart from [method objects_dir] so a partial is never mistaken
-## for a complete object and [method DotCloudStore.has] can be an existence check.
+## for a complete object and [method GSCloudStore.has] can be an existence check.
 ## On web that is [member web_partials_dir], outside the IndexedDB mirror: see there.
 func partials_dir() -> String:
-	if DotPlatform.is_web() and not web_partials_dir.is_empty():
+	if GSPlatform.is_web() and not web_partials_dir.is_empty():
 		return web_partials_dir
 	return persisted_partials_dir()
 
 
 ## The partials directory under [member cache_dir], the one every platform but web uses. On web it
-## only ever holds what an older build left, which [method DotCloudStore.open] removes.
+## only ever holds what an older build left, which [method GSCloudStore.open] removes.
 func persisted_partials_dir() -> String:
 	return cache_dir.path_join("partial")
 
@@ -292,10 +292,10 @@ func index_path() -> String:
 	return cache_dir.path_join("index.json")
 
 
-## Warns once about settings that are dangerous but legal; called by [DotCloudClient] at startup.
+## Warns once about settings that are dangerous but legal; called by [GSCloudClient] at startup.
 func warn_about_risky_settings() -> void:
 	if not require_signed_manifests:
-		DotLog.warn(
+		GSLog.warn(
 			"cloud",
 			"manifest signature checking is OFF — any server this client "
 			+ "connects to can mount arbitrary content, including scripts",
@@ -303,7 +303,7 @@ func warn_about_risky_settings() -> void:
 		)
 
 	if allow_replace_files:
-		DotLog.warn(
+		GSLog.warn(
 			"cloud",
 			"allow_replace_files is ON — downloaded content can shadow files "
 			+ "shipped with this project",

@@ -1,13 +1,13 @@
 extends Control
 
-## Drives [DotCloudSourceNetchan] — the in-band content fallback — for real.
+## Drives [GSCloudSourceNetchan] — the in-band content fallback — for real.
 ##
 ## [b]Why this exists.[/b] [code]sync_demo[/code] covers the pipeline through
-## [DotCloudSourceLocal] and [code]http_demo[/code] covers HTTP. The netchan
+## [GSCloudSourceLocal] and [code]http_demo[/code] covers HTTP. The netchan
 ## source had neither, and it is the one source that cannot fall back to another:
 ## it is what a browser client on a home-hosted server uses, and when it fails
 ## there is nothing after it. Its 200-odd lines were read-only code, including a
-## [member DotCloudSourceNetchan.chunk_timeout_sec] the inspector advertised and
+## [member GSCloudSourceNetchan.chunk_timeout_sec] the inspector advertised and
 ## nothing enforced.
 ##
 ## The delegate is [code]examples/netchan_chunk_server.gd[/code], the shape
@@ -53,7 +53,7 @@ var _checks: int = 0
 
 var _key_pair: Dictionary = {}
 var _publish_dir: String = ""
-var _manifest: DotCloudManifest = null
+var _manifest: GSCloudManifest = null
 
 ## Sections that suspend, and the ones that reported reaching their end. A
 ## section called without [code]await[/code] stops at its first suspension while
@@ -63,7 +63,7 @@ var _sections_completed: int = 0
 
 
 func _ready() -> void:
-	DotLog.set_level(DotLog.Level.INFO)
+	GSLog.set_level(GSLog.Level.INFO)
 	await _run()
 
 
@@ -71,7 +71,7 @@ func _run() -> void:
 	_line("[b]dot-cloud in-band (netchan) transfer[/b]")
 	_line("")
 
-	DotPaths.remove_tree(WORK)
+	GSPaths.remove_tree(WORK)
 
 	var prepared := await _prepare()
 	if not prepared:
@@ -108,7 +108,7 @@ func _run() -> void:
 
 
 func _prepare() -> bool:
-	var keys := DotCloudSignature.generate_keypair(2048)
+	var keys := GSCloudSignature.generate_keypair(2048)
 	if not keys.ok:
 		_check("keypair generated", false, str(keys.error))
 		return false
@@ -125,19 +125,19 @@ func _prepare() -> bool:
 	for i in range(payload.size()):
 		payload[i] = (i * 31 + 7) & 0xFF
 
-	var wrote := DotPaths.write_bytes(source_dir.path_join("big.bin"), payload)
+	var wrote := GSPaths.write_bytes(source_dir.path_join("big.bin"), payload)
 	if not wrote.ok:
 		_check("source content written", false, str(wrote.error))
 		return false
 
-	wrote = DotPaths.write_bytes(
+	wrote = GSPaths.write_bytes(
 		source_dir.path_join("small.txt"), "in-band".to_utf8_buffer()
 	)
 	if not wrote.ok:
 		_check("source content written", false, str(wrote.error))
 		return false
 
-	var pub := DotCloudPublisher.new()
+	var pub := GSCloudPublisher.new()
 	pub.content_id = "netchan_fc"
 	pub.version = "1.0.0"
 	pub.display_name = "Netchan FC"
@@ -149,12 +149,12 @@ func _prepare() -> bool:
 		return false
 
 	var pd: Dictionary = published.value
-	var bytes := DotPaths.read_bytes(str(pd["manifest_path"]))
+	var bytes := GSPaths.read_bytes(str(pd["manifest_path"]))
 	if not bytes.ok:
 		_check("manifest read", false, str(bytes.error))
 		return false
 
-	var parsed := DotCloudManifest.from_json_bytes(bytes.value)
+	var parsed := GSCloudManifest.from_json_bytes(bytes.value)
 	if not parsed.ok:
 		_check("manifest parsed", false, str(parsed.error))
 		return false
@@ -230,7 +230,7 @@ func _section_resume() -> void:
 	var whole := _object_bytes(target)
 	var half := whole.slice(0, whole.size() / 2)
 
-	DotPaths.write_bytes(client.store.partial_path(target.sha256), half)
+	GSPaths.write_bytes(client.store.partial_path(target.sha256), half)
 	_check("a partial was staged", client.store.partial_size(target.sha256) == half.size())
 
 	var got := await client.acquire_manifest(_manifest)
@@ -280,7 +280,7 @@ func _section_timeout() -> void:
 	_check("a silent peer did not hang the transfer", true,
 		"returned after %d ms" % elapsed)
 	_check("the fetch failed", not direct.ok)
-	_check("it failed as a timeout", _has_code(direct, DotError.CODE_TIMEOUT),
+	_check("it failed as a timeout", _has_code(direct, GSError.CODE_TIMEOUT),
 		_why(direct))
 	_check("it gave up near the configured deadline", elapsed < 10000,
 		"%d ms for a 1 s chunk timeout" % elapsed)
@@ -406,7 +406,7 @@ func _section_slow_peer() -> void:
 	var elapsed := Time.get_ticks_msec() - started
 
 	_check("a slow peer did not hold the channel", not direct.ok, _why(direct))
-	_check("it failed as a timeout", _has_code(direct, DotError.CODE_TIMEOUT),
+	_check("it failed as a timeout", _has_code(direct, GSError.CODE_TIMEOUT),
 		_why(direct))
 	# Which deadline fired is the whole claim. The per-chunk one is set to 30 s
 	# here and every answer arrives in 0.2, so a chunk-timeout message would mean
@@ -450,7 +450,7 @@ func _section_skipped_sources() -> void:
 	_sections_entered += 1
 	_line("[section] a source with nowhere to fetch from")
 
-	# DotCloudClient always builds an HTTP source, whether or not it was given any
+	# GSCloudClient always builds an HTTP source, whether or not it was given any
 	# base URLs, because a manifest may carry its own mirrors. This manifest has
 	# none and neither does the client, so that source cannot serve one byte —
 	# and it sits at priority 50, ahead of netchan at 900.
@@ -462,9 +462,9 @@ func _section_skipped_sources() -> void:
 	if client == null:
 		return
 
-	var http_source: DotCloudSourceHttp = null
+	var http_source: GSCloudSourceHttp = null
 	for s in client.sources:
-		var h := s as DotCloudSourceHttp
+		var h := s as GSCloudSourceHttp
 		if h != null:
 			http_source = h
 
@@ -522,8 +522,8 @@ func _section_skipped_sources() -> void:
 		causes.size() == 2
 			and causes[0].has("path") and causes[0].has("code"),
 		str(causes))
-	_check("the codes are DotError codes, not prose",
-		client.downloader.failure_codes() == PackedStringArray([DotError.CODE_STATE]),
+	_check("the codes are GSError codes, not prose",
+		client.downloader.failure_codes() == PackedStringArray([GSError.CODE_STATE]),
 		str(client.downloader.failure_codes()))
 	_check("describe() carries them too, for a bug report",
 		(client.downloader.describe().get("failure_codes", PackedStringArray())
@@ -544,14 +544,14 @@ func _server() -> RefCounted:
 	return s
 
 
-func _client(tag: String, delegate: RefCounted) -> DotCloudClient:
+func _client(tag: String, delegate: RefCounted) -> GSCloudClient:
 	return await _client_on(tag, tag, delegate)
 
 
 ## As [method _client], but with the cache directory named separately, so two
 ## clients can be pointed at one cache.
-func _client_on(tag: String, cache_tag: String, delegate: RefCounted) -> DotCloudClient:
-	var config := DotCloudConfig.new()
+func _client_on(tag: String, cache_tag: String, delegate: RefCounted) -> GSCloudClient:
+	var config := GSCloudConfig.new()
 	config.cache_dir = WORK.path_join("cache_%s" % cache_tag)
 	config.require_signed_manifests = true
 	config.trusted_keys = {"demo": str(_key_pair["public"])}
@@ -560,7 +560,7 @@ func _client_on(tag: String, cache_tag: String, delegate: RefCounted) -> DotClou
 	# One at a time so the delegate's request log reads in a deterministic order.
 	config.parallel_downloads = 1
 
-	var client := DotCloudClient.new()
+	var client := GSCloudClient.new()
 	client.name = "CloudClient_%s" % tag
 	client.config = config
 	client.config_file = ""
@@ -587,29 +587,29 @@ func _client_on(tag: String, cache_tag: String, delegate: RefCounted) -> DotClou
 	return client
 
 
-func _netchan(client: DotCloudClient) -> DotCloudSourceNetchan:
+func _netchan(client: GSCloudClient) -> GSCloudSourceNetchan:
 	for s in client.sources:
-		var nc := s as DotCloudSourceNetchan
+		var nc := s as GSCloudSourceNetchan
 		if nc != null:
 			return nc
 	return null
 
 
-func _drop(client: DotCloudClient) -> void:
+func _drop(client: GSCloudClient) -> void:
 	remove_child(client)
 	client.queue_free()
 
 
-func _largest_file() -> DotCloudFile:
-	var best: DotCloudFile = null
+func _largest_file() -> GSCloudFile:
+	var best: GSCloudFile = null
 	for f in _manifest.files:
 		if best == null or f.size > best.size:
 			best = f
 	return best
 
 
-func _object_bytes(file: DotCloudFile) -> PackedByteArray:
-	var res := DotPaths.read_bytes(
+func _object_bytes(file: GSCloudFile) -> PackedByteArray:
+	var res := GSPaths.read_bytes(
 		_publish_dir.path_join("objects").path_join(file.object_path())
 	)
 	return res.value if res.ok else PackedByteArray()
@@ -621,37 +621,37 @@ func _first_offset_for(server: RefCounted, _sha256: String) -> int:
 	return int(server.requests[0].x)
 
 
-func _all_cached(client: DotCloudClient) -> bool:
+func _all_cached(client: GSCloudClient) -> bool:
 	for f in _manifest.files:
 		if not client.store.has(f.sha256):
 			return false
 	return true
 
 
-func _payload_intact(client: DotCloudClient) -> bool:
+func _payload_intact(client: GSCloudClient) -> bool:
 	var target := _largest_file()
 	if not client.store.has(target.sha256):
 		return false
 	return _sha256_of_cached(client, target) == target.sha256
 
 
-func _sha256_of_cached(client: DotCloudClient, file: DotCloudFile) -> String:
+func _sha256_of_cached(client: GSCloudClient, file: GSCloudFile) -> String:
 	var path := client.store.path_for(file.sha256)
 	if not FileAccess.file_exists(path):
 		return ""
 	return FileAccess.get_sha256(path)
 
 
-func _has_code(res: DotResult, code: String) -> bool:
+func _has_code(res: GSResult, code: String) -> bool:
 	return not res.ok and res.error != null and res.error.code == code
 
 
-func _why(res: DotResult) -> String:
+func _why(res: GSResult) -> String:
 	return "" if res.ok else str(res.error)
 
 
 func _finish(code: int = 0) -> void:
-	if DotPlatform.is_headless():
+	if GSPlatform.is_headless():
 		await get_tree().process_frame
 		get_tree().quit(code)
 

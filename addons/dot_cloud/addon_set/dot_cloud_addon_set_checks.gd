@@ -1,6 +1,6 @@
 extends RefCounted
 
-## The pure checks and the plan summary of [DotCloudAddonSet], in a file of their own so the addon set stays inside the
+## The pure checks and the plan summary of [GSCloudAddonSet], in a file of their own so the addon set stays inside the
 ## size budget. Nothing here is used on its own.
 
 const _Overlay := preload("dot_cloud_addon_set_overlay.gd")
@@ -20,7 +20,7 @@ static func record_matches(bridge: Object, record: Variant, expected: Dictionary
 		return true
 
 	var bytes: PackedByteArray = bridge.call("js_buffer_to_packed_byte_array", contents)
-	return DotHash.sha256_bytes(bytes) == str(expected["sha"])
+	return GSHash.sha256_bytes(bytes) == str(expected["sha"])
 
 
 ## Whether [param manifest] is the addon this build keeps under `res://addons/<dir>/`.
@@ -32,7 +32,7 @@ static func record_matches(bridge: Object, record: Variant, expected: Dictionary
 ## players. So the pack's own `plugin.cfg` names its plugin script, and a directory the
 ## build already has must already hold that script. A directory the build does not have is
 ## a new addon and replaces nothing.
-static func is_that_addon(cloud: DotCloudClient, dir: String, manifest: DotCloudManifest) -> DotResult:
+static func is_that_addon(cloud: GSCloudClient, dir: String, manifest: GSCloudManifest) -> GSResult:
 	var cfg_sha := ""
 	var cfg_path := _Overlay.base(manifest, dir) + "plugin.cfg"
 
@@ -43,19 +43,19 @@ static func is_that_addon(cloud: DotCloudClient, dir: String, manifest: DotCloud
 	var cfg := ConfigFile.new()
 
 	if cfg_sha == "" or cfg.load(cloud.store.path_for(cfg_sha)) != OK:
-		return DotResult.fail(DotError.CODE_INVALID, "%s has no readable plugin.cfg." % manifest.key())
+		return GSResult.fail(GSError.CODE_INVALID, "%s has no readable plugin.cfg." % manifest.key())
 
 	var script := str(cfg.get_value("plugin", "script", "")).get_file()
 	var root := "res://addons/%s" % dir
 
 	if not DirAccess.dir_exists_absolute(root):
-		return DotResult.success(true)
+		return GSResult.success(true)
 
 	if script != "" and ResourceLoader.exists(root.path_join(script)):
-		return DotResult.success(true)
+		return GSResult.success(true)
 
-	return DotResult.fail(
-		DotError.CODE_INVALID,
+	return GSResult.fail(
+		GSError.CODE_INVALID,
 		"%s is not the addon at %s." % [manifest.key(), root],
 		"its plugin script %s is not there" % script
 	)

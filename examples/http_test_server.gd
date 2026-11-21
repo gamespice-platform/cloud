@@ -2,11 +2,11 @@ extends Node
 
 ## A minimal static HTTP/1.1 file server, so the HTTP source can be tested for real.
 ##
-## [b]Why this exists.[/b] [DotCloudSourceHttp] is the source every shipped game
+## [b]Why this exists.[/b] [GSCloudSourceHttp] is the source every shipped game
 ## actually uses — mirror failover, sticky preference, range resume, the
 ## content-addressed URL layout — and until this file it was exercised by no
 ## example at all. [code]sync_demo[/code] runs the whole pipeline through
-## [DotCloudSourceLocal], which resolves synchronously and never builds a URL,
+## [GSCloudSourceLocal], which resolves synchronously and never builds a URL,
 ## never parses a response and never resumes anything.
 ##
 ## Serving from GDScript rather than shelling out to a real web server keeps the
@@ -15,7 +15,7 @@ extends Node
 ##
 ## It is deliberately not production code and does not live in
 ## [code]addons/[/code]. It speaks exactly as much HTTP as
-## [code]DotHttp[/code] asks for — GET, HEAD, one [code]Range: bytes=N-[/code]
+## [code]GSHttp[/code] asks for — GET, HEAD, one [code]Range: bytes=N-[/code]
 ## form, keep-alive off — and every fault it can inject exists because a source
 ## code path needs it:
 ##
@@ -72,21 +72,21 @@ var _clients: Array[Dictionary] = []
 var _reply := PackedByteArray()
 
 
-## Binds and starts accepting. Returns a [DotResult] carrying the bound port.
-func start(requested_port: int = 0) -> DotResult:
+## Binds and starts accepting. Returns a [GSResult] carrying the bound port.
+func start(requested_port: int = 0) -> GSResult:
 	_server = TCPServer.new()
 
 	var err := _server.listen(requested_port, "127.0.0.1")
 	if err != OK:
-		return DotResult.fail(
-			DotError.CODE_NETWORK,
+		return GSResult.fail(
+			GSError.CODE_NETWORK,
 			"The test HTTP server could not listen.",
 			"port %d: %s" % [requested_port, error_string(err)]
 		)
 
 	port = _server.get_local_port()
 	set_process(true)
-	return DotResult.success(port)
+	return GSResult.success(port)
 
 
 ## The base URL a client should be pointed at.
@@ -204,7 +204,7 @@ func _respond(peer: StreamPeerTCP, request: String) -> void:
 		return
 
 	# The document root answers 200 with nothing in it, the way a content host
-	# with a directory root does. It matters because DotCloudSourceHttp.probe_base
+	# with a directory root does. It matters because GSCloudSourceHttp.probe_base
 	# probes the bare base URL: a host that 404s its root is reported unreachable
 	# even though every object under it is served fine.
 	if path == "/":

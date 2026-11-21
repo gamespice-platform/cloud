@@ -1,15 +1,15 @@
 extends RefCounted
 
-## The dependency half of [DotCloudClient]'s job tracking, in a file of its own so the client stays
+## The dependency half of [GSCloudClient]'s job tracking, in a file of its own so the client stays
 ## inside the size budget. Nothing here is used on its own.
 
 const MAX_DEPTH := 4
 
 
 ## Resolves a manifest's dependency tree ahead of the downloads and registers each pack's missing bytes, so the job's total is known before the first byte; manifests are kept for [method ensure_dependency].
-## One level is fetched [member DotCloudConfig.parallel_packs] at a time and registered in list order, so the totals do not depend on which fetch finished first; a manifest that fails to resolve is skipped here and fails in [method ensure_all] with its context.
+## One level is fetched [member GSCloudConfig.parallel_packs] at a time and registered in list order, so the totals do not depend on which fetch finished first; a manifest that fails to resolve is skipped here and fails in [method ensure_all] with its context.
 ## [param groups] are fetched of this level's packs only, not of theirs.
-static func register_dependencies(c: Node, manifest: DotCloudManifest, depth: int, groups: PackedStringArray = PackedStringArray()) -> void:
+static func register_dependencies(c: Node, manifest: GSCloudManifest, depth: int, groups: PackedStringArray = PackedStringArray()) -> void:
 	if depth >= MAX_DEPTH or c.job == null:
 		return
 	var wanted: Array = []
@@ -39,12 +39,12 @@ static func register_dependencies(c: Node, manifest: DotCloudManifest, depth: in
 		worker.call()
 	while int(state["live"]) > 0:
 		await c.get_tree().process_frame
-	for resolved: DotResult in results:
+	for resolved: GSResult in results:
 		if c.job == null:
 			return
 		if resolved == null or not resolved.ok:
 			continue
-		var m: DotCloudManifest = resolved.value
+		var m: GSCloudManifest = resolved.value
 		c._job_manifests[m.key()] = m
 		if not groups.is_empty():
 			c._job_groups[m.key()] = groups
@@ -54,7 +54,7 @@ static func register_dependencies(c: Node, manifest: DotCloudManifest, depth: in
 
 
 ## Registers an already resolved manifest and its dependency tree.
-static func register_manifest(c: Node, m: DotCloudManifest, groups: PackedStringArray = PackedStringArray()) -> void:
+static func register_manifest(c: Node, m: GSCloudManifest, groups: PackedStringArray = PackedStringArray()) -> void:
 	if c.job == null:
 		return
 	c._job_manifests[m.key()] = m
@@ -65,7 +65,7 @@ static func register_manifest(c: Node, m: DotCloudManifest, groups: PackedString
 	await register_dependencies(c, m, 1)
 
 
-## The download-only pass over every registered manifest, [member DotCloudConfig.parallel_packs] at a time. Returns {key: DotError} for the failures.
+## The download-only pass over every registered manifest, [member GSCloudConfig.parallel_packs] at a time. Returns {key: GSError} for the failures.
 static func download_all(c: Node) -> Dictionary:
 	var manifests: Array = c._job_manifests.values()
 	var failed := {}
@@ -74,11 +74,11 @@ static func download_all(c: Node) -> Dictionary:
 		while int(state["next"]) < manifests.size():
 			var i: int = state["next"]
 			state["next"] = i + 1
-			var m: DotCloudManifest = manifests[i]
+			var m: GSCloudManifest = manifests[i]
 			if c.is_mounted(m.content_id, m.version):
 				continue
 			var key := m.key()
-			var got: DotResult = await c._preflight_requirements(m, key)
+			var got: GSResult = await c._preflight_requirements(m, key)
 			if got.ok:
 				got = await c._download(m, c._job_groups.get(key, PackedStringArray()), key)
 			if not got.ok:
@@ -93,40 +93,40 @@ static func download_all(c: Node) -> Dictionary:
 
 
 ## One file of [param m] from the store, fetched alone when missing.
-static func read_file(c: Node, m: DotCloudManifest, path: String) -> DotResult:
-	var wanted: DotCloudFile = null
+static func read_file(c: Node, m: GSCloudManifest, path: String) -> GSResult:
+	var wanted: GSCloudFile = null
 	for f in m.files:
 		if f.path == path:
 			wanted = f
 			break
 	if wanted == null:
-		return DotResult.fail(DotError.CODE_INVALID, "The pack has no %s." % path, m.key())
+		return GSResult.fail(GSError.CODE_INVALID, "The pack has no %s." % path, m.key())
 	if not c.store.has(wanted.sha256):
-		var sub := DotCloudManifest.new()
+		var sub := GSCloudManifest.new()
 		sub.content_id = m.content_id
 		sub.version = m.version
 		sub.mount_root = m.mount_root
 		sub.mirrors = m.mirrors
 		sub.files = [wanted]
-		var fetched: DotResult = await c._download(sub, PackedStringArray(), m.key(), false)
+		var fetched: GSResult = await c._download(sub, PackedStringArray(), m.key(), false)
 		if not fetched.ok:
 			return fetched
 	return c.store.read(wanted.sha256)
 
 
-## [method DotCloudClient.ensure] for one dependency, reusing the manifest [method register_dependencies] already fetched.
-static func ensure_dependency(c: Node, dep: Dictionary, below: PackedStringArray) -> DotResult:
+## [method GSCloudClient.ensure] for one dependency, reusing the manifest [method register_dependencies] already fetched.
+static func ensure_dependency(c: Node, dep: Dictionary, below: PackedStringArray) -> GSResult:
 	var id := StringName(str(dep["id"]))
 	var version := str(dep["version"])
 	var key: String = c.content_key_for(id, version)
-	var known: DotCloudManifest = c._job_manifests.get(key)
+	var known: GSCloudManifest = c._job_manifests.get(key)
 	if known == null or c.is_mounted(id, version):
 		return await c.ensure(id, version, PackedStringArray(), "", below)
 	return await c.acquire_manifest(known, PackedStringArray(), below)
 
 
-## Acquires every dependency, [member DotCloudConfig.parallel_packs] at a time. A failure stops new ones starting and lets the running ones finish; the result names the first failure in list order and lists every failed id in its context.
-static func ensure_all(c: Node, key: String, deps: Array, below: PackedStringArray) -> DotResult:
+## Acquires every dependency, [member GSCloudConfig.parallel_packs] at a time. A failure stops new ones starting and lets the running ones finish; the result names the first failure in list order and lists every failed id in its context.
+static func ensure_all(c: Node, key: String, deps: Array, below: PackedStringArray) -> GSResult:
 	var results: Array = []
 	results.resize(deps.size())
 	var state := {"next": 0, "live": 0, "stop": false}
@@ -134,7 +134,7 @@ static func ensure_all(c: Node, key: String, deps: Array, below: PackedStringArr
 		while not state["stop"] and int(state["next"]) < deps.size():
 			var i: int = state["next"]
 			state["next"] = i + 1
-			var got: DotResult = await ensure_dependency(c, deps[i], below)
+			var got: GSResult = await ensure_dependency(c, deps[i], below)
 			results[i] = got
 			if not got.ok:
 				state["stop"] = true
@@ -146,16 +146,16 @@ static func ensure_all(c: Node, key: String, deps: Array, below: PackedStringArr
 	while int(state["live"]) > 0:
 		await c.get_tree().process_frame
 	var failed := PackedStringArray()
-	var first: DotResult = null
+	var first: GSResult = null
 	for i in deps.size():
-		var got: DotResult = results[i]
+		var got: GSResult = results[i]
 		if got == null or got.ok:
 			continue
 		failed.append("%s@%s" % [deps[i]["id"], deps[i]["version"]])
 		if first == null:
 			first = got.wrap("%s needs %s@%s" % [key, deps[i]["id"], deps[i]["version"]])
 	if first == null:
-		return DotResult.success(true)
+		return GSResult.success(true)
 	var ctx := first.error.context.duplicate()
 	ctx["failed_dependencies"] = failed
 	first.error.context = ctx

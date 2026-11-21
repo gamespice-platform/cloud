@@ -4,7 +4,7 @@ extends EditorPlugin
 ## Editor entry point for GameSpice Cloud.
 ##
 ## Registers inspector types and nothing else. Like GameSpice Core, GameSpice Cloud has no
-## autoloads: a project may run several [DotCloudClient]s (one per content
+## autoloads: a project may run several [GSCloudClient]s (one per content
 ## channel, or one per server it is talking to) and a singleton would make that
 ## impossible.
 
@@ -17,13 +17,13 @@ func _enter_tree() -> void:
 		icon = load(_ICON) as Texture2D
 
 	add_custom_type(
-		"DotCloudClient",
+		"GSCloudClient",
 		"Node",
 		load("res://addons/dot_cloud/client/dot_cloud_client.gd"),
 		icon
 	)
 	add_custom_type(
-		"DotCloudDownloader",
+		"GSCloudDownloader",
 		"Node",
 		load("res://addons/dot_cloud/transfer/dot_cloud_downloader.gd"),
 		icon
@@ -31,5 +31,5 @@ func _enter_tree() -> void:
 
 
 func _exit_tree() -> void:
-	remove_custom_type("DotCloudDownloader")
-	remove_custom_type("DotCloudClient")
+	remove_custom_type("GSCloudDownloader")
+	remove_custom_type("GSCloudClient")

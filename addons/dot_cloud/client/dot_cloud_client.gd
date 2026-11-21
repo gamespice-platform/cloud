@@ -1,5 +1,5 @@
 @tool
-class_name DotCloudClient
+class_name GSCloudClient
 extends "dot_cloud_client_urls.gd"
 
 ## The one node a game needs: fetch a manifest, download, verify, mount (usage in docs/client.md).
@@ -32,31 +32,31 @@ enum Phase {
 ## Phase changed. [param text] is a player-facing description.
 signal phase_changed(phase: Phase, text: String)
 
-## Forwarded from the downloader. See [method DotCloudDownloader.progress].
+## Forwarded from the downloader. See [method GSCloudDownloader.progress].
 signal progress_changed(progress: Dictionary)
 
-## The whole job's progress (every pack of a dependency tree or a Workshop sync), see [DotCloudJobProgress].
+## The whole job's progress (every pack of a dependency tree or a Workshop sync), see [GSCloudJobProgress].
 signal job_progress_changed(snapshot: Dictionary)
 
 ## Content is downloaded, verified and mounted.
-signal content_ready(manifest: DotCloudManifest, mount_prefix: String)
+signal content_ready(manifest: GSCloudManifest, mount_prefix: String)
 
 ## Content was released. The scene tree referencing it must already be gone.
 signal content_released(content_key: String)
 
-signal failed(error: DotError)
+signal failed(error: GSError)
 
 ## Emitted when an acquisition finishes, so a second caller for the same content can
 ## wait for the first rather than starting a sync that is refused. Internal: a consumer
 ## wants [signal content_ready], which says a mount is usable.
-signal _acquire_finished(content_key: String, result: DotResult)
+signal _acquire_finished(content_key: String, result: GSResult)
 
 @export_group("Configuration")
 
-## Content-delivery settings. A default [DotCloudConfig] is created if unset.
+## Content-delivery settings. A default [GSCloudConfig] is created if unset.
 ##
-## The default refuses unsigned manifests, so it fails validation until [member DotCloudConfig.trusted_keys] has a key: a content system that mounts scripts should not be secure by accident.
-@export var config: DotCloudConfig = null
+## The default refuses unsigned manifests, so it fails validation until [member GSCloudConfig.trusted_keys] has a key: a content system that mounts scripts should not be secure by accident.
+@export var config: GSCloudConfig = null
 
 ## Path to a JSON config file layered over [member config]'s defaults.
 @export var config_file: String = "user://dot_cloud.json"
@@ -65,14 +65,14 @@ signal _acquire_finished(content_key: String, result: DotResult)
 
 ## Allow content to arrive over the game connection when no HTTP source works.
 ##
-## Needs a delegate; GameSpice Server supplies one. See [DotCloudSourceNetchan].
+## Needs a delegate; GameSpice Server supplies one. See [GSCloudSourceNetchan].
 @export var allow_netchan_fallback: bool = true
 
 @export_group("Service")
 
-## Publish this client in [DotRegistry] so other addons find it under [constant SERVICE].
+## Publish this client in [GSRegistry] so other addons find it under [constant SERVICE].
 ##
-## DotClientLink, DotGameManager, the content command and DotAvatarCatalogue duck-type against it; an absent cloud reads as "content ships in the build", so a missing registration errors nowhere.
+## GSClientLink, GSGameManager, the content command and GSAvatarCatalogue duck-type against it; an absent cloud reads as "content ships in the build", so a missing registration errors nowhere.
 @export var register_service: bool = true
 
 ## Suffix for this client's registry name, so two clients in one process do not displace each other.
@@ -86,46 +86,46 @@ signal _acquire_finished(content_key: String, result: DotResult)
 
 @export_group("Wiring")
 
-## Where to find a [DotScheduler] for hashing; defaults to a child.
+## Where to find a [GSScheduler] for hashing; defaults to a child.
 ## Point it at the host's scheduler to share one frame budget.
-@export var scheduler_ref: DotNodeRef = null
+@export var scheduler_ref: GSNodeRef = null
 
-var store: DotCloudStore = null
-var mounter: DotCloudMounter = null
-var downloader: DotCloudDownloader = null
-var scheduler: DotScheduler = null
+var store: GSCloudStore = null
+var mounter: GSCloudMounter = null
+var downloader: GSCloudDownloader = null
+var scheduler: GSScheduler = null
 
 ## Sources in preference order. Mutable at runtime — GameSpice Server appends a netchan
 ## source once a session exists.
-var sources: Array[DotCloudSource] = []
+var sources: Array[GSCloudSource] = []
 
 ## What this build's addons are, for checking a pack's [code]requires.json[/code] before
-## it is mounted. See [DotAddonApi]; a test that is standing in for an older build sets
-## [member DotAddonApi.overrides] here.
-var addon_api: DotAddonApi = DotAddonApi.new()
+## it is mounted. See [GSAddonApi]; a test that is standing in for an older build sets
+## [member GSAddonApi.overrides] here.
+var addon_api: GSAddonApi = GSAddonApi.new()
 
 var _phase: Phase = Phase.IDLE
-var _http: DotHttp = null
+var _http: GSHttp = null
 
 ## The client objects are downloaded through, separate from the manifest's.
 ##
 ## The manifest's response cap is right for an unverified document and wrong for an object, whose size is signed and whose bytes are hash-checked: sharing one node left packs over 8 MiB undeliverable.
-var _object_http: DotHttp = null
+var _object_http: GSHttp = null
 
 ## The verified published mirror list (API 13), or null for origin only.
-var _mirror_list: DotCloudMirrorList = null
+var _mirror_list: GSCloudMirrorList = null
 
 ## Probes mirrors in [method load_mirror_list]; its own node because ranking overrides its timeout.
-var _probe_http: DotHttp = null
+var _probe_http: GSHttp = null
 var _started: bool = false
 var _registered_name: StringName = &""
 
-## content_key -> DotCloudManifest, for everything currently mounted.
+## content_key -> GSCloudManifest, for everything currently mounted.
 var _acquired: Dictionary = {}
 
-## The session a plain [method ensure] or [method acquire] mount is tagged with in [DotContentIndex].
+## The session a plain [method ensure] or [method acquire] mount is tagged with in [GSContentIndex].
 ## `online` by default; the shell sets `solo`. The Workshop passes the tag through [method ensure_for_session].
-var session_tag: StringName = DotContentIndex.SESSION_ONLINE
+var session_tag: StringName = GSContentIndex.SESSION_ONLINE
 
 ## content_key -> {session, source, uid_policy, allow_root} for a mount in progress that
 ## [method ensure_for_session] started. Keyed rather than a member field so two mounts in
@@ -141,21 +141,21 @@ func _ready() -> void:
 		return
 
 	_registered_name = (
-		DotRegistry.scoped_name(SERVICE, service_scope) if service_scope != &""
+		GSRegistry.scoped_name(SERVICE, service_scope) if service_scope != &""
 		else SERVICE
 	)
-	DotRegistry.register(_registered_name, self)
+	GSRegistry.register(_registered_name, self)
 
 
 ## Opens the cache and prepares the sources. Must be awaited before [method acquire].
 ## Not in _ready because it awaits the browser's storage quota; without the ceiling the cache
 ## would refuse valid downloads or accept ones it cannot store.
-func start() -> DotResult:
+func start() -> GSResult:
 	if _started:
-		return DotResult.success(self)
+		return GSResult.success(self)
 
 	if config == null:
-		config = DotCloudConfig.new()
+		config = GSCloudConfig.new()
 
 	if config_file != "":
 		var loaded := config.apply_json_file(config_file)
@@ -173,7 +173,7 @@ func start() -> DotResult:
 
 	_resolve_scheduler()
 
-	_http = DotHttp.new()
+	_http = GSHttp.new()
 	_http.name = "ManifestHttp"
 	_http.timeout_sec = 30.0
 	# A manifest is small; a hostile host should not be able to stream gigabytes
@@ -183,13 +183,13 @@ func start() -> DotResult:
 
 	# Objects: no response cap, and a longer timeout. A game pack is tens or hundreds of
 	# megabytes and thirty seconds is a small map on a slow line. See `_object_http`.
-	_object_http = DotHttp.new()
+	_object_http = GSHttp.new()
 	_object_http.name = "ObjectHttp"
 	_object_http.timeout_sec = config.file_timeout_sec
 	_object_http.max_response_bytes = 0
 	add_child(_object_http)
 
-	store = DotCloudStore.new(config)
+	store = GSCloudStore.new(config)
 	var opened := await store.open()
 	if not opened.ok:
 		return _fail(opened.error)
@@ -200,28 +200,28 @@ func start() -> DotResult:
 		_set_phase(Phase.VERIFYING, "Checking downloaded content…")
 		await store.verify_all(scheduler)
 
-	mounter = DotCloudMounter.new(config)
+	mounter = GSCloudMounter.new(config)
 	store.in_use_fn = func(key: String) -> bool: return mounter.is_mounted(key)
 
 	_build_sources()
 
 	downloader = _make_downloader(false)
-	pool = DotCloudDownloaderPool.new(downloader, _make_downloader, func() -> int: return config.parallel_packs)
+	pool = GSCloudDownloaderPool.new(downloader, _make_downloader, func() -> int: return config.parallel_packs)
 
 	_started = true
 	_set_phase(Phase.IDLE, "")
 
-	DotLog.info(CHANNEL, "client ready", store.describe())
+	GSLog.info(CHANNEL, "client ready", store.describe())
 
 	# Never fails the start: without the list the origin serves everything.
 	if config.mirrors_url != "" and config.use_mirrors:
 		await load_mirror_list()
-	return DotResult.success(self)
+	return GSResult.success(self)
 
 
 func _exit_tree() -> void:
 	if _registered_name != &"":
-		DotRegistry.unregister_instance(_registered_name, self)
+		GSRegistry.unregister_instance(_registered_name, self)
 		_registered_name = &""
 
 	if store != null:
@@ -230,21 +230,21 @@ func _exit_tree() -> void:
 
 func _resolve_scheduler() -> void:
 	if scheduler_ref == null:
-		scheduler_ref = DotNodeRef.of_created(&"CloudScheduler", DotScheduler)
+		scheduler_ref = GSNodeRef.of_created(&"CloudScheduler", GSScheduler)
 		# Runs on the main thread in a browser: a worker's user:// calls are proxied to it
 		# and answered between frames (~350 ms an object on FC's threaded shell).
 		# Sliced on the main thread, the same verify takes seconds.
-		if DotPlatform.is_web() and get_node_or_null(^"CloudScheduler") == null:
+		if GSPlatform.is_web() and get_node_or_null(^"CloudScheduler") == null:
 			_add_scheduler()
 
 	var res := scheduler_ref.resolve(self)
-	if res.ok and res.value is DotScheduler:
-		scheduler = res.value as DotScheduler
+	if res.ok and res.value is GSScheduler:
+		scheduler = res.value as GSScheduler
 		return
 
 	# A missing scheduler is recoverable — make one rather than refusing to run,
 	# because the most common cause is a ref pointing at a node the host renamed.
-	DotLog.warn(
+	GSLog.warn(
 		CHANNEL,
 		"could not resolve a scheduler; creating one",
 		{"ref": scheduler_ref.describe()}
@@ -252,11 +252,11 @@ func _resolve_scheduler() -> void:
 	scheduler = _add_scheduler()
 
 
-func _add_scheduler() -> DotScheduler:
-	var s := DotScheduler.new()
+func _add_scheduler() -> GSScheduler:
+	var s := GSScheduler.new()
 	s.name = "CloudScheduler"
 	# Before add_child: the scheduler starts its workers in _ready.
-	s.use_threads = not DotPlatform.is_web()
+	s.use_threads = not GSPlatform.is_web()
 	add_child(s)
 	return s
 
@@ -265,14 +265,14 @@ func _build_sources() -> void:
 	sources.clear()
 
 	if not local_search_dirs.is_empty():
-		var local := DotCloudSourceLocal.new()
+		var local := GSCloudSourceLocal.new()
 		local.search_dirs = local_search_dirs
 		# First: a file already on disk costs nothing to check and beats any
 		# network round trip.
 		local.priority = 10
 		sources.append(local)
 
-	var http_source := DotCloudSourceHttp.new()
+	var http_source := GSCloudSourceHttp.new()
 	# Resolved, not raw: the objects come from the same origin as the manifest, and a
 	# manifest that downloaded from a base this turned into a URL must not be followed
 	# by file requests to a path that is still not one.
@@ -283,7 +283,7 @@ func _build_sources() -> void:
 	sources.append(http_source)
 
 	if allow_netchan_fallback:
-		var netchan := DotCloudSourceNetchan.new()
+		var netchan := GSCloudSourceNetchan.new()
 		# Last: it costs the game server's own bandwidth, so it is what you fall
 		# back to, never what you reach for.
 		netchan.priority = 900
@@ -294,10 +294,10 @@ func _build_sources() -> void:
 ## Until then the source reports itself unsupported and is skipped.
 func set_netchan_delegate(delegate: Object) -> void:
 	for s in sources:
-		var nc := s as DotCloudSourceNetchan
+		var nc := s as GSCloudSourceNetchan
 		if nc != null:
 			nc.delegate = delegate
-			DotLog.debug(
+			GSLog.debug(
 				CHANNEL,
 				"netchan delegate set",
 				{"delegate": delegate.get_class() if delegate != null else "<none>"}
@@ -309,7 +309,7 @@ func set_netchan_delegate(delegate: Object) -> void:
 func acquire(
 	manifest_url: String,
 	groups: PackedStringArray = PackedStringArray()
-) -> DotResult:
+) -> GSResult:
 	if not _started:
 		var started := await start()
 		if not started.ok:
@@ -326,7 +326,7 @@ func acquire(
 	if is_local_manifest_url(manifest_url):
 		_adopt_local_dir(_local_manifest_path(manifest_url).get_base_dir())
 
-	var manifest: DotCloudManifest = fetched.value
+	var manifest: GSCloudManifest = fetched.value
 	return await acquire_manifest(manifest, groups)
 
 
@@ -335,7 +335,7 @@ func acquire(
 ## A second caller for the same content waits for the first: the downloader runs one sync at a time, and failing the later caller lost the race between sv_map and a game's initial map.
 var _inflight: Dictionary = {}
 ## The job being tracked, or null; [method begin_job] and [method end_job] nest.
-var job: DotCloudJobProgress = null
+var job: GSCloudJobProgress = null
 var _job_depth := 0
 var _job_manifests: Dictionary = {}
 ## Pack key -> the download groups the job fetches of it (API 23); a key not here fetches ungrouped files only.
@@ -343,8 +343,8 @@ var _job_groups: Dictionary = {}
 ## manifest URL -> pinned sha256 of the manifest file, set by [method ensure_locked].
 var _pinned: Dictionary = {}
 
-## Syncs run side by side, up to [member DotCloudConfig.parallel_packs]; a further one (a prefetch while the boot map downloads) waits its turn instead of failing.
-var pool: DotCloudDownloaderPool = null
+## Syncs run side by side, up to [member GSCloudConfig.parallel_packs]; a further one (a prefetch while the boot map downloads) waits its turn instead of failing.
+var pool: GSCloudDownloaderPool = null
 
 ## Most dependency manifests fetched together while resolving a collection; a test reads it to prove the cap held.
 var resolve_peak := 0
@@ -352,7 +352,7 @@ var _boosted := 0
 
 
 ## Wait for an acquisition already running for [param key].
-func _await_inflight(key: String) -> DotResult:
+func _await_inflight(key: String) -> GSResult:
 	while _inflight.has(key):
 		var payload: Array = await _acquire_finished
 
@@ -362,18 +362,18 @@ func _await_inflight(key: String) -> DotResult:
 	# The set emptied without our key being announced -- the owner died, or the client
 	# was torn down mid-sync. Answering "not there" is honest; the caller retries or
 	# falls back, which is what it does for any other failure.
-	return DotResult.fail(
-		DotError.CODE_STATE,
+	return GSResult.fail(
+		GSError.CODE_STATE,
 		"The acquisition of '%s' ended without an answer." % key
 	)
 
 
 ## [method acquire] for a manifest already in hand; GameSpice Server pushes manifests down the game connection.
 func acquire_manifest(
-	manifest: DotCloudManifest,
+	manifest: GSCloudManifest,
 	groups: PackedStringArray = PackedStringArray(),
 	chain: PackedStringArray = PackedStringArray()
-) -> DotResult:
+) -> GSResult:
 	if not _started:
 		var started := await start()
 		if not started.ok:
@@ -383,7 +383,7 @@ func acquire_manifest(
 	var key := manifest.key()
 
 	# Mounted, and with every file this side wants: a process that mounted it as a client
-	# and now hosts it too goes on to fetch and mount the rest (DotCloudMounter.covers).
+	# and now hosts it too goes on to fetch and mount the rest (GSCloudMounter.covers).
 	if mounter.is_mounted(key) and mounter.covers(manifest, groups):
 		_index_manifest(manifest)
 		_set_phase(Phase.READY, "Ready.")
@@ -391,10 +391,10 @@ func acquire_manifest(
 
 	# A dependency loop would join its own acquisition below and wait for itself forever.
 	if chain.has(key):
-		return _fail(DotError.make(DotError.CODE_INVALID, "Content dependencies are circular.", key))
+		return _fail(GSError.make(GSError.CODE_INVALID, "Content dependencies are circular.", key))
 
 	if _inflight.has(key):
-		DotLog.debug(CHANNEL, "joining an acquisition already running", {"content": key})
+		GSLog.debug(CHANNEL, "joining an acquisition already running", {"content": key})
 		var joined := await _await_inflight(key)
 		# The running one may have asked for fewer groups (a map top-up joining the boot fetch).
 		if joined.ok and not mounter.covers(manifest, groups):
@@ -414,11 +414,11 @@ func acquire_manifest(
 
 
 func _acquire_inner(
-	manifest: DotCloudManifest,
+	manifest: GSCloudManifest,
 	groups: PackedStringArray,
 	key: String,
 	chain: PackedStringArray = PackedStringArray()
-) -> DotResult:
+) -> GSResult:
 	# [b]Refused from the manifest alone, before a byte is fetched.[/b] A root overlay replaces
 	# the build's code for the whole process, which is a server's decision, never a
 	# subscription's (see [method ensure_for_session]).
@@ -427,9 +427,9 @@ func _acquire_inner(
 		var paths := PackedStringArray()
 		for f in manifest.files:
 			paths.append(f.path)
-		if DotCloudProvides.is_root_overlay(manifest.provides, paths):
-			return _fail(DotError.make(
-				DotError.CODE_FORBIDDEN,
+		if GSCloudProvides.is_root_overlay(manifest.provides, paths):
+			return _fail(GSError.make(
+				GSError.CODE_FORBIDDEN,
 				"This pack would overlay the build's addons, which a subscription may not do.",
 				key
 			))
@@ -484,11 +484,11 @@ func _acquire_inner(
 ## Acquires everything [param manifest] depends on, before its own download; a shared store pays once.
 ## [param chain] is the keys above this call on its own stack, so concurrent acquisitions
 ## neither see each other's chain nor share the depth cap.
-func _ensure_dependencies(manifest: DotCloudManifest, key: String, chain: PackedStringArray) -> DotResult:
+func _ensure_dependencies(manifest: GSCloudManifest, key: String, chain: PackedStringArray) -> GSResult:
 	if manifest.dependencies.is_empty():
-		return DotResult.success(true)
+		return GSResult.success(true)
 	if chain.has(key) or chain.size() >= 4:
-		return DotResult.fail(DotError.CODE_INVALID, "Content dependencies are circular or nested too deep.", key)
+		return GSResult.fail(GSError.CODE_INVALID, "Content dependencies are circular or nested too deep.", key)
 	var below := chain.duplicate()
 	below.append(key)
 	begin_job(manifest.display_name if manifest.display_name != "" else key)
@@ -499,10 +499,10 @@ func _ensure_dependencies(manifest: DotCloudManifest, key: String, chain: Packed
 
 
 ## Starts (or joins) a job: from here until the matching [method end_job] every pack's progress
-## also feeds [member job]. A caller that knows its packs up front calls [method DotCloudJobProgress.add_pack].
-func begin_job(label: String = "") -> DotCloudJobProgress:
+## also feeds [member job]. A caller that knows its packs up front calls [method GSCloudJobProgress.add_pack].
+func begin_job(label: String = "") -> GSCloudJobProgress:
 	if job == null:
-		job = DotCloudJobProgress.new()
+		job = GSCloudJobProgress.new()
 		job.label = label
 		job.changed.connect(func(s: Dictionary) -> void: job_progress_changed.emit(s))
 	_job_depth += 1
@@ -521,27 +521,27 @@ func end_job() -> void:
 ## Registers the missing bytes of [param refs] ([code]{id, version}[/code], with their dependency trees) in the open job, so its total is fixed before [method job_download] moves a byte. Needs [method begin_job]; a ref whose manifest will not resolve is left out and fails later with its context.
 ##
 ## [param groups] (API 23) are the download groups fetched of each ref itself, counted in the total and downloaded by [method job_download] (["*"] is all); its dependencies fetch none, as [method ensure] does.
-func job_register(refs: Array, groups: PackedStringArray = PackedStringArray()) -> DotResult:
+func job_register(refs: Array, groups: PackedStringArray = PackedStringArray()) -> GSResult:
 	if job == null:
-		return DotResult.fail(DotError.CODE_STATE, "job_register needs an open job.", "call begin_job first")
-	var synthetic := DotCloudManifest.new()
+		return GSResult.fail(GSError.CODE_STATE, "job_register needs an open job.", "call begin_job first")
+	var synthetic := GSCloudManifest.new()
 	synthetic.dependencies.assign(refs)
 	await _Job.register_dependencies(self, synthetic, 0, groups)
-	return DotResult.success(true)
+	return GSResult.success(true)
 
 
 ## [method job_register] for a manifest the caller already resolved and verified (a Workshop plan).
 ## [param groups] as in [method job_register], for this manifest.
-func job_register_manifest(manifest: DotCloudManifest, groups: PackedStringArray = PackedStringArray()) -> void:
+func job_register_manifest(manifest: GSCloudManifest, groups: PackedStringArray = PackedStringArray()) -> void:
 	if job != null:
 		await _Job.register_manifest(self, manifest, groups)
 
 
-## Downloads everything the job registered and mounts nothing, [member DotCloudConfig.parallel_packs] packs at a time. The value is [code]{key: DotError}[/code] for the packs that failed (they are left for the mount pass to report); this never fails as a whole.
-func job_download() -> DotResult:
+## Downloads everything the job registered and mounts nothing, [member GSCloudConfig.parallel_packs] packs at a time. The value is [code]{key: GSError}[/code] for the packs that failed (they are left for the mount pass to report); this never fails as a whole.
+func job_download() -> GSResult:
 	if job == null:
-		return DotResult.fail(DotError.CODE_STATE, "job_download needs an open job.", "call begin_job first")
-	return DotResult.success(await _Job.download_all(self))
+		return GSResult.fail(GSError.CODE_STATE, "job_download needs an open job.", "call begin_job first")
+	return GSResult.success(await _Job.download_all(self))
 
 
 ## Ends the download half: the job's snapshot now says "unpack" with a count, and each pack mounted from here ticks it.
@@ -551,7 +551,7 @@ func job_begin_unpack() -> void:
 
 
 ## One file of a pack as bytes from the store, fetching only that file when it is not there yet (a game's descriptor, read before the pack is mounted).
-func read_pack_file(manifest: DotCloudManifest, path: String) -> DotResult:
+func read_pack_file(manifest: GSCloudManifest, path: String) -> GSResult:
 	return await _Job.read_file(self, manifest, path)
 
 
@@ -563,72 +563,72 @@ func dependency_prefix(content_id: StringName, version: String) -> String:
 ## Between download and mount: the stored files must not run more code than the manifest said.
 ## Only for a manifest with [code]provides[/code]; older packs are trusted as before. Read from the
 ## store because a refusal after mounting would refuse something already running.
-func _rescan_for_code(manifest: DotCloudManifest) -> DotResult:
+func _rescan_for_code(manifest: GSCloudManifest) -> GSResult:
 	if manifest.provides.is_empty() or bool(manifest.provides.get("runs_code", false)):
-		return DotResult.success(true)
+		return GSResult.success(true)
 	var by_path := {}
 	var paths := PackedStringArray()
 	for f in manifest.wanted_files():
 		by_path[f.path] = f
 		paths.append(f.path)
 	var reader := func(p: String) -> PackedByteArray:
-		var f: DotCloudFile = by_path[p]
+		var f: GSCloudFile = by_path[p]
 		if store == null or not store.has(f.sha256):
 			return PackedByteArray()
 		var read := store.read(f.sha256)
 		return read.value if read.ok else PackedByteArray()
-	var scanned := DotCloudScriptScan.scan(paths, reader, manifest.provides)
+	var scanned := GSCloudScriptScan.scan(paths, reader, manifest.provides)
 	if not scanned.ok:
 		return scanned
 	var verdict: Dictionary = scanned.value
 	if bool(verdict["runs_code"]):
-		return DotResult.fail(
-			DotError.CODE_FORBIDDEN,
+		return GSResult.fail(
+			GSError.CODE_FORBIDDEN,
 			"The pack's files run code its manifest did not declare.",
 			"%s: %s" % [manifest.key(), ", ".join(verdict["reasons"])]
 		)
-	return DotResult.success(true)
+	return GSResult.success(true)
 
 
-## Registers what a mounted pack provides with [DotContentIndex], tagged with the session it
+## Registers what a mounted pack provides with [GSContentIndex], tagged with the session it
 ## was mounted for. Idempotent, so an already-mounted id@version just gains the tag. A
 ## manifest with no `provides` registers nothing: old packs behave exactly as before.
-func _index_manifest(manifest: DotCloudManifest) -> void:
+func _index_manifest(manifest: GSCloudManifest) -> void:
 	if manifest.provides.is_empty():
 		return
 	var opts: Dictionary = _mount_opts.get(manifest.key(), {})
 	var session := StringName(str(opts.get("session", session_tag)))
 	var source := StringName(str(opts.get(
-		"source", &"server" if session == DotContentIndex.SESSION_ONLINE else &"game"
+		"source", &"server" if session == GSContentIndex.SESSION_ONLINE else &"game"
 	)))
-	var added := DotContentIndex.shared().add_pack({
+	var added := GSContentIndex.shared().add_pack({
 		"content_id": manifest.content_id,
 		"version": manifest.version,
 		"prefix": manifest.mount_prefix(),
-		"provides": DotCloudProvides.normalize(manifest.provides),
+		"provides": GSCloudProvides.normalize(manifest.provides),
 		"session": session,
 		"source": source,
 	})
 	if not added.ok:
-		DotLog.warn(CHANNEL, "could not index what a pack provides", {
+		GSLog.warn(CHANNEL, "could not index what a pack provides", {
 			"content": manifest.key(), "why": added.error.message,
 		})
 
 
-## Fetches only [code]requires.json[/code] and runs [method check_requirements], so a pack this build cannot run is refused ([constant DotError.CODE_VERSION]) before its payload downloads.
+## Fetches only [code]requires.json[/code] and runs [method check_requirements], so a pack this build cannot run is refused ([constant GSError.CODE_VERSION]) before its payload downloads.
 ##
 ## A failure to fetch the file is not a refusal: the full download that follows reports its own network trouble.
-func _preflight_requirements(manifest: DotCloudManifest, key: String) -> DotResult:
-	var req: DotCloudFile = null
+func _preflight_requirements(manifest: GSCloudManifest, key: String) -> GSResult:
+	var req: GSCloudFile = null
 	for file in manifest.files:
-		if file.path == DotAddonApi.REQUIREMENTS_FILE:
+		if file.path == GSAddonApi.REQUIREMENTS_FILE:
 			req = file
 			break
 	if req == null:
-		return DotResult.success({})
+		return GSResult.success({})
 
 	if not store.has(req.sha256):
-		var sub := DotCloudManifest.new()
+		var sub := GSCloudManifest.new()
 		sub.content_id = manifest.content_id
 		sub.version = manifest.version
 		sub.mount_root = manifest.mount_root
@@ -636,8 +636,8 @@ func _preflight_requirements(manifest: DotCloudManifest, key: String) -> DotResu
 		sub.files = [req]
 		var fetched := await _download(sub, PackedStringArray(), key, false)
 		if not fetched.ok:
-			DotLog.debug(CHANNEL, "requirements preflight could not fetch", {"content": key})
-			return DotResult.success({})
+			GSLog.debug(CHANNEL, "requirements preflight could not fetch", {"content": key})
+			return GSResult.success({})
 
 	return check_requirements(manifest)
 
@@ -646,9 +646,9 @@ func _preflight_requirements(manifest: DotCloudManifest, key: String) -> DotResu
 ##
 ## An addon pack lands at res://addons/<addon>/ in an overlay, not at its own mount. The manifest must already be verified; no requirements check, since an addon pack is the build.
 func download_manifest(
-	manifest: DotCloudManifest,
+	manifest: GSCloudManifest,
 	groups: PackedStringArray = PackedStringArray()
-) -> DotResult:
+) -> GSResult:
 	if not _started:
 		var started := await start()
 		if not started.ok:
@@ -660,13 +660,13 @@ func download_manifest(
 		return downloaded
 
 	_set_phase(Phase.READY, "Ready.")
-	return DotResult.success(manifest)
+	return GSResult.success(manifest)
 
 
-## Stamps this client's side ([method DotCloudConfig.resolved_side]) on [param manifest] (API 8).
+## Stamps this client's side ([method GSCloudConfig.resolved_side]) on [param manifest] (API 8).
 ## On every way in, not at parse: the side is this process's fact, and a manifest shared by a
 ## server's and a player's client in one process is re-stamped by whichever uses it.
-func _apply_side(manifest: DotCloudManifest) -> void:
+func _apply_side(manifest: GSCloudManifest) -> void:
 	if config != null:
 		manifest.fetch_side = config.resolved_side()
 
@@ -674,22 +674,22 @@ func _apply_side(manifest: DotCloudManifest) -> void:
 ## The download half of an acquisition, shared by [method acquire_manifest] and
 ## [method download_manifest].
 func _download(
-	manifest: DotCloudManifest,
+	manifest: GSCloudManifest,
 	groups: PackedStringArray,
 	key: String,
 	track: bool = true
-) -> DotResult:
+) -> GSResult:
 	_set_phase(Phase.PLANNING, "Checking what needs downloading…")
 
 	var plan := plan_for(manifest, groups)
 
-	DotLog.info(
+	GSLog.info(
 		CHANNEL,
 		"acquiring content",
 		{
 			"content": key,
 			"need": plan["missing_files"],
-			"bytes": DotPaths.format_bytes(int(plan["missing_bytes"])),
+			"bytes": GSPaths.format_bytes(int(plan["missing_bytes"])),
 		}
 	)
 
@@ -698,11 +698,11 @@ func _download(
 
 	if int(plan["missing_files"]) == 0:
 		store.record_pack(manifest)
-		return DotResult.success(true)
+		return GSResult.success(true)
 
 	_set_phase(
 		Phase.DOWNLOADING,
-		"Downloading %s…" % DotPaths.format_bytes(int(plan["missing_bytes"]))
+		"Downloading %s…" % GSPaths.format_bytes(int(plan["missing_bytes"]))
 	)
 
 	var worker := await pool.take(key)
@@ -724,14 +724,14 @@ func _download(
 ## Whether this build has the addon API a pack's [code]requires.json[/code] asks for.
 ## Read from the store so the pack need not be mounted. No such file (older packs, or one this
 ## acquisition did not fetch) means nothing to check.
-func check_requirements(manifest: DotCloudManifest) -> DotResult:
+func check_requirements(manifest: GSCloudManifest) -> GSResult:
 	for file in manifest.files:
-		if file.path != DotAddonApi.REQUIREMENTS_FILE:
+		if file.path != GSAddonApi.REQUIREMENTS_FILE:
 			continue
 
 		if store == null or not store.has(file.sha256):
-			DotLog.debug(CHANNEL, "requirements not fetched; not checked", {"content": manifest.key()})
-			return DotResult.success({})
+			GSLog.debug(CHANNEL, "requirements not fetched; not checked", {"content": manifest.key()})
+			return GSResult.success({})
 
 		var read := store.read(file.sha256)
 		if not read.ok:
@@ -741,17 +741,17 @@ func check_requirements(manifest: DotCloudManifest) -> DotResult:
 			(read.value as PackedByteArray).get_string_from_utf8(), host_role
 		)
 		if not checked.ok:
-			DotLog.warn(CHANNEL, "content needs more than this build has", {
+			GSLog.warn(CHANNEL, "content needs more than this build has", {
 				"content": manifest.key(),
 				"why": checked.error.message,
 				"detail": checked.error.detail,
 			})
 		return checked
 
-	return DotResult.success({})
+	return GSResult.success({})
 
 
-## [method acquire] for content addressed by id and version rather than by URL: the interface DotMapLoader and the rest of the family duck-type against.
+## [method acquire] for content addressed by id and version rather than by URL: the interface GSMapLoader and the rest of the family duck-type against.
 ##
 ## Idempotent. [param manifest_url] overrides [member manifest_url_template]; empty resolves against [member local_search_dirs] then [member http_base_urls], disk before network.
 func ensure(
@@ -760,12 +760,12 @@ func ensure(
 	groups: PackedStringArray = PackedStringArray(),
 	manifest_url: String = "",
 	chain: PackedStringArray = PackedStringArray()
-) -> DotResult:
+) -> GSResult:
 	var id := String(content_id)
 
 	if id == "":
-		return DotResult.fail(
-			DotError.CODE_INVALID, "No content id to ensure."
+		return GSResult.fail(
+			GSError.CODE_INVALID, "No content id to ensure."
 		)
 
 	# Start first, as acquire does: config_file is applied only in start(), so verifying before it
@@ -778,7 +778,7 @@ func ensure(
 	var effective_version := version if version != "" else "0.0.0"
 
 	if is_mounted(content_id, effective_version):
-		var manifest: DotCloudManifest = _acquired.get(
+		var manifest: GSCloudManifest = _acquired.get(
 			content_key_for(content_id, effective_version)
 		)
 		if manifest != null:
@@ -790,7 +790,7 @@ func ensure(
 			return _ready_result(manifest)
 		# Mounted by an earlier run of this process, from a client that has since
 		# gone. The paths are there and resolvable, which is all a caller needs.
-		return DotResult.success(mount_prefix_for(content_id, effective_version))
+		return GSResult.success(mount_prefix_for(content_id, effective_version))
 
 	var resolved := await resolve_manifest(content_id, version, manifest_url)
 	if not resolved.ok:
@@ -802,40 +802,40 @@ func ensure(
 ## Fetches and mounts [param groups] of the content mounted where [param path] lives (API 22): the top-up a
 ## game asks for on a map change, knowing its own root but not the id and version it was published as.
 ## Value: the mount prefix, or "" when no acquired content holds [param path] (run from source, nothing to fetch).
-func ensure_groups_at(path: String, groups: PackedStringArray) -> DotResult:
+func ensure_groups_at(path: String, groups: PackedStringArray) -> GSResult:
 	for key: String in _acquired:
-		var manifest: DotCloudManifest = _acquired[key]
+		var manifest: GSCloudManifest = _acquired[key]
 		var prefix := manifest.mount_prefix().trim_suffix("/")
 		if path != prefix and not path.begins_with(prefix + "/"):
 			continue
 		var got := await acquire_manifest(manifest, groups)
 		if not got.ok:
 			return got
-		return DotResult.success(prefix)
-	return DotResult.success("")
+		return GSResult.success(prefix)
+	return GSResult.success("")
 
 
 ## Mounts what a repository's `content.lock.json` pins, the in-game twin of dot-bootstrap's fetch_lock.sh.
-## [param opts] are [method DotCloudLock.load_file]'s. Each `kind: "pack"` entry is ensured from the first
+## [param opts] are [method GSCloudLock.load_file]'s. Each `kind: "pack"` entry is ensured from the first
 ## base serving a manifest matching its `manifest_sha256`; `kind: "store"` entries are listed as skipped.
 ## A failed `optional` entry is logged, any other fails the call.
 ## Value: {mounted: [id@version], skipped: [{id, version, why}], failed: [id@version]}.
-func ensure_locked(lock_path: String, opts: Dictionary = {}) -> DotResult:
-	var loaded := DotCloudLock.load_file(lock_path, opts)
+func ensure_locked(lock_path: String, opts: Dictionary = {}) -> GSResult:
+	var loaded := GSCloudLock.load_file(lock_path, opts)
 	if not loaded.ok:
 		return loaded
-	var lock: DotCloudLock = loaded.value
+	var lock: GSCloudLock = loaded.value
 	var report := {"mounted": [], "skipped": lock.skipped.duplicate(), "failed": []}
 	if lock.bases.is_empty():
-		DotLog.info(CHANNEL, "GS_PACKS_FROM=none, no locked content fetched")
-		return DotResult.success(report)
+		GSLog.info(CHANNEL, "GS_PACKS_FROM=none, no locked content fetched")
+		return GSResult.success(report)
 	for p in lock.packs:
 		var id := String(p["id"])
 		var version := String(p["version"])
 		if String(p.get("kind", "pack")) != "pack":
 			report["skipped"].append({"id": id, "version": version, "why": "kind store: written by fetch_lock"})
 			continue
-		var got: DotResult = DotResult.fail(DotError.CODE_STATE, "There is nowhere to fetch %s from." % id)
+		var got: GSResult = GSResult.fail(GSError.CODE_STATE, "There is nowhere to fetch %s from." % id)
 		for base in lock.bases:
 			var url := "%s/%s/%s/manifest.json" % [base.rstrip("/"), id, version]
 			_pinned[url] = String(p.get("manifest_sha256", ""))
@@ -846,30 +846,30 @@ func ensure_locked(lock_path: String, opts: Dictionary = {}) -> DotResult:
 		if got.ok:
 			report["mounted"].append("%s@%s" % [id, version])
 		elif p.get("optional", false):
-			DotLog.warn(CHANNEL, "optional lock pack not mounted", {"id": id, "version": version, "error": str(got.error)})
+			GSLog.warn(CHANNEL, "optional lock pack not mounted", {"id": id, "version": version, "error": str(got.error)})
 			report["skipped"].append({"id": id, "version": version, "why": "optional, unavailable"})
 		else:
 			report["failed"].append("%s@%s" % [id, version])
 	if not report["failed"].is_empty():
-		return DotResult.fail(DotError.CODE_NETWORK, "Locked packs not mounted: %s" % ", ".join(report["failed"]))
-	return DotResult.success(report)
+		return GSResult.fail(GSError.CODE_NETWORK, "Locked packs not mounted: %s" % ", ".join(report["failed"]))
+	return GSResult.success(report)
 
 
 ## [method ensure] for a mount that knows its session and source; the one call the Workshop mounts through.
 ##
-## [param session] is a [constant DotContentIndex] session tag, [param source] `&"subscription"`, `&"server"` or `&"game"`. [param options]: `uid_policy: "add_only"` leaves UIDs the process knows alone, `allow_root: false` refuses an addon overlay at the root, `manifest_url` as for [method ensure]. A subscription is never mounted for an online session.
+## [param session] is a [constant GSContentIndex] session tag, [param source] `&"subscription"`, `&"server"` or `&"game"`. [param options]: `uid_policy: "add_only"` leaves UIDs the process knows alone, `allow_root: false` refuses an addon overlay at the root, `manifest_url` as for [method ensure]. A subscription is never mounted for an online session.
 func ensure_for_session(
 	content_id: StringName,
 	version: String,
 	session: StringName,
 	source: StringName = &"game",
 	options: Dictionary = {}
-) -> DotResult:
-	if session != DotContentIndex.SESSION_SOLO and session != DotContentIndex.SESSION_ONLINE:
-		return DotResult.fail(DotError.CODE_INVALID, "Unknown session '%s'." % session)
-	if source == &"subscription" and session != DotContentIndex.SESSION_SOLO:
-		return DotResult.fail(
-			DotError.CODE_FORBIDDEN, "A subscription is only mounted for a solo session.",
+) -> GSResult:
+	if session != GSContentIndex.SESSION_SOLO and session != GSContentIndex.SESSION_ONLINE:
+		return GSResult.fail(GSError.CODE_INVALID, "Unknown session '%s'." % session)
+	if source == &"subscription" and session != GSContentIndex.SESSION_SOLO:
+		return GSResult.fail(
+			GSError.CODE_FORBIDDEN, "A subscription is only mounted for a solo session.",
 			"%s@%s" % [content_id, version]
 		)
 	var effective := version if version != "" else "0.0.0"
@@ -894,7 +894,7 @@ func resolve_manifest(
 	content_id: StringName,
 	version: String = "",
 	manifest_url: String = ""
-) -> DotResult:
+) -> GSResult:
 	return await _Manifests.resolve(self, content_id, version, manifest_url)
 
 
@@ -907,15 +907,15 @@ func _adopt_local_dir(dir: String) -> void:
 	local_search_dirs.append(dir)
 
 	for source in sources:
-		if source is DotCloudSourceLocal:
-			var local: DotCloudSourceLocal = source
+		if source is GSCloudSourceLocal:
+			var local: GSCloudSourceLocal = source
 			if not local.search_dirs.has(dir):
 				local.search_dirs.append(dir)
 			return
 
 	# There was no local source, because there were no directories when the sources
 	# were built. One now, at the same priority _build_sources gives it.
-	var created := DotCloudSourceLocal.new()
+	var created := GSCloudSourceLocal.new()
 	created.search_dirs = PackedStringArray([dir])
 	created.priority = 10
 	sources.append(created)
@@ -928,7 +928,7 @@ func is_mounted(content_id: StringName, version: String = "") -> bool:
 
 
 ## The [code]id@version[/code] key this content is known by.
-## Duplicated from [method DotCloudManifest.key] on purpose: a caller asking whether content is
+## Duplicated from [method GSCloudManifest.key] on purpose: a caller asking whether content is
 ## mounted has no manifest, and fetching one is what it is avoiding.
 static func content_key_for(content_id: StringName, version: String = "") -> String:
 	return "%s@%s" % [String(content_id), version if version != "" else "0.0.0"]
@@ -944,19 +944,19 @@ static func mount_prefix_for(content_id: StringName, version: String = "") -> St
 ## Downloads and verifies a manifest without acting on it.
 ##
 ## Signatures verify over the bytes as received. A local path is read, not requested: HTTPRequest cannot fetch res:// or user://.
-func fetch_manifest(manifest_url: String) -> DotResult:
+func fetch_manifest(manifest_url: String) -> GSResult:
 	return await _Manifests.fetch(self, manifest_url)
 
 
 ## Checks a manifest's signature against the configured trusted keys.
-func verify_manifest(manifest: DotCloudManifest) -> DotResult:
+func verify_manifest(manifest: GSCloudManifest) -> GSResult:
 	return _Manifests.verify(self, manifest)
 
 
 ## What acquiring this manifest would cost, without doing it (cache lookups only).
 ## For a "this map needs 240 MB, continue?" prompt on mobile and metered connections.
 func plan_for(
-	manifest: DotCloudManifest,
+	manifest: GSCloudManifest,
 	groups: PackedStringArray = PackedStringArray()
 ) -> Dictionary:
 	_apply_side(manifest)
@@ -985,19 +985,19 @@ func plan_for(
 		"cached_files": cached_files,
 		"missing_files": missing_files,
 		"missing_bytes": missing_bytes,
-		"missing_human": DotPaths.format_bytes(missing_bytes),
+		"missing_human": GSPaths.format_bytes(missing_bytes),
 		"cache_shortfall": store.shortfall(missing_bytes),
 		"already_mounted": mounter.is_mounted(manifest.key()),
 	}
 
 
 ## Releases content. [b]Free everything referencing it first[/b]: nodes holding its resources keep them
-## cached and Godot cannot unmount a pack (see [DotCloudMounter]). This makes the content
+## cached and Godot cannot unmount a pack (see [GSCloudMounter]). This makes the content
 ## unreachable and its objects evictable, not the file table reclaimed.
-func release(content_key: String) -> DotResult:
+func release(content_key: String) -> GSResult:
 	if not mounter.is_mounted(content_key):
-		return DotResult.fail(
-			DotError.CODE_INVALID, "Not mounted.", content_key
+		return GSResult.fail(
+			GSError.CODE_INVALID, "Not mounted.", content_key
 		)
 
 	var res := mounter.unmount(content_key, store)
@@ -1014,62 +1014,62 @@ func cancel() -> void:
 		pool.cancel_all()
 
 
-## Fetches and verifies the site's signed mirror list ([param url] or [member DotCloudConfig.mirrors_url])
+## Fetches and verifies the site's signed mirror list ([param url] or [member GSCloudConfig.mirrors_url])
 ## and hands it to the HTTP source, ranked by latency when [param rank] is set.
 ## Does nothing with no URL or when opted out; a failure logs WARN and leaves delivery origin-only.
-func load_mirror_list(url: String = "", rank: bool = true) -> DotResult:
+func load_mirror_list(url: String = "", rank: bool = true) -> GSResult:
 	if not _started:
 		var started := await start()
 		if not started.ok:
 			return started
 	var where := resolve_base_url(url if url != "" else config.mirrors_url)
 	if where == "" or not config.use_mirrors:
-		return DotResult.success(null)
+		return GSResult.success(null)
 
 	var res := await _load_mirror_list_inner(where, rank)
 	if not res.ok:
-		DotLog.warn(CHANNEL, "mirror list refused; using the origin only", {
+		GSLog.warn(CHANNEL, "mirror list refused; using the origin only", {
 			"url": where, "why": str(res.error),
 		})
 	return res
 
 
-func _load_mirror_list_inner(where: String, rank: bool) -> DotResult:
-	var url_ok := DotCloudMirrorList.check_base_url(where)
+func _load_mirror_list_inner(where: String, rank: bool) -> GSResult:
+	var url_ok := GSCloudMirrorList.check_base_url(where)
 	if not url_ok.ok:
 		return url_ok
 	var fetched := await _http.get_bytes(where)
 	if not fetched.ok:
 		return fetched.wrap("Could not download the mirror list.")
 	var seen_path := config.cache_dir.path_join("mirrors_seen.json")
-	var newest := DotCloudMirrorList.newest_seen(seen_path)
+	var newest := GSCloudMirrorList.newest_seen(seen_path)
 	if _mirror_list != null:
 		newest = maxi(newest, _mirror_list.issued_at)
-	var parsed := DotCloudMirrorList.parse_signed(
+	var parsed := GSCloudMirrorList.parse_signed(
 		fetched.value, config.trusted_keys, int(Time.get_unix_time_from_system()), newest
 	)
 	if not parsed.ok:
 		return parsed
-	var list: DotCloudMirrorList = parsed.value
-	DotCloudMirrorList.remember(seen_path, list.issued_at)
+	var list: GSCloudMirrorList = parsed.value
+	GSCloudMirrorList.remember(seen_path, list.issued_at)
 	if rank and not list.mirrors.is_empty():
 		if _probe_http == null:
-			_probe_http = DotHttp.new()
+			_probe_http = GSHttp.new()
 			_probe_http.name = "ProbeHttp"
 			_probe_http.max_response_bytes = 64 * 1024
 			add_child(_probe_http)
 		await list.rank(_probe_http, 3.0)
 	_mirror_list = list
 	for s in sources:
-		var http_source := s as DotCloudSourceHttp
+		var http_source := s as GSCloudSourceHttp
 		if http_source != null:
 			http_source.mirror_list = list
-	DotLog.info(CHANNEL, "mirror list loaded", list.describe())
-	return DotResult.success(list)
+	GSLog.info(CHANNEL, "mirror list loaded", list.describe())
+	return GSResult.success(list)
 
 
 ## The verified mirror list in use, or null (none loaded, or opted out).
-func mirror_list() -> DotCloudMirrorList:
+func mirror_list() -> GSCloudMirrorList:
 	return _mirror_list if config != null and config.use_mirrors else null
 
 
@@ -1083,15 +1083,15 @@ func mirror_alternatives(url: String) -> PackedStringArray:
 ## Downloads the packs a server will want into the store before connecting, mounting nothing.
 ## [param doc] is `{format: 1, kind: "dot_cloud_prefetch", server_id, app_id, packs: [{id, version, bytes}],
 ## avatar_library, mirrors_url}`. Manifests resolve like [method ensure]; a pack past
-## [member DotCloudConfig.prefetch_max_bytes] or [member DotCloudConfig.prefetch_max_packs] is skipped.
+## [member GSCloudConfig.prefetch_max_bytes] or [member GSCloudConfig.prefetch_max_packs] is skipped.
 ## Returns `{packs_fetched, packs_skipped, bytes, skipped: [{id, version, why}], avatar_library}`.
-func prefetch(doc: Dictionary) -> DotResult:
+func prefetch(doc: Dictionary) -> GSResult:
 	return await _Prefetch.run(self, doc)
 
 
 ## Validates a prefetch document strictly: kind, format, and each pack's id and version through
-## [method DotCloudManifest.validate_shape]. Packs past [param max_packs] land in `over_cap`.
-static func parse_prefetch(doc: Dictionary, max_packs: int) -> DotResult:
+## [method GSCloudManifest.validate_shape]. Packs past [param max_packs] land in `over_cap`.
+static func parse_prefetch(doc: Dictionary, max_packs: int) -> GSResult:
 	return _Prefetch.parse(doc, max_packs)
 
 
@@ -1109,12 +1109,12 @@ func acquired_keys() -> PackedStringArray:
 	return out
 
 
-func manifest_for(content_key: String) -> DotCloudManifest:
+func manifest_for(content_key: String) -> GSCloudManifest:
 	return _acquired.get(content_key)
 
 
 ## The addon classes a pack names, compiled while its big objects still download.
-var _prewarm: DotCloudSliceLoader
+var _prewarm: GSCloudSliceLoader
 var _prewarming := false
 signal _prewarm_done
 
@@ -1126,19 +1126,19 @@ const WARM_SKIP_DIRS := _Warm.SKIP_DIRS
 ## Compiles the scripts of the mounted packs [param keys], and the addon classes they name, a slice
 ## per frame, so the scene load() that follows is a cache hit. Skipped where there are threads.
 ## Keep the returned loader until that load() is done. [param on_progress] gets (done, total).
-func _prewarm_classes(manifest: DotCloudManifest) -> void:
+func _prewarm_classes(manifest: GSCloudManifest) -> void:
 	await _Warm.prewarm_classes(self, manifest)
 
 
-func warm_content(tree: SceneTree, keys: PackedStringArray, force: bool = false, on_progress: Callable = Callable()) -> DotCloudSliceLoader:
+func warm_content(tree: SceneTree, keys: PackedStringArray, force: bool = false, on_progress: Callable = Callable()) -> GSCloudSliceLoader:
 	return await _Warm.warm_content(self, tree, keys, force, on_progress)
 
 
-func _ready_result(manifest: DotCloudManifest) -> DotResult:
+func _ready_result(manifest: GSCloudManifest) -> GSResult:
 	var entry := manifest.entry_scene_path()
 	if entry != "":
-		return DotResult.success(entry)
-	return DotResult.success(manifest.mount_prefix())
+		return GSResult.success(entry)
+	return GSResult.success(manifest.mount_prefix())
 
 
 func _set_phase(p: Phase, text: String) -> void:
@@ -1148,20 +1148,20 @@ func _set_phase(p: Phase, text: String) -> void:
 	phase_changed.emit(p, text)
 
 
-func _fail(error: DotError) -> DotResult:
+func _fail(error: GSError) -> GSResult:
 	_set_phase(Phase.FAILED, error.message)
-	DotLog.error(
+	GSLog.error(
 		CHANNEL,
 		error.message,
 		{"code": error.code, "detail": error.detail}
 	)
 	failed.emit(error)
-	return DotResult.failure(error)
+	return GSResult.failure(error)
 
 
-## [param extra] downloaders (beyond the first) get a share of [member DotCloudConfig.parallel_downloads], so four packs at once do not open four times the connections.
-func _make_downloader(extra: bool) -> DotCloudDownloader:
-	var d := DotCloudDownloader.new()
+## [param extra] downloaders (beyond the first) get a share of [member GSCloudConfig.parallel_downloads], so four packs at once do not open four times the connections.
+func _make_downloader(extra: bool) -> GSCloudDownloader:
+	var d := GSCloudDownloader.new()
 	d.name = "Downloader%d" % (pool.size() if extra and pool != null else 0)
 	d.config = config
 	d.store = store
@@ -1175,7 +1175,7 @@ func _make_downloader(extra: bool) -> DotCloudDownloader:
 	return d
 
 
-func _on_progress(p: Dictionary, from: DotCloudDownloader) -> void:
+func _on_progress(p: Dictionary, from: GSCloudDownloader) -> void:
 	var key := pool.key_of(from) if pool != null else ""
 	if job != null and key != "":
 		job.set_pack_done(key, int(p.get("done_bytes", 0)), int(p.get("done_files", 0)))

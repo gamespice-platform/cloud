@@ -1,4 +1,4 @@
-class_name DotCloudEd25519
+class_name GSCloudEd25519
 extends RefCounted
 
 ## Ed25519 signature verification (RFC 8032) in plain GDScript.
@@ -41,35 +41,35 @@ const _L := [0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0
 ## Verifies [param signature] (64 bytes, R then S) over [param message] against the raw 32-byte
 ## public key [param key_bytes]. Success carries [code]true[/code]; every failure is a result with
 ## a code and a reason, never a silent false.
-static func verify(message: PackedByteArray, signature: PackedByteArray, key_bytes: PackedByteArray) -> DotResult:
+static func verify(message: PackedByteArray, signature: PackedByteArray, key_bytes: PackedByteArray) -> GSResult:
 	if key_bytes.size() != KEY_BYTES:
-		return DotResult.fail(DotError.CODE_INVALID, "An Ed25519 public key is %d bytes." % KEY_BYTES,
+		return GSResult.fail(GSError.CODE_INVALID, "An Ed25519 public key is %d bytes." % KEY_BYTES,
 			"got %d" % key_bytes.size())
 	if signature.size() != SIGNATURE_BYTES:
-		return DotResult.fail(DotError.CODE_INTEGRITY, "An Ed25519 signature is %d bytes." % SIGNATURE_BYTES,
+		return GSResult.fail(GSError.CODE_INTEGRITY, "An Ed25519 signature is %d bytes." % SIGNATURE_BYTES,
 			"got %d" % signature.size())
 	if not _scalar_below_order(signature.slice(32, 64)):
-		return DotResult.fail(DotError.CODE_INTEGRITY, "The signature's scalar is not below the group order.")
+		return GSResult.fail(GSError.CODE_INTEGRITY, "The signature's scalar is not below the group order.")
 	if not _y_is_canonical(key_bytes):
-		return DotResult.fail(DotError.CODE_INVALID, "The public key is not a canonical Ed25519 point.")
+		return GSResult.fail(GSError.CODE_INVALID, "The public key is not a canonical Ed25519 point.")
 	var a_neg: Variant = _unpack_negated(key_bytes)
 	if a_neg == null:
-		return DotResult.fail(DotError.CODE_INVALID, "The public key is not a point on the Ed25519 curve.")
+		return GSResult.fail(GSError.CODE_INVALID, "The public key is not a point on the Ed25519 curve.")
 
 	# h = SHA-512(R || A || M) mod L; the check is [S]B - [h]A == R, compared as encoded bytes.
 	var hashed := PackedByteArray()
 	hashed.append_array(signature.slice(0, 32))
 	hashed.append_array(key_bytes)
 	hashed.append_array(message)
-	var h := _reduce_mod_l(DotCloudSha512.digest(hashed))
+	var h := _reduce_mod_l(GSCloudSha512.digest(hashed))
 	var left := _scalar_mult(a_neg, h)
 	var right := _scalar_mult(_base_point(), signature.slice(32, 64))
 	var sum := _add(left, right)
 	var packed := _pack(sum)
 	if packed != signature.slice(0, 32):
-		return DotResult.fail(DotError.CODE_INTEGRITY, "The Ed25519 signature does not match the message.",
+		return GSResult.fail(GSError.CODE_INTEGRITY, "The Ed25519 signature does not match the message.",
 			"signed %d bytes" % message.size())
-	return DotResult.success(true)
+	return GSResult.success(true)
 
 
 # ---- Scalars ----

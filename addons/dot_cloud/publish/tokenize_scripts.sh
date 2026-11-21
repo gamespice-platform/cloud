@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tokenize a project's scripts with the engine's own exporter, for DotCloudPublisher.script_tokens_dir.
+# Tokenize a project's scripts with the engine's own exporter, for GSCloudPublisher.script_tokens_dir.
 #   heavy -- tokenize_scripts.sh <imported project dir> <out dir> [mode: 2 compressed (default), 1 binary]
 # The tokens only load on the engine version that wrote them: run with the version clients run.
 set -euo pipefail

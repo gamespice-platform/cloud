@@ -1,14 +1,14 @@
 extends RefCounted
 
-## The `res://` rewrite of [DotCloudPublisher], in a file of its own so the publisher stays inside the size budget.
+## The `res://` rewrite of [GSCloudPublisher], in a file of its own so the publisher stays inside the size budget.
 ## Nothing here is used on its own.
 
 
 ## Rewrites `res://X` to the pack's mount prefix for every X in [param inside]; returns the staged path, or "" when nothing changed.
-static func rewrite_paths(abs: String, staged: String, inside: Dictionary, mount_root: String, content_id: String, version: String) -> DotResult:
+static func rewrite_paths(abs: String, staged: String, inside: Dictionary, mount_root: String, content_id: String, version: String) -> GSResult:
 	var text := FileAccess.get_file_as_string(abs)
 	if text == "" and FileAccess.get_open_error() != OK:
-		return DotResult.fail(DotError.CODE_IO, "Could not read the file.", abs)
+		return GSResult.fail(GSError.CODE_IO, "Could not read the file.", abs)
 
 	var prefix := "res://%s/%s/%s/" % [mount_root, content_id, version]
 	var out := ""
@@ -50,24 +50,24 @@ static func rewrite_paths(abs: String, staged: String, inside: Dictionary, mount
 
 	var other := foreign_version(out, mount_root, content_id, version)
 	if other != "":
-		return DotResult.fail(DotError.CODE_INVALID, "'%s' still names pack version %s while publishing %s." % [abs, other, version], abs)
+		return GSResult.fail(GSError.CODE_INVALID, "'%s' still names pack version %s while publishing %s." % [abs, other, version], abs)
 
 	if not changed:
-		return DotResult.success("")
+		return GSResult.success("")
 
-	var parent := DotPaths.ensure_parent_dir(staged)
+	var parent := GSPaths.ensure_parent_dir(staged)
 	if not parent.ok:
 		return parent
 
 	var f := FileAccess.open(staged, FileAccess.WRITE)
 	if f == null:
-		return DotResult.fail(
-			DotError.CODE_IO, "Could not write the rewritten file.", staged
+		return GSResult.fail(
+			GSError.CODE_IO, "Could not write the rewritten file.", staged
 		)
 	f.store_string(out)
 	f.close()
 
-	return DotResult.success(staged)
+	return GSResult.success(staged)
 
 
 ## The path under another version of this pack ("" when it is not one): `dot_cloud/fc/0.1.24/a.gd` gives `a.gd`.

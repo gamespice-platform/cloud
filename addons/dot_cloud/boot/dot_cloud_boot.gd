@@ -4,10 +4,10 @@ extends Node
 ##
 ## [b]This file may name NOTHING from any addon -- not even GameSpice Cloud's own classes.[/b]
 ## Measured on an exported build: once a script is compiled, a newer copy mounted over it is
-## never read, in this process. So the overlay [DotCloudAddonSet] prepares has to be mounted
+## never read, in this process. So the overlay [GSCloudAddonSet] prepares has to be mounted
 ## before the first addon script is touched, and the only code that can run before that is
 ## code that touches none. Everything below is the engine's API; the paths and the plan's
-## field names are written out again rather than read from `DotCloudAddonSet`, on purpose.
+## field names are written out again rather than read from `GSCloudAddonSet`, on purpose.
 ## Keep the two in step.
 ##
 ## [b]Use:[/b] make a scene whose root is a Node with this script, set [member next_scene]
@@ -16,7 +16,7 @@ extends Node
 ##
 ## [b]A boot that never arrives is not repeated forever.[/b] The plan says `booting` before
 ## the mount and the shell says `ok` once it has built itself
-## ([method DotCloudAddonSet.confirm_boot]). Finding `booting` means the last start died
+## ([method GSCloudAddonSet.confirm_boot]). Finding `booting` means the last start died
 ## between the two -- a broken addon, or a tab closed mid-load. One retry covers the second;
 ## after that the overlay is marked failed and the build comes up on its own addons.
 

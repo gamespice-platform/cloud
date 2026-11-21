@@ -1,6 +1,6 @@
 extends Node
 
-## DotCloudLock and DotCloudClient.ensure_locked: the CDN precedence and download-list rules of fetch_lock.sh, then a real mount from a lock.
+## GSCloudLock and GSCloudClient.ensure_locked: the CDN precedence and download-list rules of fetch_lock.sh, then a real mount from a lock.
 ## Run: godot --headless --path . res://examples/lock_demo.tscn
 
 const WORK := "user://dot_cloud_lock_demo"
@@ -15,14 +15,14 @@ var _keys: Dictionary = {}
 
 
 func _ready() -> void:
-	DotLog.set_level(DotLog.Level.ERROR)
+	GSLog.set_level(GSLog.Level.ERROR)
 	await _run()
 
 
 func _run() -> void:
 	print("dot-cloud lock file")
-	DotPaths.remove_tree(WORK)
-	var keys := DotCloudSignature.generate_keypair(2048)
+	GSPaths.remove_tree(WORK)
+	var keys := GSCloudSignature.generate_keypair(2048)
 	if not keys.ok:
 		_finish(1)
 		return
@@ -40,14 +40,14 @@ func _run() -> void:
 
 
 func _bases(doc: Dictionary, opts: Dictionary, env_file: String = "") -> Array:
-	return Array(DotCloudLock.resolve_bases(doc, opts, env_file))
+	return Array(GSCloudLock.resolve_bases(doc, opts, env_file))
 
 
 func _section_bases() -> void:
 	_begin("cdn precedence")
 	var doc := {"origin": "https://dev.example/content", "mirrors": ["https://m.example/c/"]}
 	var envf := WORK.path_join("bootstrap.env")
-	DotPaths.write_text(envf, "# c\nDOT_CDN_URL=\"https://envfile.example\"\n")
+	GSPaths.write_text(envf, "# c\nDOT_CDN_URL=\"https://envfile.example\"\n")
 	_check("lock origin then mirrors", _bases(doc, {"environment": {}}) == ["https://dev.example/content", "https://m.example/c"])
 	_check("default content.gamespice.net", _bases({}, {"environment": {}}) == ["https://content.gamespice.net/content"])
 	_check("env file beats lock", _bases(doc, {"environment": {}}, envf) == ["https://envfile.example/content"])
@@ -59,24 +59,24 @@ func _section_bases() -> void:
 	_check("GS_CDN_URL beats DOT_CDN_URL", _bases(doc, {"environment": {"GS_CDN_URL": "https://g.example", "DOT_CDN_URL": "https://e.example"}}) == ["https://g.example/content"])
 	_check("GS_PACKS_FROM is read", _bases(doc, {"environment": {"GS_PACKS_FROM": "/srv/gs"}}) == ["/srv/gs"])
 	var gsenvf := WORK.path_join("bootstrap_gs.env")
-	DotPaths.write_text(gsenvf, "GS_CDN_URL=\"https://gsfile.example\"\nDOT_CDN_URL=\"https://envfile.example\"\n")
+	GSPaths.write_text(gsenvf, "GS_CDN_URL=\"https://gsfile.example\"\nDOT_CDN_URL=\"https://envfile.example\"\n")
 	_check("GS_CDN_URL in the env file beats DOT_CDN_URL", _bases(doc, {"environment": {}}, gsenvf) == ["https://gsfile.example/content"])
 	_end()
 
 
 func _lock_dir(tag: String, packs: Array) -> String:
 	var dir := WORK.path_join(tag)
-	DotPaths.write_text(dir.path_join("content.lock.json"), JSON.stringify({"format": 1, "origin": "https://o.example/content", "packs": packs}))
+	GSPaths.write_text(dir.path_join("content.lock.json"), JSON.stringify({"format": 1, "origin": "https://o.example/content", "packs": packs}))
 	return dir
 
 
-func _load(dir: String, opts: Dictionary = {}) -> DotCloudLock:
+func _load(dir: String, opts: Dictionary = {}) -> GSCloudLock:
 	opts["environment"] = {}
 	opts["env_file"] = ""
-	return DotCloudLock.load_file(dir.path_join("content.lock.json"), opts).value
+	return GSCloudLock.load_file(dir.path_join("content.lock.json"), opts).value
 
 
-func _ids(lock: DotCloudLock) -> Array:
+func _ids(lock: GSCloudLock) -> Array:
 	return lock.packs.map(func(p: Dictionary) -> String: return p["id"])
 
 
@@ -89,43 +89,43 @@ func _section_lists() -> void:
 	]
 	_check("no cfg: all wanted", _ids(_load(_lock_dir("l0", packs))).size() == 3)
 	var d1 := _lock_dir("l1", packs)
-	DotPaths.write_text(d1.path_join("cfg/content/games.yml"), "merge: true\nremove: [o/zz-a]\n")
+	GSPaths.write_text(d1.path_join("cfg/content/games.yml"), "merge: true\nremove: [o/zz-a]\n")
 	_check("remove: drops a pack", _ids(_load(d1)) == ["o/zz-b", "o/zz-c"])
 	var d2 := _lock_dir("l2", packs)
-	DotPaths.write_text(d2.path_join("cfg/content/zz-b/disabled"), "")
+	GSPaths.write_text(d2.path_join("cfg/content/zz-b/disabled"), "")
 	_check("disabled file drops it", _ids(_load(d2)) == ["o/zz-a", "o/zz-c"])
 	var d3 := _lock_dir("l3", packs)
-	DotPaths.write_text(d3.path_join("cfg/content/games.yml"), "entries:\n  - pack: o/zz-b\n  - repo: game-x\n")
+	GSPaths.write_text(d3.path_join("cfg/content/games.yml"), "entries:\n  - pack: o/zz-b\n  - repo: game-x\n")
 	_check("pack: entries name the packs", _ids(_load(d3)) == ["o/zz-b", "o/zz-c"], str(_ids(_load(d3))))
 	var d4 := _lock_dir("l4", packs)
-	DotPaths.write_text(d4.path_join("cfg/content/games.yml"), "merge: true\nentries: [o/zz-b]\n")
+	GSPaths.write_text(d4.path_join("cfg/content/games.yml"), "merge: true\nentries: [o/zz-b]\n")
 	_check("merge: true names nothing", _ids(_load(d4)).size() == 3)
-	DotPaths.write_text(d4.path_join("cfg/server/content/addons.yml"), "remove:\n  - zz-c\n")
+	GSPaths.write_text(d4.path_join("cfg/server/content/addons.yml"), "remove:\n  - zz-c\n")
 	_check("server layer remove by name half", _ids(_load(d4)) == ["o/zz-a", "o/zz-b"])
 	_check("--only keeps matches", _ids(_load(_lock_dir("l5", packs), {"only": ["zz-*"], "skip": ["store"]})) == ["o/zz-a", "o/zz-b"])
 	var l := _load(d1)
 	_check("skipped says why", l.skipped.size() == 1 and l.skipped[0]["why"] == "removed in cfg/content")
-	_check("no lock: nothing pinned", DotCloudLock.load_file(WORK.path_join("none.json")).value.packs.is_empty())
-	_check("bad format refused", not DotCloudLock.load_file(_write("bad.json", '{"format": 2}')).ok)
+	_check("no lock: nothing pinned", GSCloudLock.load_file(WORK.path_join("none.json")).value.packs.is_empty())
+	_check("bad format refused", not GSCloudLock.load_file(_write("bad.json", '{"format": 2}')).ok)
 	_end()
 
 
 func _write(name: String, text: String) -> String:
 	var path := WORK.path_join(name)
-	DotPaths.write_text(path, text)
+	GSPaths.write_text(path, text)
 	return path
 
 
 func _section_mount() -> void:
 	_begin("ensure_locked")
 	var src := WORK.path_join("src")
-	DotPaths.write_text(src.path_join("a.txt"), "locked a\n")
-	DotPaths.write_text(WORK.path_join("src2/b.txt"), "locked b\n")
+	GSPaths.write_text(src.path_join("a.txt"), "locked a\n")
+	GSPaths.write_text(WORK.path_join("src2/b.txt"), "locked b\n")
 	var pub_root := WORK.path_join("published")
 	_publish("lk_a", "1", src, pub_root)
 	_publish("lk_b", "1", WORK.path_join("src2"), pub_root)
-	var sha_a := str(DotHash.sha256_file(pub_root.path_join("lk_a/1/manifest.json")).value)
-	var sha_b := str(DotHash.sha256_file(pub_root.path_join("lk_b/1/manifest.json")).value)
+	var sha_a := str(GSHash.sha256_file(pub_root.path_join("lk_a/1/manifest.json")).value)
+	var sha_b := str(GSHash.sha256_file(pub_root.path_join("lk_b/1/manifest.json")).value)
 	var packs := [
 		{"id": "lk_a", "version": "1", "manifest_sha256": sha_a, "kind": "pack"},
 		{"id": "lk_s", "version": "1", "manifest_sha256": "0", "into": ".stores/x", "kind": "store"},
@@ -152,7 +152,7 @@ func _section_mount() -> void:
 	_check("unreachable lock origin fails", not r3.ok)
 	var r4 := await c3.ensure_locked(ok.path_join("content.lock.json"), {"from": pub_root, "environment": {}, "env_file": ""})
 	_check("right pin mounts", r4.ok and c3.is_mounted(&"lk_b", "1"))
-	DotPaths.write_text(ok.path_join("cfg/content/lk_b/disabled"), "")
+	GSPaths.write_text(ok.path_join("cfg/content/lk_b/disabled"), "")
 	var r5 := await c3.ensure_locked(ok.path_join("content.lock.json"), {"from": pub_root, "environment": {}, "env_file": ""})
 	_check("disabled skipped", r5.ok and r5.value["mounted"].is_empty() and r5.value["skipped"].size() == 1)
 	c3.queue_free()
@@ -161,17 +161,17 @@ func _section_mount() -> void:
 
 func _section_parser() -> void:
 	_begin("yml subset")
-	var l := DotCloudLock.parse_list("merge: true # c\nremove: [dot-voice, a/b@1]\nentries:\n  - dot-core\n  - dot-vote@v0.2.1\n  - repo: game-fatal-contact\n    pin: v1\n  - pack: o/p@1.2.0\n")
+	var l := GSCloudLock.parse_list("merge: true # c\nremove: [dot-voice, a/b@1]\nentries:\n  - dot-core\n  - dot-vote@v0.2.1\n  - repo: game-fatal-contact\n    pin: v1\n  - pack: o/p@1.2.0\n")
 	_check("merge", l["merge"] == true)
 	_check("flow remove", l["remove"] == [["repo", "dot-voice"], ["pack", "a/b"]])
 	_check("block entries", l["entries"] == [["repo", "dot-core"], ["repo", "dot-vote"], ["repo", "game-fatal-contact"], ["pack", "o/p"]], str(l["entries"]))
-	_check("dotenv", DotCloudLock.parse_dotenv(_write("e.env", "A=1\n#B=2\nC = 'x y'\n")) == {"A": "1", "C": "x y"})
+	_check("dotenv", GSCloudLock.parse_dotenv(_write("e.env", "A=1\n#B=2\nC = 'x y'\n")) == {"A": "1", "C": "x y"})
 	_end()
 
 
 func _section_res_paths() -> void:
 	_begin("publisher res:// paths")
-	var pub := DotCloudPublisher.new()
+	var pub := GSCloudPublisher.new()
 	var spaced := pub._res_paths_in("path=\"res://maps/t/color_golden yellow.png\"\nx = 'res://a b, c.png'")
 	_check("quoted path keeps spaces", spaced.has("maps/t/color_golden yellow.png"), str(spaced))
 	_check("single-quoted keeps space and comma", spaced.has("a b, c.png"), str(spaced))
@@ -184,7 +184,7 @@ func _section_res_paths() -> void:
 func _section_ignored_dirs() -> void:
 	_begin("publisher skips worktrees and gitignored dirs")
 	var pats := PackedStringArray(["wt-*", "/scratch", "build", "maps/imported"])
-	var f := DotCloudPublisher.is_ignored_dir_path
+	var f := GSCloudPublisher.is_ignored_dir_path
 	_check("top-level wt-* skipped", f.call("wt-kp/a.gd", PackedStringArray()))
 	_check("wt-* only at top level", not f.call("sub/wt-x/a.gd", PackedStringArray()))
 	_check("root file not a dir", not f.call("wt-file.txt", PackedStringArray()))
@@ -193,9 +193,9 @@ func _section_ignored_dirs() -> void:
 	_check("nested anchored path", f.call("maps/imported/x.png", pats) and not f.call("maps/other/x.png", pats))
 	_check("ordinary dir kept", not f.call("scenes/a.tscn", pats))
 	var src := WORK.path_join("ign_src")
-	DotPaths.ensure_dir(src.path_join("wt-kp"))
-	DotPaths.ensure_dir(src.path_join("keep"))
-	DotPaths.ensure_dir(src.path_join("tmpx"))
+	GSPaths.ensure_dir(src.path_join("wt-kp"))
+	GSPaths.ensure_dir(src.path_join("keep"))
+	GSPaths.ensure_dir(src.path_join("tmpx"))
 	for p in ["wt-kp/a.txt", "keep/b.txt", "tmpx/c.txt"]:
 		var w := FileAccess.open(src.path_join(p), FileAccess.WRITE)
 		w.store_string("x")
@@ -203,19 +203,19 @@ func _section_ignored_dirs() -> void:
 	var g := FileAccess.open(src.path_join(".gitignore"), FileAccess.WRITE)
 	g.store_string("# c\n/tmpx/\n*.log\n")
 	g.close()
-	var pub := DotCloudPublisher.new()
+	var pub := GSCloudPublisher.new()
 	var got := pub._collect(src)
 	_check("collect drops wt-kp and the ignored dir", Array(got) == ["keep/b.txt"], str(got))
 	# A gitignored symlink (no trailing slash: git would not match a link with one) is left out, a real folder of the
 	# same style is not.
 	var tgt := WORK.path_join("ign_target")
-	DotPaths.ensure_dir(tgt)
+	GSPaths.ensure_dir(tgt)
 	var tw := FileAccess.open(tgt.path_join("big.bin"), FileAccess.WRITE)
 	tw.store_string("x")
 	tw.close()
 	OS.execute("ln", ["-s", ProjectSettings.globalize_path(tgt), ProjectSettings.globalize_path(src.path_join("maps"))])
 	OS.execute("ln", ["-s", ProjectSettings.globalize_path(tgt), ProjectSettings.globalize_path(src.path_join("shipped"))])
-	DotPaths.ensure_dir(src.path_join("realdir"))
+	GSPaths.ensure_dir(src.path_join("realdir"))
 	var rw := FileAccess.open(src.path_join("realdir/r.txt"), FileAccess.WRITE)
 	rw.store_string("x")
 	rw.close()
@@ -231,7 +231,7 @@ func _section_ignored_dirs() -> void:
 
 
 func _publish(id: String, version: String, src: String, pub_root: String) -> void:
-	var pub := DotCloudPublisher.new()
+	var pub := GSCloudPublisher.new()
 	pub.content_id = id
 	pub.version = version
 	pub.signing_key_pem = str(_keys["private"])
@@ -240,12 +240,12 @@ func _publish(id: String, version: String, src: String, pub_root: String) -> voi
 	_check("publish %s" % id, res.ok, str(res.error) if not res.ok else "")
 
 
-func _client(tag: String) -> DotCloudClient:
-	var config := DotCloudConfig.new()
+func _client(tag: String) -> GSCloudClient:
+	var config := GSCloudConfig.new()
 	config.cache_dir = WORK.path_join("cache_" + tag)
 	config.require_signed_manifests = true
 	config.trusted_keys = {"demo": str(_keys["public"])}
-	var client := DotCloudClient.new()
+	var client := GSCloudClient.new()
 	client.name = "Cloud_" + tag
 	client.config = config
 	client.config_file = ""

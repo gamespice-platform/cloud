@@ -3,7 +3,7 @@ extends Node
 ## What a start through `addon_boot_probe.tscn` found, for `addon_set_demo` to read.
 ##
 ## [b]It names nothing the overlay brings.[/b] Every script in this project is parsed on its
-## own by the family's check, and `DotProbeThing` exists only inside an overlay; so the class
+## own by the family's check, and `GSProbeThing` exists only inside an overlay; so the class
 ## is found through the global list and the typed use is compiled from text at runtime --
 ## which is the question anyway: does a script naming it compile in THIS process.
 
@@ -14,7 +14,7 @@ func _ready() -> void:
 	}
 
 	for entry in ProjectSettings.get_global_class_list():
-		if str(entry.get("class", "")) == "DotProbeThing":
+		if str(entry.get("class", "")) == "GSProbeThing":
 			info["class"] = true
 			var script: Variant = load(str(entry.get("path", "")))
 			if script is Script:
@@ -22,7 +22,7 @@ func _ready() -> void:
 
 	if bool(info["class"]):
 		var typed := GDScript.new()
-		typed.source_code = "extends RefCounted\n\nfunc run() -> String:\n\treturn DotProbeThing.hello()\n"
+		typed.source_code = "extends RefCounted\n\nfunc run() -> String:\n\treturn GSProbeThing.hello()\n"
 		if typed.reload() == OK:
 			info["typed"] = typed.new().call("run")
 
@@ -35,8 +35,8 @@ func _ready() -> void:
 		var id := ResourceUID.text_to_id("uid://b7prob3th1ng")
 		info["uid"] = ResourceUID.get_id_path(id) if ResourceUID.has_id(id) else ""
 
-	DotCloudAddonSet.confirm_boot()
-	info["state"] = str(DotCloudAddonSet.read_plan().get("state", ""))
+	GSCloudAddonSet.confirm_boot()
+	info["state"] = str(GSCloudAddonSet.read_plan().get("state", ""))
 
 	print("PROBE ", JSON.stringify(info))
 	get_tree().quit()

@@ -1,4 +1,4 @@
-class_name DotCloudSignature
+class_name GSCloudSignature
 extends RefCounted
 
 ## Signing and verifying manifests.
@@ -16,14 +16,14 @@ extends RefCounted
 ## [b]So: pin a public key, or accept that any server you connect to can run code
 ## in your client.[/b] There are cases where the second is fine — a LAN game, a
 ## first-party server, a development build — which is why
-## [member DotCloudConfig.require_signed_manifests] exists and why it defaults to
+## [member GSCloudConfig.require_signed_manifests] exists and why it defaults to
 ## refusing unsigned content.
 ##
 ## [b]RSA for manifests, Ed25519 for tokens.[/b] Godot's [Crypto] exposes RSA
 ## sign/verify through mbedTLS and no EdDSA, so manifests are signed with
 ## RSA-2048 or better and SHA-256. A signature made elsewhere with Ed25519 (the
 ## site's entitlement tokens) is checked by [method verify_ed25519], which runs
-## the pure-GDScript [DotCloudEd25519] because a GDExtension would not reach
+## the pure-GDScript [GSCloudEd25519] because a GDExtension would not reach
 ## every export target.
 
 const CHANNEL := "cloud.sig"
@@ -37,7 +37,7 @@ const CHANNEL := "cloud.sig"
 ## Enforced on [method verify] as well as [method generate_keypair]. Enforcing it
 ## only on generation would have been policy theatre: nothing makes a game ship
 ## the key this addon generated, and
-## [member DotCloudConfig.trusted_keys] is layered config, so a PEM can arrive
+## [member GSCloudConfig.trusted_keys] is layered config, so a PEM can arrive
 ## from a JSON file or the environment long after anyone read this constant.
 const MIN_KEY_BITS := 2048
 
@@ -58,7 +58,7 @@ const MIN_SIGNATURE_BYTES := MIN_KEY_BITS / 8
 ## [param signature_b64] is standard base64 of the raw signature.
 ## [param public_key_pem] is a PEM-encoded RSA public key.
 ##
-## Verify against the manifest's [member DotCloudManifest.raw_bytes] — the bytes
+## Verify against the manifest's [member GSCloudManifest.raw_bytes] — the bytes
 ## as received — never a re-serialisation. A verifier that re-serialises breaks
 ## on any difference in key order or number formatting, and then "signature
 ## invalid" means "our JSON writer changed" rather than anything about the
@@ -67,33 +67,33 @@ static func verify(
 	bytes: PackedByteArray,
 	signature_b64: String,
 	public_key_pem: String
-) -> DotResult:
+) -> GSResult:
 	if signature_b64.strip_edges() == "":
-		return DotResult.fail(
-			DotError.CODE_INTEGRITY, "The manifest is not signed."
+		return GSResult.fail(
+			GSError.CODE_INTEGRITY, "The manifest is not signed."
 		)
 
 	var key := CryptoKey.new()
 	var err := key.load_from_string(public_key_pem, true)
 	if err != OK:
-		return DotResult.fail(
-			DotError.CODE_INVALID,
+		return GSResult.fail(
+			GSError.CODE_INVALID,
 			"Could not read the trusted public key.",
 			error_string(err)
 		)
 
 	var sig := Marshalls.base64_to_raw(signature_b64)
 	if sig.is_empty():
-		return DotResult.fail(
-			DotError.CODE_INTEGRITY, "The signature is not valid base64."
+		return GSResult.fail(
+			GSError.CODE_INTEGRITY, "The signature is not valid base64."
 		)
 
 	# Refuse a weak key before doing any crypto with it. mbedTLS will happily
 	# verify a 1024-bit signature, and a valid signature from a broken key reads
 	# exactly like a valid signature from a good one everywhere downstream.
 	if sig.size() < MIN_SIGNATURE_BYTES:
-		return DotResult.fail(
-			DotError.CODE_FORBIDDEN,
+		return GSResult.fail(
+			GSError.CODE_FORBIDDEN,
 			"The manifest is signed with a key that is too weak to trust.",
 			"%d-byte signature implies about %d-bit RSA; the minimum is %d" % [
 				sig.size(), sig.size() * 8, MIN_KEY_BITS
@@ -104,13 +104,13 @@ static func verify(
 
 	var crypto := Crypto.new()
 	if not crypto.verify(HashingContext.HASH_SHA256, digest, sig, key):
-		return DotResult.fail(
-			DotError.CODE_INTEGRITY,
+		return GSResult.fail(
+			GSError.CODE_INTEGRITY,
 			"The manifest's signature does not match its contents.",
 			"signed %d bytes" % bytes.size()
 		)
 
-	return DotResult.success(true)
+	return GSResult.success(true)
 
 
 ## Verifies an Ed25519 signature over [param bytes].
@@ -124,8 +124,8 @@ static func verify_ed25519(
 	bytes: PackedByteArray,
 	signature: PackedByteArray,
 	key_bytes: PackedByteArray
-) -> DotResult:
-	return DotCloudEd25519.verify(bytes, signature, key_bytes)
+) -> GSResult:
+	return GSCloudEd25519.verify(bytes, signature, key_bytes)
 
 
 #
@@ -150,7 +150,7 @@ static func verify_ed25519(
 #
 # A bare string is the old spelling and still means "anything", because every existing
 # config is written that way and silently narrowing them would break deployments that are
-# correct. [method DotCloudConfig.validate] warns when a set has more than one key and any
+# correct. [method GSCloudConfig.validate] warns when a set has more than one key and any
 # of them is unscoped, which is the arrangement this exists to prevent.
 
 
@@ -235,7 +235,7 @@ static func verify_for(
 	keys: Dictionary,
 	content_id: String,
 	preferred_key_id: String = ""
-) -> DotResult:
+) -> GSResult:
 	var verified := verify_any(bytes, signature_b64, keys, preferred_key_id)
 
 	if not verified.ok:
@@ -246,21 +246,21 @@ static func verify_for(
 	if not keys.has(key_id):
 		# verify_any returns a key from the set it was handed, so this cannot happen
 		# unless somebody changes one of the two. Refusing beats trusting the impossible.
-		return DotResult.fail(
-			DotError.CODE_INTERNAL,
+		return GSResult.fail(
+			GSError.CODE_INTERNAL,
 			"The verifying key is not in the trusted set.",
 			key_id
 		)
 
 	if not scope_allows(keys[key_id], content_id):
-		return DotResult.fail(
-			DotError.CODE_FORBIDDEN,
+		return GSResult.fail(
+			GSError.CODE_FORBIDDEN,
 			"'%s' is not trusted to publish '%s'." % [key_id, content_id],
 			"the signature is valid; the key is scoped to %s"
 				% ", ".join(key_scope(keys[key_id]))
 		)
 
-	return DotResult.success(key_id)
+	return GSResult.success(key_id)
 
 
 ## Verifies against any of several trusted keys.
@@ -270,7 +270,7 @@ static func verify_for(
 ## client has to update in lockstep with the publisher.
 ##
 ## [param keys] maps a key id to its PEM. When the manifest names a
-## [member DotCloudManifest.signature_key_id] that key is tried first, but the
+## [member GSCloudManifest.signature_key_id] that key is tried first, but the
 ## others are still tried — a manifest is not trusted to tell the truth about
 ## which key signed it, only to hint.
 static func verify_any(
@@ -278,12 +278,12 @@ static func verify_any(
 	signature_b64: String,
 	keys: Dictionary,
 	preferred_key_id: String = ""
-) -> DotResult:
+) -> GSResult:
 	if keys.is_empty():
-		return DotResult.fail(
-			DotError.CODE_FORBIDDEN,
+		return GSResult.fail(
+			GSError.CODE_FORBIDDEN,
 			"No trusted signing keys are configured.",
-			"set DotCloudConfig.trusted_keys, or turn off "
+			"set GSCloudConfig.trusted_keys, or turn off "
 			+ "require_signed_manifests for unsigned content"
 		)
 
@@ -294,17 +294,17 @@ static func verify_any(
 		if k != preferred_key_id:
 			order.append(k)
 
-	var last: DotResult = null
+	var last: GSResult = null
 	for key_id in order:
 		last = verify(bytes, signature_b64, key_pem(keys[key_id]))
 		if last.ok:
-			DotLog.debug(
+			GSLog.debug(
 				CHANNEL, "manifest signature verified", {"key": str(key_id)}
 			)
-			return DotResult.success(str(key_id))
+			return GSResult.success(str(key_id))
 
-	return DotResult.fail(
-		DotError.CODE_INTEGRITY,
+	return GSResult.fail(
+		GSError.CODE_INTEGRITY,
 		"The manifest is not signed by any trusted key.",
 		"tried %d key(s)" % order.size()
 	)
@@ -313,17 +313,17 @@ static func verify_any(
 ## Signs [param bytes] with a private key. For the publisher, not the client.
 ##
 ## The private key must never ship inside a game build. Sign during publishing —
-## in CI, or on the machine that runs [DotCloudPublisher] — and distribute only
+## in CI, or on the machine that runs [GSCloudPublisher] — and distribute only
 ## the public half.
 static func sign(
 	bytes: PackedByteArray,
 	private_key_pem: String
-) -> DotResult:
+) -> GSResult:
 	var key := CryptoKey.new()
 	var err := key.load_from_string(private_key_pem, false)
 	if err != OK:
-		return DotResult.fail(
-			DotError.CODE_INVALID,
+		return GSResult.fail(
+			GSError.CODE_INVALID,
 			"Could not read the signing key.",
 			error_string(err)
 		)
@@ -333,13 +333,13 @@ static func sign(
 
 	var sig := crypto.sign(HashingContext.HASH_SHA256, digest, key)
 	if sig.is_empty():
-		return DotResult.fail(
-			DotError.CODE_INTERNAL,
+		return GSResult.fail(
+			GSError.CODE_INTERNAL,
 			"Signing failed.",
 			"the key may be a public key, or too small"
 		)
 
-	return DotResult.success(Marshalls.raw_to_base64(sig))
+	return GSResult.success(Marshalls.raw_to_base64(sig))
 
 
 ## Generates an RSA keypair, as [code]{private, public}[/code] PEM strings.
@@ -348,21 +348,21 @@ static func sign(
 ## that can keep the private half in an HSM or a secrets manager — a key that has
 ## been in a Godot process's memory and written to a file with default
 ## permissions is not a key you want signing everything your players run.
-static func generate_keypair(bits: int = 3072) -> DotResult:
+static func generate_keypair(bits: int = 3072) -> GSResult:
 	if bits < MIN_KEY_BITS:
-		return DotResult.fail(
-			DotError.CODE_INVALID,
+		return GSResult.fail(
+			GSError.CODE_INVALID,
 			"Refusing to generate a key smaller than %d bits." % MIN_KEY_BITS
 		)
 
 	var crypto := Crypto.new()
 	var key := crypto.generate_rsa(bits)
 	if key == null:
-		return DotResult.fail(
-			DotError.CODE_INTERNAL, "Key generation failed."
+		return GSResult.fail(
+			GSError.CODE_INTERNAL, "Key generation failed."
 		)
 
-	return DotResult.success({
+	return GSResult.success({
 		"private": key.save_to_string(false),
 		"public": key.save_to_string(true),
 	})
@@ -382,8 +382,8 @@ static func _digest(bytes: PackedByteArray) -> PackedByteArray:
 	# is exactly what a truncated response or a misconfigured host produces. The
 	# empty string has a well-defined SHA-256, so skipping the update yields the
 	# right digest and the caller gets "signature does not match" rather than an
-	# engine error with a DotResult that claims success. Same trap
-	# DotHash.sha256_bytes fixed in GameSpice Core; it cannot be reused here because it
+	# engine error with a GSResult that claims success. Same trap
+	# GSHash.sha256_bytes fixed in GameSpice Core; it cannot be reused here because it
 	# returns hex and Crypto.verify wants the raw digest.
 	if not bytes.is_empty():
 		ctx.update(bytes)

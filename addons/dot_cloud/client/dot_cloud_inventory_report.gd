@@ -1,9 +1,9 @@
-class_name DotCloudInventoryReport
+class_name GSCloudInventoryReport
 extends RefCounted
 
-## The account site's downloaded-content inventory, from this client's side: turns [method DotCloudStore.inventory] into the body of the site's report (`PUT /api/app/v1/content-inventory`,
+## The account site's downloaded-content inventory, from this client's side: turns [method GSCloudStore.inventory] into the body of the site's report (`PUT /api/app/v1/content-inventory`,
 ## tRPC `clientContent.report`) and carries out the actions the site answers with. Transport-free and network-free; the app and the web shell each add their own transport
-## ([DotCloudInventoryBridge]'s `sync` op for the shell). Schema: website-city docs/api/content-inventory.md.
+## ([GSCloudInventoryBridge]'s `sync` op for the shell). Schema: website-city docs/api/content-inventory.md.
 
 const CHANNEL := "cloud.inventory"
 ## The site refuses a report of more packs than this.
@@ -16,9 +16,9 @@ const MAX_GAME := 120
 const ACTIONS: PackedStringArray = ["delete", "pin", "unpin"]
 
 
-## The report body for [param inventory] (a [method DotCloudStore.inventory] result) and [param ack]
+## The report body for [param inventory] (a [method GSCloudStore.inventory] result) and [param ack]
 ## (`[{packId, version, action}]`, actions that could never take effect and so must be settled by acknowledgement).
-## The list is cut at [constant MAX_PACKS], most recently used first (the order [method DotCloudStore.inventory] gives).
+## The list is cut at [constant MAX_PACKS], most recently used first (the order [method GSCloudStore.inventory] gives).
 static func body(inventory: Array, ack: Array = []) -> Dictionary:
 	var packs: Array = []
 	for r in inventory:
@@ -56,7 +56,7 @@ static func body(inventory: Array, ack: Array = []) -> Dictionary:
 ## Carries out the site's [param pending] (`[{packId, version, action}]`) on [param store] and returns `{done, refused, ack}`: counts, plus the actions to acknowledge. A refusal a restart
 ## will not cure (the pack is unknown here) is acknowledged, or its row would stay pending for ever; one caused by the pack being mounted or pinned ([code]CODE_STATE[/code]) is not, so it runs
 ## again on the next report. An unknown action is skipped. Delete never forces: a pinned pack is refused until the site unpins it. Pin and unpin cover every version of the id.
-static func apply_pending(store: DotCloudStore, pending: Array) -> Dictionary:
+static func apply_pending(store: GSCloudStore, pending: Array) -> Dictionary:
 	var done := 0
 	var refused := 0
 	var ack: Array = []
@@ -68,7 +68,7 @@ static func apply_pending(store: DotCloudStore, pending: Array) -> Dictionary:
 		var version := str(p.get("version", ""))
 		if not ACTIONS.has(action) or id == "":
 			continue
-		var res: DotResult
+		var res: GSResult
 		match action:
 			"delete":
 				res = store.delete(id, version)
@@ -80,7 +80,7 @@ static func apply_pending(store: DotCloudStore, pending: Array) -> Dictionary:
 			done += 1
 			continue
 		refused += 1
-		DotLog.warn(CHANNEL, "pending action refused", {"action": action, "pack": id, "code": res.error.code})
-		if res.error.code != DotError.CODE_STATE:
+		GSLog.warn(CHANNEL, "pending action refused", {"action": action, "pack": id, "code": res.error.code})
+		if res.error.code != GSError.CODE_STATE:
 			ack.append({"packId": id, "version": version, "action": action})
 	return {"done": done, "refused": refused, "ack": ack}

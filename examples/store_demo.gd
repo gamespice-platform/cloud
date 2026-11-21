@@ -1,6 +1,6 @@
 extends Control
 
-## Exercises [DotCloudStore] directly: eviction under pressure, references, the
+## Exercises [GSCloudStore] directly: eviction under pressure, references, the
 ## index, and partial housekeeping.
 ##
 ## The three pipeline demos all drive the store, but only along the one path a
@@ -42,11 +42,11 @@ var _entered := 0
 var _completed := 0
 var _failures: int = 0
 var _checks: int = 0
-var _scheduler: DotScheduler
+var _scheduler: GSScheduler
 
 
 func _ready() -> void:
-	DotLog.set_level(DotLog.Level.INFO)
+	GSLog.set_level(GSLog.Level.INFO)
 	await _run()
 
 
@@ -54,9 +54,9 @@ func _run() -> void:
 	_line("[b]dot-cloud store[/b]")
 	_line("")
 
-	DotPaths.remove_tree(WORK)
+	GSPaths.remove_tree(WORK)
 
-	_scheduler = DotScheduler.new()
+	_scheduler = GSScheduler.new()
 	_scheduler.name = "StoreScheduler"
 	add_child(_scheduler)
 
@@ -88,13 +88,13 @@ func _run() -> void:
 func _section_commit() -> void:
 	_section("[b]1. commit, and the one place a hash is checked[/b]")
 
-	var store: DotCloudStore = await _open_store(WORK.path_join("basic"), 0)
+	var store: GSCloudStore = await _open_store(WORK.path_join("basic"), 0)
 	if store == null:
 		return
 
 	var good := _blob(1, OBJ)
-	var good_hash := DotHash.sha256_bytes(good)
-	var committed: DotResult = await _commit(store, good)
+	var good_hash := GSHash.sha256_bytes(good)
+	var committed: GSResult = await _commit(store, good)
 
 	_check("commit", committed.ok, str(committed.error) if not committed.ok else "")
 	_check("object present", store.has(good_hash))
@@ -106,27 +106,27 @@ func _section_commit() -> void:
 	# *and* delete it: keeping it means every resume appends to bad bytes and
 	# fails identically forever, which is the failure this addon has already had
 	# once over HTTP.
-	var claimed := DotHash.sha256_bytes(_blob(2, OBJ))
-	var wrote := DotPaths.write_bytes(store.partial_path(claimed), _blob(3, OBJ))
+	var claimed := GSHash.sha256_bytes(_blob(2, OBJ))
+	var wrote := GSPaths.write_bytes(store.partial_path(claimed), _blob(3, OBJ))
 	_check("planted partial", wrote.ok)
-	var bad: DotResult = await store.commit_partial(claimed)
-	_check("corrupt refused", not bad.ok and bad.error.code == DotError.CODE_INTEGRITY,
+	var bad: GSResult = await store.commit_partial(claimed)
+	_check("corrupt refused", not bad.ok and bad.error.code == GSError.CODE_INTEGRITY,
 		bad.error.code if not bad.ok else "accepted it")
 	_check("corrupt discarded", store.partial_size(claimed) == 0 and not store.has(claimed))
 
-	var nothing: DotResult = await store.commit_partial(DotHash.sha256_text("absent"))
-	_check("no partial", not nothing.ok and nothing.error.code == DotError.CODE_IO)
+	var nothing: GSResult = await store.commit_partial(GSHash.sha256_text("absent"))
+	_check("no partial", not nothing.ok and nothing.error.code == GSError.CODE_IO)
 
 	var lied := store.put_bytes(_blob(4, OBJ), claimed)
-	_check("put_bytes checks", not lied.ok and lied.error.code == DotError.CODE_INTEGRITY)
+	_check("put_bytes checks", not lied.ok and lied.error.code == GSError.CODE_INTEGRITY)
 
 	# A half-finished HTTP download, then the same object arriving whole from
 	# somewhere else — the in-band fallback, or another manifest that shares it.
 	# The partial is unreachable from that moment: nothing resumes content the
 	# store already has.
 	var direct := _blob(5, OBJ)
-	var direct_hash := DotHash.sha256_bytes(direct)
-	DotPaths.write_bytes(store.partial_path(direct_hash), _blob(5, 512))
+	var direct_hash := GSHash.sha256_bytes(direct)
+	GSPaths.write_bytes(store.partial_path(direct_hash), _blob(5, 512))
 	var put := store.put_bytes(direct, direct_hash)
 	_check("put_bytes commits", put.ok and store.has(direct_hash))
 	_check("stale partial dropped", store.partial_size(direct_hash) == 0,
@@ -143,16 +143,16 @@ func _section_pressure() -> void:
 	_section("[b]2. a full cache, with content mounted[/b]")
 
 	# Four objects' worth of ceiling, so "full" is reachable in four commits.
-	var store: DotCloudStore = await _open_store(WORK.path_join("evict"), 4 * OBJ)
+	var store: GSCloudStore = await _open_store(WORK.path_join("evict"), 4 * OBJ)
 	if store == null:
 		return
 
 	var hashes: Array[String] = []
 	for i in range(4):
-		var res: DotResult = await _commit(store, _blob(10 + i, OBJ))
+		var res: GSResult = await _commit(store, _blob(10 + i, OBJ))
 		if not res.ok:
 			return _fail("filling the cache", res)
-		hashes.append(DotHash.sha256_bytes(_blob(10 + i, OBJ)))
+		hashes.append(GSHash.sha256_bytes(_blob(10 + i, OBJ)))
 
 	_check("at the ceiling", store.total_bytes() == 4 * OBJ and not store.is_over_limit())
 	_check("shortfall known", store.shortfall(2 * OBJ) == 2 * OBJ,
@@ -176,14 +176,14 @@ func _section_pressure() -> void:
 	# something a connected player is reading.
 	var more: Array[String] = []
 	for i in range(2):
-		var res: DotResult = await _commit(store, _blob(20 + i, OBJ))
+		var res: GSResult = await _commit(store, _blob(20 + i, OBJ))
 		if not res.ok:
 			return _fail("filling the cache again", res)
-		more.append(DotHash.sha256_bytes(_blob(20 + i, OBJ)))
+		more.append(GSHash.sha256_bytes(_blob(20 + i, OBJ)))
 	store.add_refs("dm_pit/2.0.0", PackedStringArray(more))
 
 	var stuck := store.prune(OBJ)
-	_check("full cache refuses", not stuck.ok and stuck.error.code == DotError.CODE_QUOTA,
+	_check("full cache refuses", not stuck.ok and stuck.error.code == GSError.CODE_QUOTA,
 		stuck.error.code if not stuck.ok else "evicted something")
 	_check("nothing deleted", store.object_count() == 4 and store.total_bytes() == 4 * OBJ,
 		"%d objects" % store.object_count())
@@ -226,7 +226,7 @@ func _section_pressure() -> void:
 func _section_lru() -> void:
 	_section("[b]3. least recently used, and what counts as used[/b]")
 
-	var store: DotCloudStore = await _open_store(WORK.path_join("lru"), 4 * OBJ)
+	var store: GSCloudStore = await _open_store(WORK.path_join("lru"), 4 * OBJ)
 	if store == null:
 		return
 
@@ -276,14 +276,14 @@ func _section_index() -> void:
 	var dir := WORK.path_join("index")
 	var cfg := _config(dir, 0)
 
-	var store: DotCloudStore = await _open_store(dir, 0)
+	var store: GSCloudStore = await _open_store(dir, 0)
 	if store == null:
 		return
 	var kept := await _commit_for(store, 40)
 	store.add_refs("dm_arena/1.0.0", PackedStringArray([kept]))
 	store.close()
 
-	var reopened: DotCloudStore = await _open_store(dir, 0)
+	var reopened: GSCloudStore = await _open_store(dir, 0)
 	_check("survives a clean close",
 		reopened.object_count() == 1 and reopened.total_bytes() == OBJ
 		and reopened.ref_count(kept) == 1,
@@ -297,7 +297,7 @@ func _section_index() -> void:
 	var lost_b := await _commit_for(reopened, 42)
 	reopened = null
 
-	var after_crash: DotCloudStore = await _open_store(dir, OBJ)
+	var after_crash: GSCloudStore = await _open_store(dir, OBJ)
 	var disk := _objects_on_disk(cfg)
 	_check("adopts what it finds",
 		after_crash.object_count() == disk.size(), "index %d, disk %d"
@@ -322,7 +322,7 @@ func _section_index() -> void:
 	after_crash.close()
 
 	# Two more, cleanly, so the checks below are counting something.
-	var refilled: DotCloudStore = await _open_store(dir, 0)
+	var refilled: GSCloudStore = await _open_store(dir, 0)
 	var extra_a := await _commit_for(refilled, 43)
 	var extra_b := await _commit_for(refilled, 44)
 	refilled.close()
@@ -331,7 +331,7 @@ func _section_index() -> void:
 	# reclaiming storage. The entry has to go, or the file is reported present
 	# forever and never re-downloaded.
 	DirAccess.remove_absolute(_path_of(cfg, extra_a))
-	var after_trim: DotCloudStore = await _open_store(dir, 0)
+	var after_trim: GSCloudStore = await _open_store(dir, 0)
 	_check("drops what vanished",
 		not after_trim.has(extra_a)
 		and after_trim.object_count() == _objects_on_disk(cfg).size()
@@ -343,7 +343,7 @@ func _section_index() -> void:
 	# No index at all, and an index from a future version: both rebuild from the
 	# directory, because the filenames are the hashes.
 	DirAccess.remove_absolute(cfg.index_path())
-	var rebuilt: DotCloudStore = await _open_store(dir, 0)
+	var rebuilt: GSCloudStore = await _open_store(dir, 0)
 	_check("rebuilds without an index",
 		rebuilt.object_count() == _objects_on_disk(cfg).size()
 		and rebuilt.total_bytes() == _sum(_objects_on_disk(cfg)),
@@ -351,15 +351,15 @@ func _section_index() -> void:
 	_check("refs are lost, as documented", rebuilt.ref_count(kept) == 0)
 	rebuilt.close()
 
-	DotPaths.write_json(cfg.index_path(), {"version": 99, "objects": {}}, false)
-	var future: DotCloudStore = await _open_store(dir, 0)
+	GSPaths.write_json(cfg.index_path(), {"version": 99, "objects": {}}, false)
+	var future: GSCloudStore = await _open_store(dir, 0)
 	_check("rebuilds on a version bump",
 		future.object_count() == _objects_on_disk(cfg).size(),
 		"%d objects" % future.object_count())
 	future.close()
 
-	DotPaths.write_text(cfg.index_path(), "{ not json at all")
-	var broken: DotCloudStore = await _open_store(dir, 0)
+	GSPaths.write_text(cfg.index_path(), "{ not json at all")
+	var broken: GSCloudStore = await _open_store(dir, 0)
 	_check("rebuilds on garbage",
 		broken.object_count() == _objects_on_disk(cfg).size(),
 		"%d objects" % broken.object_count())
@@ -375,7 +375,7 @@ func _section_partials() -> void:
 	_section("[b]5. partials that will never be resumed[/b]")
 
 	var dir := WORK.path_join("partials")
-	var store: DotCloudStore = await _open_store(dir, 0)
+	var store: GSCloudStore = await _open_store(dir, 0)
 	if store == null:
 		return
 
@@ -384,12 +384,12 @@ func _section_partials() -> void:
 	# A partial for content the store already has. Resume only ever looks at
 	# objects that are *missing*, so this is dead weight the size of the file —
 	# and the file it duplicates is in the cache already.
-	DotPaths.write_bytes(store.partial_path(have), _blob(50, 512))
+	GSPaths.write_bytes(store.partial_path(have), _blob(50, 512))
 	_check("partial planted", store.partial_size(have) == 512)
 
 	# Something genuinely resumable: no object, and recent.
-	var pending := DotHash.sha256_bytes(_blob(51, OBJ))
-	DotPaths.write_bytes(store.partial_path(pending), _blob(51, 256))
+	var pending := GSHash.sha256_bytes(_blob(51, OBJ))
+	GSPaths.write_bytes(store.partial_path(pending), _blob(51, 256))
 
 	var swept := store.sweep_partials(86400.0)
 	_check("dead partial swept", swept == 1 and store.partial_size(have) == 0,
@@ -405,11 +405,11 @@ func _section_partials() -> void:
 	var outside := "/dev/shm/dot_cloud_store_demo.part"
 	if DirAccess.dir_exists_absolute("/dev/shm"):
 		var bytes := _blob(52, OBJ)
-		DotPaths.write_bytes(outside, bytes)
-		var dest := store.path_for(DotHash.sha256_bytes(bytes))
-		DotPaths.ensure_parent_dir(dest)
+		GSPaths.write_bytes(outside, bytes)
+		var dest := store.path_for(GSHash.sha256_bytes(bytes))
+		GSPaths.ensure_parent_dir(dest)
 		var moved := store._move_file(outside, dest)
-		var landed := DotPaths.read_bytes(dest)
+		var landed := GSPaths.read_bytes(dest)
 		_check("a partial on another filesystem moves into the cache",
 			moved.ok and landed.ok and landed.value == bytes,
 			moved.error.message if not moved.ok else "")
@@ -430,7 +430,7 @@ func _section_verify_and_clear() -> void:
 
 	var dir := WORK.path_join("verify")
 	var cfg := _config(dir, 0)
-	var store: DotCloudStore = await _open_store(dir, 0)
+	var store: GSCloudStore = await _open_store(dir, 0)
 	if store == null:
 		return
 
@@ -440,10 +440,10 @@ func _section_verify_and_clear() -> void:
 	# Same length, different bytes: a failing disk, or a half-written flush. The
 	# cheap existence check cannot see this, which is exactly why verify_all
 	# exists and why it is opt-in.
-	DotPaths.write_bytes(_path_of(cfg, rotted), _blob(62, OBJ))
+	GSPaths.write_bytes(_path_of(cfg, rotted), _blob(62, OBJ))
 	_check("corruption is invisible to has()", store.has(rotted))
 
-	var verified: DotResult = await store.verify_all(_scheduler)
+	var verified: GSResult = await store.verify_all(_scheduler)
 	var v: Dictionary = verified.value
 	_check("verify_all runs", verified.ok and int(v.get("checked", 0)) == 2,
 		"checked %s" % str(v.get("checked")))
@@ -455,7 +455,7 @@ func _section_verify_and_clear() -> void:
 	# A pack the mounter assembled, which is a second copy of the objects and the larger
 	# half of what a player has downloaded. clear_all used to leave it.
 	var pack := cfg.cache_dir.path_join("packs/some-pack-1_0_0-abc.pck")
-	DotPaths.write_bytes(pack, PackedByteArray([1, 2, 3]))
+	GSPaths.write_bytes(pack, PackedByteArray([1, 2, 3]))
 	var cleared := store.clear_all()
 	_check("clear_all takes the assembled packs too", not FileAccess.file_exists(pack))
 	_check("clear_all", cleared.ok and store.object_count() == 0
@@ -471,16 +471,16 @@ func _section_verify_and_clear() -> void:
 
 # Helpers
 
-func _config(dir: String, limit: int) -> DotCloudConfig:
-	var cfg := DotCloudConfig.new()
+func _config(dir: String, limit: int) -> GSCloudConfig:
+	var cfg := GSCloudConfig.new()
 	cfg.cache_dir = dir
 	cfg.cache_bytes = limit
 	return cfg
 
 
-func _open_store(dir: String, limit: int) -> DotCloudStore:
-	var store := DotCloudStore.new(_config(dir, limit))
-	var opened: DotResult = await store.open()
+func _open_store(dir: String, limit: int) -> GSCloudStore:
+	var store := GSCloudStore.new(_config(dir, limit))
+	var opened: GSResult = await store.open()
 	if not opened.ok:
 		_fail("opening the store at %s" % dir, opened)
 		return null
@@ -497,37 +497,37 @@ func _blob(seed_byte: int, size: int) -> PackedByteArray:
 	return b
 
 
-func _commit(store: DotCloudStore, bytes: PackedByteArray) -> DotResult:
-	var h := DotHash.sha256_bytes(bytes)
-	var wrote := DotPaths.write_bytes(store.partial_path(h), bytes)
+func _commit(store: GSCloudStore, bytes: PackedByteArray) -> GSResult:
+	var h := GSHash.sha256_bytes(bytes)
+	var wrote := GSPaths.write_bytes(store.partial_path(h), bytes)
 	if not wrote.ok:
 		return wrote
-	var res: DotResult = await store.commit_partial(h)
+	var res: GSResult = await store.commit_partial(h)
 	return res
 
 
-func _commit_for(store: DotCloudStore, seed_byte: int) -> String:
+func _commit_for(store: GSCloudStore, seed_byte: int) -> String:
 	var bytes := _blob(seed_byte, OBJ)
-	var res: DotResult = await _commit(store, bytes)
+	var res: GSResult = await _commit(store, bytes)
 	if not res.ok:
 		_fail("committing object %d" % seed_byte, res)
 		return ""
-	return DotHash.sha256_bytes(bytes)
+	return GSHash.sha256_bytes(bytes)
 
 
 ## What is actually in objects/, worked out without asking the store — the whole
 ## point of the index assertions is that the two can disagree.
-func _objects_on_disk(cfg: DotCloudConfig) -> Dictionary:
+func _objects_on_disk(cfg: GSCloudConfig) -> Dictionary:
 	var out := {}
-	for rel in DotPaths.list_files_recursive(cfg.objects_dir()):
+	for rel in GSPaths.list_files_recursive(cfg.objects_dir()):
 		var name := String(rel).get_file()
 		if name.length() != 64:
 			continue
-		out[name] = DotPaths.file_size(cfg.objects_dir().path_join(rel))
+		out[name] = GSPaths.file_size(cfg.objects_dir().path_join(rel))
 	return out
 
 
-func _path_of(cfg: DotCloudConfig, sha256: String) -> String:
+func _path_of(cfg: GSCloudConfig, sha256: String) -> String:
 	return cfg.objects_dir().path_join("%s/%s" % [sha256.substr(0, 2), sha256])
 
 
@@ -538,7 +538,7 @@ func _sum(d: Dictionary) -> int:
 	return n
 
 
-func _fail(what: String, res: DotResult) -> void:
+func _fail(what: String, res: GSResult) -> void:
 	_line("")
 	_line("[b]FAILED at %s[/b]" % what)
 	_line("  %s" % str(res.error))
@@ -546,7 +546,7 @@ func _fail(what: String, res: DotResult) -> void:
 
 
 func _finish(code: int = 0) -> void:
-	if DotPlatform.is_headless():
+	if GSPlatform.is_headless():
 		await get_tree().process_frame
 		get_tree().quit(code)
 

@@ -1,8 +1,8 @@
-class_name DotCloudLock
+class_name GSCloudLock
 extends RefCounted
 
 ## A repository's `content.lock.json` read the way dot-bootstrap/tools/fetch_lock.sh reads it: which packs to fetch and
-## from where. [method DotCloudClient.ensure_locked] mounts the result. Format and rules: docs/cdn-publish.md.
+## from where. [method GSCloudClient.ensure_locked] mounts the result. Format and rules: docs/cdn-publish.md.
 
 const DEFAULT_ORIGIN := "https://content.gamespice.net/content"
 
@@ -22,15 +22,15 @@ var _named: Variant = null
 ## Reads [param lock_path] (empty list when absent: nothing is pinned). [param opts]: `from`, `cdn`, `cfg` (default `<lock folder>/cfg`),
 ## `env_file` (default `../dot-bootstrap/.env` beside the lock), `only` and `skip` (Array of ITEM globs), `environment` (a Dictionary that
 ## stands in for the process environment, for tests).
-static func load_file(lock_path: String, opts: Dictionary = {}) -> DotResult:
-	var out := DotCloudLock.new()
+static func load_file(lock_path: String, opts: Dictionary = {}) -> GSResult:
+	var out := GSCloudLock.new()
 	if not FileAccess.file_exists(lock_path):
-		return DotResult.success(out)
+		return GSResult.success(out)
 	var doc: Variant = JSON.parse_string(FileAccess.get_file_as_string(lock_path))
 	if not (doc is Dictionary):
-		return DotResult.fail(DotError.CODE_PARSE, "%s is not a JSON object." % lock_path)
+		return GSResult.fail(GSError.CODE_PARSE, "%s is not a JSON object." % lock_path)
 	if int((doc as Dictionary).get("format", 0)) != 1:
-		return DotResult.fail(DotError.CODE_INVALID, "%s: unsupported lock format." % lock_path)
+		return GSResult.fail(GSError.CODE_INVALID, "%s: unsupported lock format." % lock_path)
 	var dir := _abs(lock_path).get_base_dir()
 	out.repo = dir.get_file()
 	var cfg := str(opts.get("cfg", dir.path_join("cfg")))
@@ -40,14 +40,14 @@ static func load_file(lock_path: String, opts: Dictionary = {}) -> DotResult:
 	var skip: Array = opts.get("skip", [])
 	for p: Variant in (doc as Dictionary).get("packs", []):
 		if not (p is Dictionary) or not (p as Dictionary).has("id") or not (p as Dictionary).has("version"):
-			return DotResult.fail(DotError.CODE_INVALID, "%s: a pack entry needs an id and a version." % lock_path)
+			return GSResult.fail(GSError.CODE_INVALID, "%s: a pack entry needs an id and a version." % lock_path)
 		var entry: Dictionary = p
 		var why := out.why_not(entry, cfg, only, skip)
 		if why != "":
 			out.skipped.append({"id": entry["id"], "version": entry["version"], "why": why})
 		else:
 			out.packs.append(entry)
-	return DotResult.success(out)
+	return GSResult.success(out)
 
 
 ## The CDN precedence of fetch_lock.sh, first set wins: `from` / GS_PACKS_FROM (`none` fetches nothing), `cdn` / GS_CDN_URL, the
@@ -196,7 +196,7 @@ static func _ident(v: String) -> String:
 static func _env(environment: Dictionary, key: String) -> String:
 	if key.begins_with("DOT_") and environment.has("GS_" + key.substr(4)):
 		return str(environment["GS_" + key.substr(4)])
-	return str(environment[key]) if environment.has(key) else DotConfig.gs_env(key)
+	return str(environment[key]) if environment.has(key) else GSConfig.gs_env(key)
 
 
 static func _abs(path: String) -> String:

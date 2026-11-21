@@ -28,8 +28,8 @@ const EXIT_FAILED := 2
 
 
 func _initialize() -> void:
-	DotLog.timestamps = false
-	DotLog.set_level(DotLog.Level.INFO)
+	GSLog.timestamps = false
+	GSLog.set_level(GSLog.Level.INFO)
 
 	var args := _user_args()
 
@@ -90,7 +90,7 @@ func _publish(opts: Dictionary) -> int:
 			return EXIT_FAILED
 		claim = got.value
 
-	var pub := DotCloudPublisher.new()
+	var pub := GSCloudPublisher.new()
 	var configured := _apply_options(pub, opts, claim)
 	if configured != EXIT_OK:
 		return configured
@@ -100,19 +100,19 @@ func _publish(opts: Dictionary) -> int:
 	if not res.ok:
 		printerr("publish failed: %s" % str(res.error))
 		if not claim.is_empty():
-			(claim["uploader"] as DotCloudUploader).fail_claim(int(claim["id"]), str(res.error))
+			(claim["uploader"] as GSCloudUploader).fail_claim(int(claim["id"]), str(res.error))
 		return EXIT_FAILED
 
 	var d: Dictionary = res.value
 	print("")
-	print("published %s" % (d["manifest"] as DotCloudManifest).key())
+	print("published %s" % (d["manifest"] as GSCloudManifest).key())
 	print("  manifest    %s" % d["manifest_path"])
 	print("  files       %d" % int(d["files"]))
 	print("  objects     %d (%d written, %d deduplicated)" % [
 		int(d["objects"]), int(d["objects_written"]), int(d["deduped"])
 	])
 	print("  sources     %d left out (imported form shipped)" % int(d["sources_dropped"]))
-	print("  size        %s" % DotPaths.format_bytes(int(d["bytes"])))
+	print("  size        %s" % GSPaths.format_bytes(int(d["bytes"])))
 	print("  signed      %s" % ("yes" if bool(d["signed"]) else "NO"))
 
 	if not bool(d["signed"]):
@@ -127,7 +127,7 @@ func _publish(opts: Dictionary) -> int:
 
 
 ## Fills [param pub] from the parsed options; returns EXIT_OK or the exit code to quit with.
-func _apply_options(pub: DotCloudPublisher, opts: Dictionary, claim: Dictionary) -> int:
+func _apply_options(pub: GSCloudPublisher, opts: Dictionary, claim: Dictionary) -> int:
 	pub.content_id = str(claim.get("contentId", opts["id"]))
 	pub.version = str(opts.get("version", "0.0.0"))
 	pub.display_name = str(opts.get("name", ""))
@@ -201,22 +201,22 @@ func _apply_options(pub: DotCloudPublisher, opts: Dictionary, claim: Dictionary)
 
 ## Sends the output through the site and, once the pack is READY, pins it in the lock file.
 func _finish_upload(opts: Dictionary, claim: Dictionary, built: Dictionary) -> int:
-	var up: DotCloudUploader = claim["uploader"]
+	var up: GSCloudUploader = claim["uploader"]
 	up.on_progress = func(done: int, total: int, bytes: int) -> void:
-		print("  uploaded %d/%d (%s)" % [done, total, DotPaths.format_bytes(bytes)])
+		print("  uploaded %d/%d (%s)" % [done, total, GSPaths.format_bytes(bytes)])
 	var res := up.upload(str(opts["out"]), int(claim["id"]))
 	if not res.ok:
 		printerr("upload failed: %s (re-run to resume; the claim stays open)" % str(res.error))
 		return EXIT_FAILED
 	var v: Dictionary = res.value
-	print("  upload      %d objects sent, %d already there (%s), %s" % [int(v["uploaded"]), int(v["skipped"]), DotPaths.format_bytes(int(v["bytes"])), v["status"]])
+	print("  upload      %d objects sent, %d already there (%s), %s" % [int(v["uploaded"]), int(v["skipped"]), GSPaths.format_bytes(int(v["bytes"])), v["status"]])
 	if v["status"] != "READY":
 		var aid := int(v.get("approval_id", 0))
 		print("  HELD for review%s: %s (no lock line until it is approved; then run relock)" % [" (approval #%d)" % aid if aid > 0 else "", v["message"]])
 		return EXIT_OK
 	print("  manifest    %s" % v["manifest_url"])
 	if opts.has("lock"):
-		var m: DotCloudManifest = built["manifest"]
+		var m: GSCloudManifest = built["manifest"]
 		return _write_lock(str(opts["lock"]), m.content_id, m.version, v, opts, up.site)
 	return EXIT_OK
 
@@ -296,7 +296,7 @@ func _versions(opts: Dictionary) -> int:
 	if not opts.has("token-file"):
 		printerr("versions needs --token-file")
 		return EXIT_USAGE
-	var up := DotCloudUploader.new()
+	var up := GSCloudUploader.new()
 	up.token_file = str(opts["token-file"])
 	if opts.has("site"):
 		up.site = str(opts["site"]).trim_suffix("/")
@@ -306,11 +306,11 @@ func _versions(opts: Dictionary) -> int:
 		return EXIT_FAILED
 	for v: Dictionary in res.value:
 		print("%-40s %-10s %-8s %6d files %10s  %s" % [v["contentId"], v["version"], v["status"], int(v["fileCount"]),
-			DotPaths.format_bytes(int(v["byteSize"])), str(v.get("manifestSha", ""))])
+			GSPaths.format_bytes(int(v["byteSize"])), str(v.get("manifestSha", ""))])
 	return EXIT_OK
 
 
-## Relinks every published version of --id into collection asset --member-of (see DotCloudUploader.member).
+## Relinks every published version of --id into collection asset --member-of (see GSCloudUploader.member).
 func _member(opts: Dictionary) -> int:
 	var missing := _require(opts, ["id", "member-of", "token-file"])
 	if missing != "":
@@ -320,7 +320,7 @@ func _member(opts: Dictionary) -> int:
 	if asset_id <= 0:
 		printerr("--member-of needs a positive asset id")
 		return EXIT_USAGE
-	var up := DotCloudUploader.new()
+	var up := GSCloudUploader.new()
 	up.token_file = str(opts["token-file"])
 	if opts.has("site"):
 		up.site = str(opts["site"]).trim_suffix("/")
@@ -345,10 +345,10 @@ static func _names_pack(content_id: String, id: String) -> bool:
 
 
 ## With --upload the site names the content id (owner/repo): claim first, estimating size from the source tree.
-func _claim(opts: Dictionary) -> DotResult:
+func _claim(opts: Dictionary) -> GSResult:
 	if not opts.has("token-file"):
-		return DotResult.fail(DotError.CODE_INVALID, "--upload needs --token-file")
-	var up := DotCloudUploader.new()
+		return GSResult.fail(GSError.CODE_INVALID, "--upload needs --token-file")
+	var up := GSCloudUploader.new()
 	up.token_file = str(opts["token-file"])
 	if opts.has("site"):
 		up.site = str(opts["site"]).trim_suffix("/")
@@ -369,34 +369,34 @@ func _claim(opts: Dictionary) -> DotResult:
 	var version := str(opts.get("version", "0.0.0"))
 	var asset_id := int(str(opts.get("asset", "0")))
 	if opts.has("asset") and asset_id <= 0:
-		return DotResult.fail(DotError.CODE_INVALID, "--asset needs a positive asset id")
+		return GSResult.fail(GSError.CODE_INVALID, "--asset needs a positive asset id")
 	var member_of := int(str(opts.get("member-of", "0")))
 	if opts.has("member-of") and (member_of <= 0 or asset_id > 0):
-		return DotResult.fail(DotError.CODE_INVALID, "--member-of needs a positive asset id and no --asset")
+		return GSResult.fail(GSError.CODE_INVALID, "--member-of needs a positive asset id and no --asset")
 	var r := up.claim(str(opts["id"]), version, count, bytes, asset_id, member_of)
 	if r.ok and member_of > 0 and not _names_pack(str((r.value as Dictionary).get("contentId", "")), str(opts["id"])):
 		var got := str((r.value as Dictionary).get("contentId", ""))
 		up.fail_claim(int((r.value as Dictionary)["id"]), "member claim named %s, not %s" % [got, str(opts["id"])])
-		return DotResult.fail(DotError.CODE_INVALID, "the site named the member pack '%s', not '%s'" % [got, str(opts["id"])])
+		return GSResult.fail(GSError.CODE_INVALID, "the site named the member pack '%s', not '%s'" % [got, str(opts["id"])])
 	if r.ok and asset_id > 0 and not _names_pack(str((r.value as Dictionary).get("contentId", "")), str(opts["id"])):
 		var got_id := str((r.value as Dictionary).get("contentId", ""))
 		up.fail_claim(int((r.value as Dictionary)["id"]), "asset %d publishes as %s, not %s" % [asset_id, got_id, str(opts["id"])])
-		return DotResult.fail(DotError.CODE_INVALID, "asset %d publishes as '%s', not '%s': give the asset that repo name" % [asset_id, got_id, str(opts["id"])])
+		return GSResult.fail(GSError.CODE_INVALID, "asset %d publishes as '%s', not '%s': give the asset that repo name" % [asset_id, got_id, str(opts["id"])])
 	if not r.ok and opts.has("resume") and r.error.detail == "version_taken":
 		# An unfinished claim (neither READY nor HELD) is reused: the site lists only the objects still missing.
 		var open := _find_version(up, str(opts["id"]), version)
 		if open.has("id") and not ["READY", "HELD"].has(str(open.get("status", ""))):
 			print("resuming claim %d for %s@%s" % [int(open["id"]), str(opts["id"]), version])
-			r = DotResult.success({"id": int(open["id"]), "contentId": str(open["contentId"])})
+			r = GSResult.success({"id": int(open["id"]), "contentId": str(open["contentId"])})
 	if r.ok:
 		var v: Dictionary = r.value
 		v["uploader"] = up
-		return DotResult.success(v)
+		return GSResult.success(v)
 	return r
 
 
 ## The site's record of [param repo]@[param version] for this account, or {}.
-func _find_version(up: DotCloudUploader, repo: String, version: String) -> Dictionary:
+func _find_version(up: GSCloudUploader, repo: String, version: String) -> Dictionary:
 	var vs := up.versions(repo)
 	if vs.ok:
 		for v: Dictionary in vs.value:
@@ -407,7 +407,7 @@ func _find_version(up: DotCloudUploader, repo: String, version: String) -> Dicti
 
 ## What to do about a 409 version_taken, from what the site says that version is.
 func _taken_hint(opts: Dictionary) -> String:
-	var up := DotCloudUploader.new()
+	var up := GSCloudUploader.new()
 	up.token_file = str(opts["token-file"])
 	if opts.has("site"):
 		up.site = str(opts["site"]).trim_suffix("/")
@@ -428,7 +428,7 @@ func _relock(opts: Dictionary) -> int:
 	if missing != "":
 		printerr("relock needs --%s" % missing)
 		return EXIT_USAGE
-	var up := DotCloudUploader.new()
+	var up := GSCloudUploader.new()
 	up.token_file = str(opts["token-file"])
 	if opts.has("site"):
 		up.site = str(opts["site"]).trim_suffix("/")
@@ -471,7 +471,7 @@ func _keygen(opts: Dictionary) -> int:
 		)
 		return EXIT_FAILED
 
-	var res := DotCloudPublisher.generate_keys(private_path, public_path)
+	var res := GSCloudPublisher.generate_keys(private_path, public_path)
 	if not res.ok:
 		printerr("keygen failed: %s" % str(res.error))
 		return EXIT_FAILED
@@ -480,7 +480,7 @@ func _keygen(opts: Dictionary) -> int:
 	print("wrote %s (private — keep it secret)" % private_path)
 	print("wrote %s (public — ship it in the client)" % public_path)
 	print("")
-	print("Add the public key to the client's DotCloudConfig.trusted_keys:")
+	print("Add the public key to the client's GSCloudConfig.trusted_keys:")
 	print("  config.trusted_keys[\"default\"] = <contents of %s>" % public_path)
 
 	return EXIT_OK
@@ -493,24 +493,24 @@ func _verify(opts: Dictionary) -> int:
 		return EXIT_USAGE
 
 	var manifest_path := str(opts["manifest"])
-	var read := DotPaths.read_bytes(manifest_path)
+	var read := GSPaths.read_bytes(manifest_path)
 	if not read.ok:
 		printerr("could not read manifest: %s" % str(read.error))
 		return EXIT_FAILED
 
-	var parsed := DotCloudManifest.from_json_bytes(read.value)
+	var parsed := GSCloudManifest.from_json_bytes(read.value)
 	if not parsed.ok:
 		printerr("manifest is invalid: %s" % str(parsed.error))
 		return EXIT_FAILED
 
-	var manifest: DotCloudManifest = parsed.value
+	var manifest: GSCloudManifest = parsed.value
 
 	var pem := FileAccess.get_file_as_string(str(opts["public"]))
 	if pem == "":
 		printerr("could not read public key: %s" % opts["public"])
 		return EXIT_FAILED
 
-	var res := DotCloudSignature.verify(
+	var res := GSCloudSignature.verify(
 		manifest.raw_bytes, manifest.signature, pem
 	)
 
@@ -528,17 +528,17 @@ func _inspect(opts: Dictionary) -> int:
 		printerr("inspect needs --%s" % missing)
 		return EXIT_USAGE
 
-	var read := DotPaths.read_bytes(str(opts["manifest"]))
+	var read := GSPaths.read_bytes(str(opts["manifest"]))
 	if not read.ok:
 		printerr("could not read manifest: %s" % str(read.error))
 		return EXIT_FAILED
 
-	var parsed := DotCloudManifest.from_json_bytes(read.value)
+	var parsed := GSCloudManifest.from_json_bytes(read.value)
 	if not parsed.ok:
 		printerr("manifest is invalid: %s" % str(parsed.error))
 		return EXIT_FAILED
 
-	var manifest: DotCloudManifest = parsed.value
+	var manifest: GSCloudManifest = parsed.value
 	var d := manifest.describe()
 
 	print("")
@@ -551,7 +551,7 @@ func _inspect(opts: Dictionary) -> int:
 		print("")
 		for f in manifest.files:
 			print("  %-10s %-64s %s" % [
-				DotPaths.format_bytes(f.size), f.path, f.sha256.substr(0, 16)
+				GSPaths.format_bytes(f.size), f.path, f.sha256.substr(0, 16)
 			])
 
 	return EXIT_OK

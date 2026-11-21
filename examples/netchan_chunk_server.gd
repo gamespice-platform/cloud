@@ -2,7 +2,7 @@ extends RefCounted
 
 ## A stand-in for GameSpice Server's in-band content delegate, for [code]netchan_demo[/code].
 ##
-## GameSpice Cloud must not depend on GameSpice Server, so [DotCloudSourceNetchan] talks to
+## GameSpice Cloud must not depend on GameSpice Server, so [GSCloudSourceNetchan] talks to
 ## whatever object implements two methods. That decoupling is also why the source
 ## had no executable coverage: the only real implementation lives in another
 ## repository, so nothing here could drive it. This is that implementation's
@@ -56,7 +56,7 @@ func cloud_chunk_size() -> int:
 	return chunk_size
 
 
-func cloud_request_chunk(sha256: String, offset: int, length: int) -> DotResult:
+func cloud_request_chunk(sha256: String, offset: int, length: int) -> GSResult:
 	_calls += 1
 	requests.append(Vector2i(offset, length))
 	chunk_requested.emit(sha256, offset, length)
@@ -65,7 +65,7 @@ func cloud_request_chunk(sha256: String, offset: int, length: int) -> DotResult:
 		# Suspends and never resumes. Before the source grew a chunk timeout this
 		# took the whole acquire down with it, silently.
 		await host.never_fires
-		return DotResult.fail(DotError.CODE_STATE, "unreachable")
+		return GSResult.fail(GSError.CODE_STATE, "unreachable")
 
 	if delay_sec > 0.0:
 		await host.get_tree().create_timer(delay_sec).timeout
@@ -73,15 +73,15 @@ func cloud_request_chunk(sha256: String, offset: int, length: int) -> DotResult:
 		await host.get_tree().process_frame
 
 	if fail_after_chunks >= 0 and _calls > fail_after_chunks:
-		return DotResult.fail(
-			DotError.CODE_NETWORK, "Simulated peer failure.", "chunk %d" % _calls
+		return GSResult.fail(
+			GSError.CODE_NETWORK, "Simulated peer failure.", "chunk %d" % _calls
 		)
 
 	var path := objects_dir.path_join(_object_rel(sha256))
 	var f := FileAccess.open(path, FileAccess.READ)
 	if f == null:
-		return DotResult.fail(
-			DotError.CODE_IO, "No such object.", sha256
+		return GSResult.fail(
+			GSError.CODE_IO, "No such object.", sha256
 		)
 
 	var size := int(f.get_length())
@@ -89,7 +89,7 @@ func cloud_request_chunk(sha256: String, offset: int, length: int) -> DotResult:
 		f.close()
 		# A zero-length answer is end-of-file, and the source must treat it as
 		# one rather than looping until its chunk limit.
-		return DotResult.success(PackedByteArray())
+		return GSResult.success(PackedByteArray())
 
 	var want := length
 	if overserves:
@@ -100,11 +100,11 @@ func cloud_request_chunk(sha256: String, offset: int, length: int) -> DotResult:
 	f.close()
 
 	served += bytes.size()
-	return DotResult.success(bytes)
+	return GSResult.success(bytes)
 
 
 ## Mirrors the publisher's object layout. Kept here rather than reusing
-## [method DotCloudFile.object_path] because a delegate in another repository
+## [method GSCloudFile.object_path] because a delegate in another repository
 ## only ever has the hash.
 func _object_rel(sha256: String) -> String:
 	return "objects".path_join(sha256.substr(0, 2)).path_join(sha256)

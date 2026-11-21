@@ -1,6 +1,6 @@
 extends RefCounted
 
-## The UID registration of [DotCloudMounter], in a file of their own so the mounter stays inside the size
+## The UID registration of [GSCloudMounter], in a file of their own so the mounter stays inside the size
 ## budget. Nothing here is used on its own.
 
 const CHANNEL := "cloud.mount"
@@ -10,7 +10,7 @@ const CHANNEL := "cloud.mount"
 ## A pack may claim a UID nothing owns, not TAKE one (ids are process-global; `add_only` skips ids outside its own mounts).
 ## Returns how many were registered.
 static func register(
-	files: Array[DotCloudFile],
+	files: Array[GSCloudFile],
 	prefix: String,
 	mount_root: String,
 	add_only: bool = false,
@@ -65,7 +65,7 @@ static func register(
 					continue
 
 				differing += 1
-				DotLog.warn(CHANNEL, "a pack claims a uid the host already owns; refused", {
+				GSLog.warn(CHANNEL, "a pack claims a uid the host already owns; refused", {
 					"uid": uid_text, "held": held, "wanted": source,
 				})
 				continue
@@ -77,11 +77,11 @@ static func register(
 		registered += 1
 
 	if refused > 0 and differing == 0:
-		DotLog.info(CHANNEL, "a pack's uids are already held by identical files; kept the host's", {
+		GSLog.info(CHANNEL, "a pack's uids are already held by identical files; kept the host's", {
 			"refused": refused, "prefix": prefix,
 		})
 	elif differing > 0:
-		DotLog.error(CHANNEL, "a pack tried to take uids that are not its own", {
+		GSLog.error(CHANNEL, "a pack tried to take uids that are not its own", {
 			"refused": refused, "differing": differing, "prefix": prefix,
 		})
 

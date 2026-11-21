@@ -1,4 +1,4 @@
-class_name DotCloudWorkshop
+class_name GSCloudWorkshop
 extends "dot_cloud_workshop_base.gd"
 
 ## The Workshop's sync client: a signed-in player's subscribed packs, downloaded, verified and
@@ -6,15 +6,15 @@ extends "dot_cloud_workshop_base.gd"
 ## client half of it.
 ##
 ## [codeblock]
-## var ws := DotCloudWorkshop.new()
+## var ws := GSCloudWorkshop.new()
 ## ws.token_fn = func() -> String: return my_auth.bearer()     # "" for a guest
 ## ws.ask_fn = func(summary: Dictionary) -> bool: return await my_dialog.ask(summary)
 ## ws.config.workshop_backbone_url = "https://tmcdev.net"
-## add_child(ws)                                              # beside the DotCloudClient
+## add_child(ws)                                              # beside the GSCloudClient
 ## var res := await ws.sync("gamemann/game-playlot")
 ## [/codeblock]
 ##
-## [b]It never runs for an online session[/b], and says so with [constant DotError.CODE_FORBIDDEN]
+## [b]It never runs for an online session[/b], and says so with [constant GSError.CODE_FORBIDDEN]
 ## rather than trusting its caller. It never fails for anything a player can cause: a dead
 ## network, a broken pack, a guest and a declined download are all a successful summary, because
 ## one pack must never stop a game from starting. No GameSpice Auth dependency: the bearer arrives as a
@@ -23,7 +23,7 @@ extends "dot_cloud_workshop_base.gd"
 @export var register_service: bool = true
 
 ## Layered configuration; [code]null[/code] makes a default one.
-@export var config: DotCloudWorkshopConfig = null
+@export var config: GSCloudWorkshopConfig = null
 
 ## Read on the first sync when it exists. The layers above it are the exported defaults.
 @export var config_file: String = "user://dot_cloud_workshop.json"
@@ -38,8 +38,8 @@ var token_fn: Callable = Callable()
 ## Unset means no.
 var ask_fn: Callable = Callable()
 
-## The GameSpice Cloud client to mount through; found through [constant DotCloudClient.SERVICE] when null.
-var cloud: DotCloudClient = null
+## The GameSpice Cloud client to mount through; found through [constant GSCloudClient.SERVICE] when null.
+var cloud: GSCloudClient = null
 
 ## The signed-in account's id when the host knows it, so a cached list that belongs to another
 ## account is not used offline. Empty trusts the cache (a list is only ever written for the
@@ -61,13 +61,13 @@ var force_metered: int = -1
 ## else is refused the same way.
 var force_platform: String = ""
 
-var device: DotCloudWorkshopDevice = null
+var device: GSCloudWorkshopDevice = null
 
-## Packs the game suggests, as [method DotCloudSuggested.from_ids] builds them. Mounted for the
-## solo session, signed in or not, unless the mode (see [DotCloudSuggested]) turns them off.
+## Packs the game suggests, as [method GSCloudSuggested.from_ids] builds them. Mounted for the
+## solo session, signed in or not, unless the mode (see [GSCloudSuggested]) turns them off.
 var suggested: Array[Dictionary] = []
 
-var _http: DotHttp = null
+var _http: GSHttp = null
 var _prepared: bool = false
 var _platform_refusal_logged: bool = false
 var _syncing: bool = false
@@ -75,7 +75,7 @@ var _syncing: bool = false
 var defer_mount: bool = false
 var _pending: Array[Dictionary] = []
 var _game_id: String = ""
-var _list: DotCloudWorkshopList = null
+var _list: GSCloudWorkshopList = null
 var _summary: Dictionary = {}
 var _ran_code: bool = false
 
@@ -83,16 +83,16 @@ var _ran_code: bool = false
 func _ready() -> void:
 	if Engine.is_editor_hint() or not register_service:
 		return
-	DotRegistry.register(SERVICE, self)
+	GSRegistry.register(SERVICE, self)
 
 
 func _exit_tree() -> void:
 	if register_service:
-		DotRegistry.unregister_instance(SERVICE, self)
+		GSRegistry.unregister_instance(SERVICE, self)
 
 
 ## The last list this node saw (fetched or cached), or null before the first sync.
-func last_list() -> DotCloudWorkshopList:
+func last_list() -> GSCloudWorkshopList:
 	return _list
 
 
@@ -107,9 +107,9 @@ func requires_restart_before_online() -> bool:
 func is_metered() -> bool:
 	if force_metered >= 0:
 		return force_metered == 1
-	if DotWeb.available():
-		return DotWeb.is_metered()
-	return DotPlatform.is_mobile()
+	if GSWeb.available():
+		return GSWeb.is_metered()
+	return GSPlatform.is_mobile()
 
 
 ## Fetches the game's list and mounts every pack that survives the device's rules, for the solo
@@ -120,22 +120,22 @@ func is_metered() -> bool:
 ## [code]addons[/code] are the subscribed addon packs of a game that accepts kind [code]addon[/code]:
 ## never mounted here (an addon needs the process root and its class names, which only the boot
 ## overlay gives), but checked and handed to the host as [code]{dir, repo, id, version, title, running}[/code]
-## for a [DotCloudAddonSet] build. See docs/workshop.md, addon packs.
-func sync(game_content_id: String) -> DotResult:
+## for a [GSCloudAddonSet] build. See docs/workshop.md, addon packs.
+func sync(game_content_id: String) -> GSResult:
 	if game_content_id.strip_edges() == "":
-		return DotResult.fail(DotError.CODE_INVALID, "No game content id to sync the Workshop for.")
+		return GSResult.fail(GSError.CODE_INVALID, "No game content id to sync the Workshop for.")
 	if _syncing:
-		return DotResult.fail(DotError.CODE_STATE, "A Workshop sync is already running.")
+		return GSResult.fail(GSError.CODE_STATE, "A Workshop sync is already running.")
 	if _is_online_session():
-		DotLog.warn(CHANNEL, "refused: an online session never mounts subscriptions", {"game": game_content_id})
-		return DotResult.fail(
-			DotError.CODE_FORBIDDEN, "The Workshop is not available in an online session.", game_content_id
+		GSLog.warn(CHANNEL, "refused: an online session never mounts subscriptions", {"game": game_content_id})
+		return GSResult.fail(
+			GSError.CODE_FORBIDDEN, "The Workshop is not available in an online session.", game_content_id
 		)
 	var cloud_client := _cloud()
 	if cloud_client == null:
-		return DotResult.fail(
-			DotError.CODE_STATE, "No DotCloudClient to mount through.",
-			"place a DotCloudClient beside the Workshop, or set .cloud"
+		return GSResult.fail(
+			GSError.CODE_STATE, "No GSCloudClient to mount through.",
+			"place a GSCloudClient beside the Workshop, or set .cloud"
 		)
 	var prepared := _prepare()
 	if not prepared.ok:
@@ -150,32 +150,32 @@ func sync(game_content_id: String) -> DotResult:
 	if not res.ok:
 		return res
 	if defer_mount:
-		return DotResult.success(summary)
-	DotLog.info(CHANNEL, "synced", {
+		return GSResult.success(summary)
+	GSLog.info(CHANNEL, "synced", {
 		"game": game_content_id, "revision": summary["revision"], "mounted": (summary["mounted"] as Array).size(),
 		"skipped": (summary["skipped"] as Array).size(), "failed": (summary["failed"] as Array).size(),
 		"addons": (summary["addons"] as Array).size(), "offline": summary["offline"], "guest": summary["guest"],
 	})
 	synced.emit(summary)
-	return DotResult.success(summary)
+	return GSResult.success(summary)
 
 
 ## Turns a subscription on or off for [b]this game[/b] on the site. Applies at the next launch,
 ## because a mounted pack cannot be taken back. Needs a prior [method sync] to know the game.
-func set_scope(subscription_id: String, on: bool) -> DotResult:
+func set_scope(subscription_id: String, on: bool) -> GSResult:
 	if _game_id == "":
-		return DotResult.fail(DotError.CODE_STATE, "No game yet: sync before changing a scope.")
+		return GSResult.fail(GSError.CODE_STATE, "No game yet: sync before changing a scope.")
 	return await _post_scope({"subscriptionId": subscription_id, "game": _game_id, "on": on})
 
 
 ## Turns a subscription on or off for [b]every game[/b]. A game-bound token is refused by the site
-## ([constant DotError.CODE_FORBIDDEN]); the panel then offers the asset page instead.
-func set_all_games(subscription_id: String, on: bool) -> DotResult:
+## ([constant GSError.CODE_FORBIDDEN]); the panel then offers the asset page instead.
+func set_all_games(subscription_id: String, on: bool) -> GSResult:
 	return await _post_scope({"subscriptionId": subscription_id, "all": on})
 
 
 ## This device's switch for one pack; never reaches the site. Applies at the next launch.
-func set_device_off(content_id: String, off: bool) -> DotResult:
+func set_device_off(content_id: String, off: bool) -> GSResult:
 	var prepared := _prepare()
 	if not prepared.ok:
 		return prepared
@@ -184,7 +184,7 @@ func set_device_off(content_id: String, off: bool) -> DotResult:
 
 
 ## Saves this device's suggested-packs mode ("" follows the config; none, ask, all or a group list).
-func set_device_suggested_mode(mode: String) -> DotResult:
+func set_device_suggested_mode(mode: String) -> GSResult:
 	var prepared := _prepare()
 	if not prepared.ok:
 		return prepared
@@ -233,10 +233,10 @@ func describe_lines() -> PackedStringArray:
 	return lines
 
 
-func _run(game: String, cloud_client: DotCloudClient, summary: Dictionary) -> DotResult:
+func _run(game: String, cloud_client: GSCloudClient, summary: Dictionary) -> GSResult:
 	if not config.workshop_enabled:
 		summary["reason"] = "disabled"
-		return DotResult.success(null)
+		return GSResult.success(null)
 
 	var token := _token()
 	if token == "":
@@ -244,12 +244,12 @@ func _run(game: String, cloud_client: DotCloudClient, summary: Dictionary) -> Do
 		summary["reason"] = "guest"
 		_list = null
 		await _mount_all(null, cloud_client, summary)
-		return DotResult.success(null)
+		return GSResult.success(null)
 
 	var cached := _read_cache(game)
-	var list: DotCloudWorkshopList = null
+	var list: GSCloudWorkshopList = null
 	if not cached.is_empty() and _cache_is_this_account(cached):
-		list = DotCloudWorkshopList.from_response(cached["response"] as Dictionary)
+		list = GSCloudWorkshopList.from_response(cached["response"] as Dictionary)
 	var since: String = str(cached.get("revision", "")) if list != null else ""
 
 	var fetched := await _fetch(game, token, since)
@@ -261,46 +261,46 @@ func _run(game: String, cloud_client: DotCloudClient, summary: Dictionary) -> Do
 			# A delta against a cache we no longer trust: ask for the whole list.
 			fetched = await _fetch(game, token, "")
 		if fetched.ok and not bool((fetched.value as Dictionary).get("unchanged", false)):
-			list = DotCloudWorkshopList.from_response(fetched.value)
+			list = GSCloudWorkshopList.from_response(fetched.value)
 			_write_cache(game, list)
 			for r in list.removed():
-				DotLog.debug(CHANNEL, "not on for this game", {
+				GSLog.debug(CHANNEL, "not on for this game", {
 					"content": r.get("contentId", ""), "reason": r.get("reason", ""),
 				})
 	if not fetched.ok:
-		var err: DotError = fetched.error
-		if err.code == DotError.CODE_AUTH:
+		var err: GSError = fetched.error
+		if err.code == GSError.CODE_AUTH:
 			# A rejected token is a guest, and the cached list belonged to whoever held the old one.
 			_drop_cache(game)
 			summary["guest"] = true
 			summary["reason"] = "guest"
 			_list = null
-			DotLog.info(CHANNEL, "token refused, treating as a guest", {"game": game})
+			GSLog.info(CHANNEL, "token refused, treating as a guest", {"game": game})
 			await _mount_all(null, cloud_client, summary)
-			return DotResult.success(null)
+			return GSResult.success(null)
 		summary["offline"] = true
 		var level_fields := {"game": game, "why": err.code, "message": err.message}
-		if [DotError.CODE_NETWORK, DotError.CODE_TIMEOUT, DotError.CODE_HTTP].has(err.code):
-			DotLog.info(CHANNEL, "site unreachable, using the cached list", level_fields)
+		if [GSError.CODE_NETWORK, GSError.CODE_TIMEOUT, GSError.CODE_HTTP].has(err.code):
+			GSLog.info(CHANNEL, "site unreachable, using the cached list", level_fields)
 		else:
-			DotLog.warn(CHANNEL, "list request failed, using the cached list", level_fields)
+			GSLog.warn(CHANNEL, "list request failed, using the cached list", level_fields)
 		if list == null:
 			summary["reason"] = "offline_no_cache"
 			_list = null
 			await _mount_all(null, cloud_client, summary)
-			return DotResult.success(null)
+			return GSResult.success(null)
 		summary["from_cache"] = true
 
 	_list = list
 	summary["revision"] = list.revision()
 	summary["takes_subscriptions"] = not list.accepts().is_empty()
 	await _mount_all(list, cloud_client, summary)
-	return DotResult.success(null)
+	return GSResult.success(null)
 
 
-func _fetch(game: String, token: String, since: String) -> DotResult:
+func _fetch(game: String, token: String, since: String) -> GSResult:
 	if config.workshop_backbone_url.strip_edges() == "":
-		return DotResult.fail(DotError.CODE_STATE, "No workshop_backbone_url is configured.")
+		return GSResult.fail(GSError.CODE_STATE, "No workshop_backbone_url is configured.")
 	_http.base_url = config.workshop_backbone_url
 	_http.timeout_sec = config.workshop_timeout_sec
 	var path := "/api/app/v1/workshop?game=%s&platform=%s" % [game.uri_encode(), request_platform()]
@@ -314,33 +314,33 @@ func _fetch(game: String, token: String, since: String) -> DotResult:
 	if body is Dictionary and (body as Dictionary).has("ok") and (body as Dictionary).get("data") is Dictionary:
 		body = (body as Dictionary)["data"]
 	if not (body is Dictionary) or not ((body as Dictionary).get("items", []) is Array):
-		return DotResult.fail(DotError.CODE_PARSE, "The Workshop list is not the shape this client reads.")
-	return DotResult.success(body)
+		return GSResult.fail(GSError.CODE_PARSE, "The Workshop list is not the shape this client reads.")
+	return GSResult.success(body)
 
 
-func _post_scope(body: Dictionary) -> DotResult:
+func _post_scope(body: Dictionary) -> GSResult:
 	var prepared := _prepare()
 	if not prepared.ok:
 		return prepared
 	var token := _token()
 	if token == "":
-		return DotResult.fail(DotError.CODE_AUTH, "Sign in to change a subscription.")
+		return GSResult.fail(GSError.CODE_AUTH, "Sign in to change a subscription.")
 	if config.workshop_backbone_url.strip_edges() == "":
-		return DotResult.fail(DotError.CODE_STATE, "No workshop_backbone_url is configured.")
+		return GSResult.fail(GSError.CODE_STATE, "No workshop_backbone_url is configured.")
 	_http.base_url = config.workshop_backbone_url
 	_http.timeout_sec = config.workshop_timeout_sec
 	var res := await _http.post_json("/api/app/v1/workshop/scope", body, {"Authorization": "Bearer " + token})
 	if not res.ok:
-		DotLog.info(CHANNEL, "scope change refused", {"why": res.code(), "message": res.error.message})
+		GSLog.info(CHANNEL, "scope change refused", {"why": res.code(), "message": res.error.message})
 		return res
 	# The cached list is now stale, and its revision must not be trusted: a "since" equal to the
 	# server's new revision would answer "unchanged" and keep the old items for another launch.
 	_forget_revision(_game_id)
-	DotLog.info(CHANNEL, "scope changed", {"subscription": str(body.get("subscriptionId", ""))})
+	GSLog.info(CHANNEL, "scope changed", {"subscription": str(body.get("subscriptionId", ""))})
 	return res
 
 
-func _mount_all(list: DotCloudWorkshopList, cloud_client: DotCloudClient, summary: Dictionary) -> void:
+func _mount_all(list: GSCloudWorkshopList, cloud_client: GSCloudClient, summary: Dictionary) -> void:
 	var skipped: Array = summary["skipped"]
 	var failed: Array = summary["failed"]
 	var trusted := trusted_key_ids()
@@ -365,15 +365,15 @@ func _mount_all(list: DotCloudWorkshopList, cloud_client: DotCloudClient, summar
 			if not resolved.ok:
 				_fail_pack(failed, id, version, resolved.error)
 				continue
-			var manifest: DotCloudManifest = resolved.value
-			var signer := DotResult.success(null) if bool(c.get("suggested", false)) else subscription_signer(manifest, trusted, cloud_client.config.trusted_keys)
+			var manifest: GSCloudManifest = resolved.value
+			var signer := GSResult.success(null) if bool(c.get("suggested", false)) else subscription_signer(manifest, trusted, cloud_client.config.trusted_keys)
 			if not signer.ok:
 				_fail_pack(failed, id, version, signer.error)
 				continue
 			if bool(c.get("addon", false)):
 				_take_addon(c, manifest, summary)
 				continue
-			if DotCloudProvides.is_root_overlay(manifest.provides, _paths_of(manifest)):
+			if GSCloudProvides.is_root_overlay(manifest.provides, _paths_of(manifest)):
 				# The list said it was not an addon; the signed manifest says it is.
 				_fail_pack(failed, id, version, _not_accepted_addon())
 				continue
@@ -397,7 +397,7 @@ func _mount_all(list: DotCloudWorkshopList, cloud_client: DotCloudClient, summar
 		c["missing"] = missing
 		planned.append(c)
 
-	if DotCloudSuggested.asks(str((_summary.get("suggested", {}) as Dictionary).get("mode", ""))):
+	if GSCloudSuggested.asks(str((_summary.get("suggested", {}) as Dictionary).get("mode", ""))):
 		cum = await _ask_suggested(planned, skipped, cum)
 
 	var allow_downloads := true
@@ -420,23 +420,23 @@ func _mount_all(list: DotCloudWorkshopList, cloud_client: DotCloudClient, summar
 	await _mount_planned(cloud_client, to_mount, summary)
 
 
-## Mounts what a [member defer_mount] sync planned. The packs are expected to be in the store already (the caller ran [method DotCloudClient.job_download]).
-func mount_pending() -> DotResult:
+## Mounts what a [member defer_mount] sync planned. The packs are expected to be in the store already (the caller ran [method GSCloudClient.job_download]).
+func mount_pending() -> GSResult:
 	var cloud_client := _cloud()
 	if cloud_client == null or _summary.is_empty():
-		return DotResult.fail(DotError.CODE_STATE, "No deferred Workshop sync to mount.")
+		return GSResult.fail(GSError.CODE_STATE, "No deferred Workshop sync to mount.")
 	var to_mount := _pending
 	_pending = []
 	await _mount_planned(cloud_client, to_mount, _summary)
-	DotLog.info(CHANNEL, "synced", {
+	GSLog.info(CHANNEL, "synced", {
 		"game": _game_id, "mounted": (_summary["mounted"] as Array).size(),
 		"skipped": (_summary["skipped"] as Array).size(), "failed": (_summary["failed"] as Array).size(),
 	})
 	synced.emit(_summary)
-	return DotResult.success(_summary)
+	return GSResult.success(_summary)
 
 
-func _mount_planned(cloud_client: DotCloudClient, to_mount: Array[Dictionary], summary: Dictionary) -> void:
+func _mount_planned(cloud_client: GSCloudClient, to_mount: Array[Dictionary], summary: Dictionary) -> void:
 	var failed: Array = summary["failed"]
 	var total := to_mount.size()
 	var bytes_total := 0
@@ -446,13 +446,13 @@ func _mount_planned(cloud_client: DotCloudClient, to_mount: Array[Dictionary], s
 	var done := 0
 	var job := cloud_client.begin_job("subscribed content")
 	for c in to_mount:
-		job.add_pack(DotCloudClient.content_key_for(StringName(str(c["id"])), str(c["version"])), int(c["missing"]))
+		job.add_pack(GSCloudClient.content_key_for(StringName(str(c["id"])), str(c["version"])), int(c["missing"]))
 	for c in to_mount:
 		var id: String = c["id"]
 		var version: String = c["version"]
 		progress.emit(done, total, bytes_done, bytes_total, str(c["title"]))
 		var mounted := await cloud_client.ensure_for_session(
-			StringName(id), version, DotContentIndex.SESSION_SOLO, &"subscription",
+			StringName(id), version, GSContentIndex.SESSION_SOLO, &"subscription",
 			{
 				"uid_policy": "add_only", "allow_root": false,
 				"manifest_url": str((c["pack"] as Dictionary).get("manifestUrl", "")),
@@ -473,14 +473,14 @@ func _mount_planned(cloud_client: DotCloudClient, to_mount: Array[Dictionary], s
 ## The subscribed packs worth planning: each one the list names, minus those the device, the key, the script policy, the accepted kinds or the pack caps rule out
 ## (recorded in [param skipped] or [param failed]). An addon pack is a candidate only for a game whose [code]accepts.kinds[/code] names [code]addon[/code], and only
 ## when its version is approved.
-func _candidates(list: DotCloudWorkshopList, skipped: Array, failed: Array, trusted: PackedStringArray) -> Array[Dictionary]:
+func _candidates(list: GSCloudWorkshopList, skipped: Array, failed: Array, trusted: PackedStringArray) -> Array[Dictionary]:
 	var accepts := list.accepts() if list != null else {}
 	var accepted_kinds: Array = accepts.get("kinds", []) if accepts.get("kinds", []) is Array else []
 	var candidates: Array[Dictionary] = []
 	var addon_count := 0
 
 	for item in (list.items() if list != null else []):
-		var pack := DotCloudWorkshopList.pack_of(item)
+		var pack := GSCloudWorkshopList.pack_of(item)
 		var id: String = str(pack.get("contentId", ""))
 		var version: String = str(pack.get("version", ""))
 		if id == "" or version == "":
@@ -499,8 +499,8 @@ func _candidates(list: DotCloudWorkshopList, skipped: Array, failed: Array, trus
 			continue
 		var key_id: String = str(pack.get("keyId", ""))
 		if not trusted.has(key_id):
-			_fail_pack(failed, id, version, DotError.make(
-				DotError.CODE_FORBIDDEN, "The pack is signed with a key a subscription does not trust.", key_id
+			_fail_pack(failed, id, version, GSError.make(
+				GSError.CODE_FORBIDDEN, "The pack is signed with a key a subscription does not trust.", key_id
 			))
 			continue
 		if is_addon and config.workshop_script_packs != "never" and not bool(pack.get("approved", false)):
@@ -527,25 +527,25 @@ func _candidates(list: DotCloudWorkshopList, skipped: Array, failed: Array, trus
 ## An approved addon pack the game accepts: each `addon` entry of its signed manifest becomes one [code]summary.addons[/code] entry for the host's overlay, unless its
 ## directory is taken. Taken is a clash and fails the pack loudly: the build's own addon (by [code]res://addons.lock[/code] or by its directory), a running overlay's
 ## addon from another pack, or another subscription's.
-func _take_addon(c: Dictionary, manifest: DotCloudManifest, summary: Dictionary) -> void:
+func _take_addon(c: Dictionary, manifest: GSCloudManifest, summary: Dictionary) -> void:
 	var id: String = c["id"]
 	var version: String = c["version"]
 	var failed: Array = summary["failed"]
 	var dirs := addon_dirs(manifest)
 	if dirs.is_empty():
-		_fail_pack(failed, id, version, DotError.make(
-			DotError.CODE_INVALID, "The list calls this an addon pack, but its manifest names no addon.", manifest.key()
+		_fail_pack(failed, id, version, GSError.make(
+			GSError.CODE_INVALID, "The list calls this an addon pack, but its manifest names no addon.", manifest.key()
 		))
 		return
-	var built: Dictionary = DotCloudAddonSet.built_versions()
+	var built: Dictionary = GSCloudAddonSet.built_versions()
 	if built.has(id.get_file()):
 		var have := str(built[id.get_file()])
-		var newer := DotCloudAddonSet.compare_versions(version, have) > 0
+		var newer := GSCloudAddonSet.compare_versions(version, have) > 0
 		var fields := {"pack": manifest.key(), "built": have}
 		if newer:
-			DotLog.warn(CHANNEL, "a subscribed addon is newer than the one this build ships; the build's copy serves it", fields)
+			GSLog.warn(CHANNEL, "a subscribed addon is newer than the one this build ships; the build's copy serves it", fields)
 		else:
-			DotLog.info(CHANNEL, "a subscribed addon is one this build ships; the build's copy serves it", fields)
+			GSLog.info(CHANNEL, "a subscribed addon is one this build ships; the build's copy serves it", fields)
 		(summary["skipped"] as Array).append(_skip(id, version, REASON_ADDON_BUILT))
 		return
 	var taken := {}
@@ -555,11 +555,11 @@ func _take_addon(c: Dictionary, manifest: DotCloudManifest, summary: Dictionary)
 	for dir in dirs:
 		var clash := addon_clash(dir, id, taken)
 		if clash != "":
-			DotLog.error(CHANNEL, "a subscribed addon clashes with one this process has; not taken", {
+			GSLog.error(CHANNEL, "a subscribed addon clashes with one this process has; not taken", {
 				"pack": manifest.key(), "dir": dir, "why": clash,
 			})
-			_fail_pack(failed, id, version, DotError.make(
-				DotError.CODE_CONFLICT, "A subscribed addon may only add an addon, never replace one.", clash
+			_fail_pack(failed, id, version, GSError.make(
+				GSError.CODE_CONFLICT, "A subscribed addon may only add an addon, never replace one.", clash
 			))
 			return
 		entries.append({
@@ -601,9 +601,9 @@ func _ask_suggested(planned: Array[Dictionary], skipped: Array, cum: int) -> int
 ## Appends the game's suggested packs the mode keeps. They are the game's own choice, so the
 ## client's trusted keys (checked in resolve_manifest) decide, not the subscription key list.
 func _add_suggested(candidates: Array[Dictionary], skipped: Array) -> void:
-	var groups := DotCloudSuggested.groups_of(suggested)
+	var groups := GSCloudSuggested.groups_of(suggested)
 	var mode := effective_suggested_mode(groups)
-	var chosen := DotCloudSuggested.select(suggested, mode)
+	var chosen := GSCloudSuggested.select(suggested, mode)
 	_summary["suggested"] = {"mode": mode, "declared": suggested.size(), "kept": chosen.size()}
 	if chosen.is_empty():
 		return
@@ -619,8 +619,8 @@ func _add_suggested(candidates: Array[Dictionary], skipped: Array) -> void:
 		if version == "":
 			var latest := await _latest_version(id)
 			if latest == "":
-				_fail_pack(_summary["failed"], id, "", DotError.make(
-					DotError.CODE_HTTP, "No published version of the suggested pack.", id
+				_fail_pack(_summary["failed"], id, "", GSError.make(
+					GSError.CODE_HTTP, "No published version of the suggested pack.", id
 				))
 				continue
 			version = latest
@@ -643,7 +643,7 @@ func effective_suggested_mode(groups: PackedStringArray) -> String:
 	var args := PackedStringArray()
 	args.append_array(OS.get_cmdline_args())
 	args.append_array(OS.get_cmdline_user_args())
-	return DotCloudSuggested.mode_from_args(args, groups, base)
+	return GSCloudSuggested.mode_from_args(args, groups, base)
 
 
 func _latest_version(id: String) -> String:
@@ -656,7 +656,7 @@ func _latest_version(id: String) -> String:
 		var got := await _http.get_json("%s/%s/latest.json" % [base.rstrip("/"), id])
 		if not got.ok:
 			continue
-		var parsed := DotCloudAutoUpdate.follow_pointer(id, got.value, 1)
+		var parsed := GSCloudAutoUpdate.follow_pointer(id, got.value, 1)
 		if parsed.ok and str(parsed.value["version"]) != "":
 			return str(parsed.value["version"])
 	return ""
@@ -687,11 +687,11 @@ func _script_allowed(runs_code: bool, approved: bool) -> bool:
 	return _script_policy_allows(config.workshop_script_packs, runs_code, approved)
 
 
-func _prepare() -> DotResult:
+func _prepare() -> GSResult:
 	if _prepared:
-		return DotResult.success(null)
+		return GSResult.success(null)
 	if config == null:
-		config = DotCloudWorkshopConfig.new()
+		config = GSCloudWorkshopConfig.new()
 	if config_file != "" and FileAccess.file_exists(config_file):
 		var loaded := config.apply_json_file(config_file)
 		if not loaded.ok:
@@ -701,18 +701,18 @@ func _prepare() -> DotResult:
 	var valid := config.validate()
 	if not valid.ok:
 		return valid
-	device = DotCloudWorkshopDevice.new(cache_dir.path_join("device.json"))
+	device = GSCloudWorkshopDevice.new(cache_dir.path_join("device.json"))
 	device.load_file()
-	_http = DotHttp.new()
+	_http = GSHttp.new()
 	_http.name = "WorkshopHttp"
 	_http.max_retries = 0
 	_http.max_response_bytes = 4 * 1024 * 1024
 	add_child(_http)
 	_prepared = true
-	return DotResult.success(null)
+	return GSResult.success(null)
 
 
-## The key ids a subscription may be signed with: the content client's own [member DotCloudConfig.trusted_keys]
+## The key ids a subscription may be signed with: the content client's own [member GSCloudConfig.trusted_keys]
 ## (see [method keyring_ids]), so never wider than the keyring this build verifies every pack against.
 func trusted_key_ids() -> PackedStringArray:
 	var cloud_client := _cloud()
@@ -721,10 +721,10 @@ func trusted_key_ids() -> PackedStringArray:
 	return keyring_ids(cloud_client.config.trusted_keys, config.workshop_key_ids if config != null else PackedStringArray())
 
 
-func _cloud() -> DotCloudClient:
+func _cloud() -> GSCloudClient:
 	if cloud != null:
 		return cloud
-	return DotRegistry.get_service(DotCloudClient.SERVICE) as DotCloudClient
+	return GSRegistry.get_service(GSCloudClient.SERVICE) as GSCloudClient
 
 
 func _token() -> String:
@@ -746,23 +746,23 @@ func request_platform() -> String:
 		return forced
 	if not _platform_refusal_logged:
 		_platform_refusal_logged = true
-		DotLog.warn(CHANNEL, "force_platform refused: this build is not that platform", {
+		GSLog.warn(CHANNEL, "force_platform refused: this build is not that platform", {
 			"forced": forced, "sent": own,
 		})
 	return own
 
 
 func _cache_path(game: String) -> String:
-	return cache_dir.path_join("%s_%s.json" % [DotPaths.slugify(game, 40), game.sha256_text().substr(0, 8)])
+	return cache_dir.path_join("%s_%s.json" % [GSPaths.slugify(game, 40), game.sha256_text().substr(0, 8)])
 
 
 func _read_cache(game: String) -> Dictionary:
 	var path := _cache_path(game)
 	if not FileAccess.file_exists(path):
 		return {}
-	var read := DotPaths.read_json(path)
+	var read := GSPaths.read_json(path)
 	if not read.ok or not (read.value is Dictionary):
-		DotLog.warn(CHANNEL, "cached list unreadable, ignoring it", {"path": path})
+		GSLog.warn(CHANNEL, "cached list unreadable, ignoring it", {"path": path})
 		return {}
 	var d: Dictionary = read.value
 	if not (d.get("response", null) is Dictionary):
@@ -773,23 +773,23 @@ func _read_cache(game: String) -> Dictionary:
 func _cache_is_this_account(cached: Dictionary) -> bool:
 	if account_id == "":
 		return true
-	return DotValue.same(str(cached.get("account", "")), account_id)
+	return GSValue.same(str(cached.get("account", "")), account_id)
 
 
-func _write_cache(game: String, list: DotCloudWorkshopList) -> void:
-	var written := DotPaths.write_json(_cache_path(game), {
+func _write_cache(game: String, list: GSCloudWorkshopList) -> void:
+	var written := GSPaths.write_json(_cache_path(game), {
 		"account": list.account(), "revision": list.revision(),
 		"fetched_at": int(Time.get_unix_time_from_system()), "response": list.response,
 	})
 	if not written.ok:
-		DotLog.warn(CHANNEL, "could not cache the list", {"why": written.code(), "message": written.error.message})
+		GSLog.warn(CHANNEL, "could not cache the list", {"why": written.code(), "message": written.error.message})
 
 
 func _drop_cache(game: String) -> void:
 	var path := _cache_path(game)
 	if FileAccess.file_exists(path):
 		DirAccess.remove_absolute(path)
-		DotWeb.sync_filesystem()
+		GSWeb.sync_filesystem()
 
 
 func _forget_revision(game: String) -> void:
@@ -797,4 +797,4 @@ func _forget_revision(game: String) -> void:
 	if cached.is_empty():
 		return
 	cached["revision"] = ""
-	DotPaths.write_json(_cache_path(game), cached)
+	GSPaths.write_json(_cache_path(game), cached)

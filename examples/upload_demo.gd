@@ -1,5 +1,5 @@
 extends Node
-## DotCloudUploader._put_many against a local mock PUT server (tools/mock_put_server.py): every object arrives, a failing one is named, a 403 asks for fresh URLs, and concurrency is faster than serial.
+## GSCloudUploader._put_many against a local mock PUT server (tools/mock_put_server.py): every object arrives, a failing one is named, a 403 asks for fresh URLs, and concurrency is faster than serial.
 
 const PORT := 18765
 
@@ -45,7 +45,7 @@ func _run_check(dir: String) -> void:
 	var server := OS.create_process("python3", [ProjectSettings.globalize_path("res://examples/mock_put_server.py"), str(PORT), "0.05", ProjectSettings.globalize_path(out)])
 	OS.delay_msec(800)
 	for conc in [6, 1]:
-		var up := DotCloudUploader.new()
+		var up := GSCloudUploader.new()
 		up.site = "http://127.0.0.1:%d" % PORT
 		up.token_file = tok
 		up.retries = 0
@@ -55,7 +55,7 @@ func _run_check(dir: String) -> void:
 			last[0] = d
 			last[1] = tot
 			last[2] = b
-		var r: DotResult = up._run(FileAccess.get_file_as_bytes(out.path_join("manifest.json")), out, 1, _cfg(tok))
+		var r: GSResult = up._run(FileAccess.get_file_as_bytes(out.path_join("manifest.json")), out, 1, _cfg(tok))
 		_check(r.ok and r.value["uploaded"] == 14 and r.value["status"] == "READY", "_run (concurrency %d) uploads all, refreshing expired URLs: %s" % [conc, str(r.value if r.ok else r.error.message)])
 		_check(last == [14, 14, 116], "_run progress %s" % str(last))
 		OS.kill(server)
@@ -88,7 +88,7 @@ func _ready() -> void:
 	DirAccess.make_dir_recursive_absolute(dir)
 	var server := OS.create_process("python3", [ProjectSettings.globalize_path("res://examples/mock_put_server.py"), str(PORT), "0.2"])
 	OS.delay_msec(800)
-	var up := DotCloudUploader.new()
+	var up := GSCloudUploader.new()
 	up.retries = 0
 	var seen := [0, 0]
 	var cb := func(n: int, b: int) -> void:
@@ -98,7 +98,7 @@ func _ready() -> void:
 	var jobs := _jobs(dir, 24, "aa", "ok")
 	up.concurrency = 6
 	var t0 := Time.get_ticks_msec()
-	var r: DotResult = up._put_many(jobs, cb)
+	var r: GSResult = up._put_many(jobs, cb)
 	var fast := Time.get_ticks_msec() - t0
 	var peak_parallel := _peak()
 	_check(r.ok and r.value == false, "parallel PUTs succeed")

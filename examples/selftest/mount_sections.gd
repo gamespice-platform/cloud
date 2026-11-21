@@ -11,7 +11,7 @@ static func uids(h: Node) -> void:
 	h._sections_started += 1
 	h._line("[b]9. the uids a pack declares[/b]")
 
-	var mounter := DotCloudMounter.new(h._config)
+	var mounter := GSCloudMounter.new(h._config)
 
 	# An id nothing in this project has ever used, which a pack is entitled to claim.
 	var mine := ResourceUID.create_id()
@@ -24,21 +24,21 @@ static func uids(h: Node) -> void:
 	ResourceUID.add_id(stolen, host_file)
 
 	var texture: PackedByteArray = h._blob("atlas", 256)
-	h._store.put_bytes(texture, DotHash.sha256_bytes(texture))
+	h._store.put_bytes(texture, GSHash.sha256_bytes(texture))
 
 	var marker := (
 		"[remap]\n\nimporter=\"texture\"\ntype=\"CompressedTexture2D\"\n"
 		+ "uid=\"%s\"\n" % mine_text
 	).to_utf8_buffer()
-	h._store.put_bytes(marker, DotHash.sha256_bytes(marker))
+	h._store.put_bytes(marker, GSHash.sha256_bytes(marker))
 
 	var thief := (
 		"[remap]\n\nimporter=\"texture\"\ntype=\"CompressedTexture2D\"\n"
 		+ "uid=\"%s\"\n" % ResourceUID.id_to_text(stolen)
 	).to_utf8_buffer()
-	h._store.put_bytes(thief, DotHash.sha256_bytes(thief))
+	h._store.put_bytes(thief, GSHash.sha256_bytes(thief))
 
-	var m: DotCloudManifest = h._manifest("uidpack", "1.0.0", [
+	var m: GSCloudManifest = h._manifest("uidpack", "1.0.0", [
 		["atlas.png", texture, true],
 		["atlas.png.import", marker, true],
 		["stolen.png", texture, true],
@@ -46,9 +46,9 @@ static func uids(h: Node) -> void:
 	])
 
 	# The pack steals a uid on purpose; the mounter's ERROR for it is the behaviour under test.
-	DotLog.set_channel_level("cloud.mount", DotLog.Level.OFF)
-	var res: DotResult = await mounter.mount(m, h._store, h._scheduler)
-	DotLog.clear_channel_level("cloud.mount")
+	GSLog.set_channel_level("cloud.mount", GSLog.Level.OFF)
+	var res: GSResult = await mounter.mount(m, h._store, h._scheduler)
+	GSLog.clear_channel_level("cloud.mount")
 	h._check("mounted", res.ok, str(res.error) if not res.ok else "")
 
 	if not res.ok:
@@ -93,7 +93,7 @@ static func slice_loader(h: Node) -> void:
 	h._check("have scripts to load", paths.size() >= 4, str(paths.size()))
 
 	for threaded in [false, true]:
-		var loader := DotCloudSliceLoader.new()
+		var loader := GSCloudSliceLoader.new()
 		loader.budget_msec = 0
 		var seen := [0]
 		var ticks := [0]
@@ -112,7 +112,7 @@ static func slice_loader(h: Node) -> void:
 			"%d ticks, %d yields" % [ticks[0], loader.frames_yielded])
 
 	# Batch cap: never more than max_per_frame resources between two frames, and the cover's frames keep ticking.
-	var batched := DotCloudSliceLoader.new()
+	var batched := GSCloudSliceLoader.new()
 	batched.budget_msec = 100000
 	batched.max_per_frame = 3
 	var ticks_b := [0]
@@ -127,7 +127,7 @@ static func slice_loader(h: Node) -> void:
 		"%d ticks, %d yields for %d paths" % [ticks_b[0], batched.frames_yielded, paths.size()])
 	h._check("batched: no frame over 100 ms", batched.peak_frame_msec < 100, "%d ms" % batched.peak_frame_msec)
 
-	var capped := DotCloudSliceLoader.new()
+	var capped := GSCloudSliceLoader.new()
 	capped.budget_msec = 0
 	capped.deadline_msec = 1
 	await h.get_tree().create_timer(0.01).timeout
@@ -139,19 +139,19 @@ static func slice_loader(h: Node) -> void:
 	h._check("load_rest finishes what the deadline left",
 		capped.remaining.is_empty() and capped.loaded.size() == paths.size(), str(capped.loaded.size()))
 
-	var bad := await DotCloudSliceLoader.new().load_all(h.get_tree(), PackedStringArray(["res://nope.gd"]), false)
+	var bad := await GSCloudSliceLoader.new().load_all(h.get_tree(), PackedStringArray(["res://nope.gd"]), false)
 	h._check("a missing path fails", not bad.ok)
-	h._check("with CODE_IO", bad.error.code == DotError.CODE_IO)
+	h._check("with CODE_IO", bad.error.code == GSError.CODE_IO)
 
 	var probe := "user://slice_probe.gd"
 	var f := FileAccess.open(probe, FileAccess.WRITE)
-	f.store_string("extends Node\nvar a: DotCloudSliceLoader\nvar b: DotCloudWorkshopDevice\nvar c: NotAClass\n")
+	f.store_string("extends Node\nvar a: GSCloudSliceLoader\nvar b: GSCloudWorkshopDevice\nvar c: NotAClass\n")
 	f.close()
 	var device := ""
 	for entry in ProjectSettings.get_global_class_list():
-		if entry["class"] == &"DotCloudWorkshopDevice":
+		if entry["class"] == &"GSCloudWorkshopDevice":
 			device = entry["path"]
-	var named := DotCloudSliceLoader.named_class_scripts(PackedStringArray([probe]))
+	var named := GSCloudSliceLoader.named_class_scripts(PackedStringArray([probe]))
 	h._check("named: an uncached class is listed, a cached one is not",
 		named.has(device) == (not ResourceLoader.has_cached(device)) and named.size() <= 1, str(named))
 	DirAccess.remove_absolute(probe)
@@ -166,19 +166,19 @@ static func corrupt_object(h: Node) -> void:
 	# commit_partial is the only hash check, so nothing re-reads a cached object; verify_before_mount alone
 	# guards against a bad sector, and no test reached it.
 	var body: PackedByteArray = h._blob("will-rot", 640)
-	var hash := DotHash.sha256_bytes(body)
+	var hash := GSHash.sha256_bytes(body)
 	h._store.put_bytes(body, hash)
 
-	var m: DotCloudManifest = h._manifest("rotten", "1.0.0", [["data.txt", body, true]])
+	var m: GSCloudManifest = h._manifest("rotten", "1.0.0", [["data.txt", body, true]])
 
-	var corrupted := DotPaths.write_bytes(h._store.path_for(hash), h._blob("not-it", 640))
+	var corrupted := GSPaths.write_bytes(h._store.path_for(hash), h._blob("not-it", 640))
 	h._check("object corrupted underneath the cache", corrupted.ok)
 
-	var mounter := DotCloudMounter.new(h._config)
-	var res: DotResult = await mounter.mount(m, h._store, h._scheduler)
+	var mounter := GSCloudMounter.new(h._config)
+	var res: GSResult = await mounter.mount(m, h._store, h._scheduler)
 	h._check(
 		"mount refused",
-		not res.ok and res.error.code == DotError.CODE_INTEGRITY,
+		not res.ok and res.error.code == GSError.CODE_INTEGRITY,
 		str(res.error.code) if not res.ok else "MOUNTED"
 	)
 	h._check("nothing was mounted", not mounter.is_mounted(m.key()))
@@ -187,8 +187,8 @@ static func corrupt_object(h: Node) -> void:
 	# stops verify_before_mount from being quietly ineffective: if it were, the
 	# check above would pass for the wrong reason and this one would too.
 	h._config.verify_before_mount = false
-	var mounter2 := DotCloudMounter.new(h._config)
-	var res2: DotResult = await mounter2.mount(m, h._store, h._scheduler)
+	var mounter2 := GSCloudMounter.new(h._config)
+	var res2: GSResult = await mounter2.mount(m, h._store, h._scheduler)
 	h._check("without the check it mounts (so the check is what caught it)", res2.ok,
 		str(res2.error) if not res2.ok else "")
 	h._config.verify_before_mount = true
@@ -199,7 +199,7 @@ static func corrupt_object(h: Node) -> void:
 
 # 10. One id and version, two publishers
 
-## Two parties claiming one `content_id@version` in ONE process: one [DotCloudMounter] meeting two manifests that agree about id and version and nothing else.
+## Two parties claiming one `content_id@version` in ONE process: one [GSCloudMounter] meeting two manifests that agree about id and version and nothing else.
 ## `key()` derives nothing from the bytes, so the second looks like a re-mount of the first and the player would run Alice's scripts on Mallory's server.
 ## A pack cannot be unmounted, so it is refused with something the caller can act on.
 static func two_publishers(h: Node) -> void:
@@ -208,19 +208,19 @@ static func two_publishers(h: Node) -> void:
 
 	var alice: PackedByteArray = h._blob("alice-build", 512)
 	var mallory: PackedByteArray = h._blob("mallory-build", 512)
-	h._store.put_bytes(alice, DotHash.sha256_bytes(alice))
-	h._store.put_bytes(mallory, DotHash.sha256_bytes(mallory))
+	h._store.put_bytes(alice, GSHash.sha256_bytes(alice))
+	h._store.put_bytes(mallory, GSHash.sha256_bytes(mallory))
 
 	# ONE mounter for the whole section. Two would be section 6.
-	var mounter := DotCloudMounter.new(h._config)
+	var mounter := GSCloudMounter.new(h._config)
 
-	var m_alice: DotCloudManifest = h._manifest("contested", "1.0.0", [["level.txt", alice, true]])
-	var first: DotResult = await mounter.mount(m_alice, h._store, h._scheduler)
+	var m_alice: GSCloudManifest = h._manifest("contested", "1.0.0", [["level.txt", alice, true]])
+	var first: GSResult = await mounter.mount(m_alice, h._store, h._scheduler)
 	h._check("the first publisher mounts", first.ok, str(first.error) if not first.ok else "")
 
 	# Same id, same version, same FILE NAME, different bytes.
-	var m_mallory: DotCloudManifest = h._manifest("contested", "1.0.0", [["level.txt", mallory, true]])
-	var second: DotResult = await mounter.mount(m_mallory, h._store, h._scheduler)
+	var m_mallory: GSCloudManifest = h._manifest("contested", "1.0.0", [["level.txt", mallory, true]])
+	var second: GSResult = await mounter.mount(m_mallory, h._store, h._scheduler)
 
 	h._check(
 		"the second is refused",
@@ -229,20 +229,20 @@ static func two_publishers(h: Node) -> void:
 	)
 	h._check(
 		"as a conflict, not as a state or integrity failure",
-		not second.ok and second.error.code == DotError.CODE_CONFLICT,
+		not second.ok and second.error.code == GSError.CODE_CONFLICT,
 		second.error.code if not second.ok else ""
 	)
 
 	# The refusal is only worth having if the first publisher's content survived it.
-	var read := DotPaths.read_bytes("res://dot_cloud/contested/1.0.0/level.txt")
+	var read := GSPaths.read_bytes("res://dot_cloud/contested/1.0.0/level.txt")
 	h._check("the first publisher's bytes are still what is mounted",
 		read.ok and (read.value as PackedByteArray) == alice)
 	h._check("and there is still one mount", mounter.mounted_keys().size() == 1)
 
 	# [b]Identity is the content, not the object.[/b] A manifest re-read off the wire describing the
 	# same files must still be the cheap no-op of section 3, or every legitimate reconnect is refused.
-	var m_again: DotCloudManifest = h._manifest("contested", "1.0.0", [["level.txt", alice, true]])
-	var again: DotResult = await mounter.mount(m_again, h._store, h._scheduler)
+	var m_again: GSCloudManifest = h._manifest("contested", "1.0.0", [["level.txt", alice, true]])
+	var again: GSResult = await mounter.mount(m_again, h._store, h._scheduler)
 	h._check(
 		"an equal manifest from a different object is still a no-op",
 		again.ok and str(again.value) == m_alice.mount_prefix(),
@@ -262,9 +262,9 @@ static func namespaced_ids(h: Node) -> void:
 	h._line("[b]11. <owner>/<name> content ids[/b]")
 
 	var body: PackedByteArray = h._blob("namespaced", 256)
-	h._store.put_bytes(body, DotHash.sha256_bytes(body))
+	h._store.put_bytes(body, GSHash.sha256_bytes(body))
 
-	var m: DotCloudManifest = h._manifest("alice/dot-controller", "1.0.0", [["a.txt", body, true]])
+	var m: GSCloudManifest = h._manifest("alice/dot-controller", "1.0.0", [["a.txt", body, true]])
 
 	h._check("a two-segment id validates", m.validate().ok,
 		str(m.validate().error) if not m.validate().ok else "")
@@ -274,7 +274,7 @@ static func namespaced_ids(h: Node) -> void:
 		m.mount_prefix()
 	)
 
-	var mounted: DotResult = await DotCloudMounter.new(h._config).mount(m, h._store, h._scheduler)
+	var mounted: GSResult = await GSCloudMounter.new(h._config).mount(m, h._store, h._scheduler)
 	h._check("it mounts", mounted.ok, str(mounted.error) if not mounted.ok else "")
 	h._check(
 		"and its file is readable at the nested path",
@@ -304,20 +304,20 @@ static func namespaced_ids(h: Node) -> void:
 	# one member publishing as another is decorative.
 	var scoped := {"key": "-----BEGIN PUBLIC KEY-----", "content_ids": ["alice/*"]}
 	h._check("alice/* covers alice's own id",
-		DotCloudSignature.scope_allows(scoped, "alice/dot-controller"))
+		GSCloudSignature.scope_allows(scoped, "alice/dot-controller"))
 	h._check("and does not cover another member's",
-		not DotCloudSignature.scope_allows(scoped, "alicebob/x"))
+		not GSCloudSignature.scope_allows(scoped, "alicebob/x"))
 	h._check("nor the flattened lookalike",
-		not DotCloudSignature.scope_allows(scoped, "alice_bob/x"))
+		not GSCloudSignature.scope_allows(scoped, "alice_bob/x"))
 	h._check("alice/* does not cover a deeper path",
-		not DotCloudSignature.scope_allows(scoped, "alice/a/b"))
+		not GSCloudSignature.scope_allows(scoped, "alice/a/b"))
 	var loose := {"key": "k", "content_ids": ["alice*"]}
 	h._check("alice* does not cross a / into alice/x",
-		not DotCloudSignature.scope_allows(loose, "alice/x"))
+		not GSCloudSignature.scope_allows(loose, "alice/x"))
 	h._check("alice* still covers a one-segment alice-bob",
-		DotCloudSignature.scope_allows(loose, "alice-bob"))
+		GSCloudSignature.scope_allows(loose, "alice-bob"))
 	h._check("an exact id still matches",
-		DotCloudSignature.scope_allows({"key": "k", "content_ids": ["alice/x"]}, "alice/x"))
+		GSCloudSignature.scope_allows({"key": "k", "content_ids": ["alice/x"]}, "alice/x"))
 
 	h._line("")
 	h._sections_finished += 1
