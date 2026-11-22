@@ -105,9 +105,7 @@ func _resolve_limit() -> void:
 		_limit_bytes = config.effective_cache_bytes()
 		return
 
-	_limit_bytes = int(float(quota) * config.web_quota_fraction)
-	if config.cache_bytes > 0:
-		_limit_bytes = mini(_limit_bytes, config.cache_bytes)
+	_limit_bytes = web_limit(quota, config.web_quota_fraction, config.cache_bytes)
 
 	GSLog.info(
 		CHANNEL,
@@ -117,6 +115,14 @@ func _resolve_limit() -> void:
 			"our_limit": GSPaths.format_bytes(_limit_bytes),
 		}
 	)
+
+
+## The eviction ceiling on web: [param fraction] of the browser's [param quota] (0 or less: no share of it, so only [param cache_bytes] applies, and 0 there is unlimited), never above [param cache_bytes] when that is set. The measured free space still refuses a download that cannot fit.
+static func web_limit(quota: int, fraction: float, cache_bytes: int) -> int:
+	var limit := int(float(quota) * fraction) if fraction > 0.0 else 0
+	if cache_bytes > 0:
+		limit = cache_bytes if limit <= 0 else mini(limit, cache_bytes)
+	return limit
 
 
 func close() -> void:

@@ -64,5 +64,7 @@ extends RefCounted
 #     key that sets it, referenced bytes and the disk free. Additive.
 # 32: GSCloudSliceLoader.cached_scripts and setting gs_cloud/warm/list_file: a pack's `warm.txt` names the scripts its
 #     scene needs, the cover waits for those only and the rest compile behind it. Mount lines carry phase msec. Additive.
-const LEVEL := 32
+# 33: GSCloudStore.web_limit; GSCloudConfig.web_quota_fraction 0 means no share of the browser quota (only cache_bytes
+#     and the measured free space limit a download). Additive.
+const LEVEL := 33
 const OLDEST := 1

@@ -31,12 +31,12 @@ const OBJ := 1024
 ## Sections entered against sections that ran to their last line, and against this. A
 ## runtime error inside a section aborts that function and nothing says so; a section that
 ## bailed out early after a failed guard is counted as not finished on purpose.
-const SECTIONS := 6
+const SECTIONS := 7
 
 ## Every check this suite runs, including the two at the end that compare the counts. The
 ## section counter cannot see a section that aborted after announcing itself — its remaining
 ## checks simply never run — and a total can. See docs/testing.md.
-const CHECKS := 62
+const CHECKS := 66
 
 var _entered := 0
 var _completed := 0
@@ -66,6 +66,7 @@ func _run() -> void:
 	await _section_index()
 	await _section_partials()
 	await _section_verify_and_clear()
+	_section_web_limit()
 
 	_line("")
 	# The two guards, as the last two checks. See docs/testing.md.
@@ -577,3 +578,14 @@ func _line(text: String) -> void:
 	print(text.replace("[b]", "").replace("[/b]", ""))
 	if _output != null:
 		_output.append_text(text + "\n")
+
+
+## The web ceiling: a share of the browser quota, capped by cache_bytes; fraction 0 takes no share (no hard cap).
+func _section_web_limit() -> void:
+	_section("[b]7. the web ceiling[/b]")
+	var gib := 1024 * 1024 * 1024
+	_check("web limit is the quota share", GSCloudStore.web_limit(2 * gib, 0.6, 0) == int(2.0 * gib * 0.6))
+	_check("capped by cache_bytes when that is smaller", GSCloudStore.web_limit(8 * gib, 0.6, gib) == gib)
+	_check("fraction 0 takes no share: cache_bytes alone", GSCloudStore.web_limit(2 * gib, 0.0, 4 * gib) == 4 * gib)
+	_check("fraction 0 and cache_bytes 0 is unlimited", GSCloudStore.web_limit(2 * gib, 0.0, 0) == 0)
+	_done()

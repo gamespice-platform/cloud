@@ -27,9 +27,9 @@ var limit_hint: String = ""
 ## killed or uninstalled rather than merely inconvenienced.
 @export var mobile_cache_bytes: int = 1024 * 1024 * 1024
 
-## Fraction of the browser's reported quota used as the ceiling on web.
-## Not all of it: the origin shares the quota, and hitting the real limit is an opaque write failure.
-@export_range(0.1, 0.95, 0.05) var web_quota_fraction: float = 0.6
+## Fraction of the browser's reported quota used as the ceiling on web. 0 is no share of it (only [member cache_bytes] applies, and 0 there is unlimited): the measured free space alone then refuses a download that cannot fit, with a message naming the shortfall.
+## Not all of it by default: the origin shares the quota, and hitting the real limit is an opaque write failure.
+@export_range(0.0, 0.95, 0.05) var web_quota_fraction: float = 0.6
 
 ## Ask the browser to make storage persistent, so a low-disk browser is less
 ## likely to evict the whole cache.
