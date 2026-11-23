@@ -23,6 +23,6 @@ jobs:
         with:
             efficiency: true
             hygiene: true
-            suites: 'examples/http_demo examples/mount_demo examples/store_demo examples/sync_demo examples/netchan_demo examples/delivered_scene_demo examples/addon_set_demo examples/lock_demo examples/manifest_cache_selftest examples/published_manifest_selftest'
+            suites: 'examples/http_demo examples/mount_demo examples/store_demo examples/sync_demo examples/netchan_demo examples/delivered_scene_demo examples/addon_set_demo examples/lock_demo examples/manifest_cache_selftest examples/relaunch_selftest examples/published_manifest_selftest'
         secrets:
             DEPS_TOKEN: ${{ secrets.GS_DEPS_TOKEN }}
