@@ -12,6 +12,7 @@ extends RefCounted
 const CHANNEL := "cloud.store"
 const _Inventory := preload("gs_cloud_store_inventory.gd")
 const _Report := preload("gs_cloud_store_report.gd")
+const _Eviction := preload("gs_cloud_store_eviction.gd")
 
 ## Index schema version.
 const INDEX_VERSION := 1
@@ -34,6 +35,10 @@ var free_bytes_provider: Callable = Callable()
 
 ## What packs the cache holds, for [method inventory].
 var packs: GSCloudPackBook
+
+## Content keys that claimed objects in this process (see [method add_refs]). A ref left on disk by an earlier session
+## names content nothing has mounted, so [method prune] evicts it after the unreferenced objects instead of never.
+var _session_keys: Dictionary = {}
 
 ## Takes a content key, true while it is mounted (set by [GSCloudClient]); [method delete] refuses those.
 var in_use_fn: Callable = Callable()
@@ -311,6 +316,7 @@ func put_bytes(bytes: PackedByteArray, expected_sha256: String) -> GSResult:
 ## Records that [param content_key] needs these objects, so they survive eviction.
 ## Otherwise playing game B could evict game A's content and turn a map change into a re-download.
 func add_refs(content_key: String, hashes: PackedStringArray) -> void:
+	_session_keys[content_key] = true
 	for h in hashes:
 		if not _index.has(h):
 			continue
@@ -357,34 +363,9 @@ func prune(need_bytes: int = 0) -> GSResult:
 	if target <= 0:
 		return GSResult.success(0)
 
-	var pinned := packs.pinned_hashes()
-	var candidates: Array = []
-	for h in _index:
-		if (_index[h]["refs"] as Array).is_empty() and not pinned.has(h):
-			candidates.append(h)
-
-	candidates.sort_custom(func(a: String, b: String) -> bool:
-		return int(_index[a]["used"]) < int(_index[b]["used"])
-	)
-
-	var freed := 0
-	for h in candidates:
-		if freed >= target:
-			break
-
-		var size := int(_index[h]["size"])
-		var err := DirAccess.remove_absolute(path_for(h))
-		if err != OK and FileAccess.file_exists(path_for(h)):
-			GSLog.warn(
-				CHANNEL, "could not evict object", {"hash": h.substr(0, 12)}
-			)
-			continue
-
-		_forget(h)
-		freed += size
-
-	GSWeb.sync_filesystem()
-	flush_index()
+	var ev := _Eviction.evict(self, target)
+	var freed: int = ev["freed"]
+	var candidates: Array = ev["candidates"]
 
 	GSLog.info(
 		CHANNEL,
@@ -404,6 +385,21 @@ func prune(need_bytes: int = 0) -> GSResult:
 		)
 
 	return GSResult.success(freed)
+
+
+## Makes the browser's measured free space cover [param incoming] bytes by evicting what nothing in this process holds (other maps'
+## content), whatever the ceiling says. `{fits, free, freed}`: `free` is -1 when the space cannot be measured, which counts as fitting. Await it.
+func make_room(incoming: int) -> Dictionary:
+	var free := await free_bytes()
+	if free < 0 or free >= incoming:
+		return {"fits": true, "free": free, "freed": 0}
+	var freed: int = _Eviction.evict(self, incoming - free)["freed"]
+	var after := await free_bytes()
+	if after < 0:
+		return {"fits": true, "free": after, "freed": freed}
+	# The browser's estimate can lag a delete; a test's provider is exact.
+	var credited := after if free_bytes_provider.is_valid() else maxi(after, free + freed)
+	return {"fits": credited >= incoming, "free": credited, "freed": freed}
 
 
 ## Bytes the origin can still write now (quota minus usage), or -1 when unmeasurable. Only this

@@ -66,5 +66,7 @@ extends RefCounted
 #     scene needs, the cover waits for those only and the rest compile behind it. Mount lines carry phase msec. Additive.
 # 33: GSCloudStore.web_limit; GSCloudConfig.web_quota_fraction 0 means no share of the browser quota (only cache_bytes
 #     and the measured free space limit a download). Additive.
-const LEVEL := 33
+# 34: GSCloudStore.make_room / GSCloudClient.make_room (evict what this process does not hold until the browser's measured
+#     free space covers a download) and prune treats refs left by an earlier session as evictable, after unreferenced objects. Additive.
+const LEVEL := 34
 const OLDEST := 1

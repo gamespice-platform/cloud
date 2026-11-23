@@ -31,12 +31,12 @@ const OBJ := 1024
 ## Sections entered against sections that ran to their last line, and against this. A
 ## runtime error inside a section aborts that function and nothing says so; a section that
 ## bailed out early after a failed guard is counted as not finished on purpose.
-const SECTIONS := 7
+const SECTIONS := 8
 
 ## Every check this suite runs, including the two at the end that compare the counts. The
 ## section counter cannot see a section that aborted after announcing itself — its remaining
 ## checks simply never run — and a total can. See docs/testing.md.
-const CHECKS := 66
+const CHECKS := 75
 
 var _entered := 0
 var _completed := 0
@@ -67,6 +67,7 @@ func _run() -> void:
 	await _section_partials()
 	await _section_verify_and_clear()
 	_section_web_limit()
+	await _section_stale_refs()
 
 	_line("")
 	# The two guards, as the last two checks. See docs/testing.md.
@@ -477,6 +478,65 @@ func _config(dir: String, limit: int) -> GSCloudConfig:
 	cfg.cache_dir = dir
 	cfg.cache_bytes = limit
 	return cfg
+
+
+# 8. Other maps' content, left by an earlier session
+
+func _section_stale_refs() -> void:
+	_section("[b]8. refs from an earlier session, and making room for a download[/b]")
+
+	var dir := WORK.path_join("stale")
+	var first: GSCloudStore = await _open_store(dir, 0)
+	if first == null:
+		return
+	var h: Array[String] = []
+	for i in range(5):
+		var res: GSResult = await _commit(first, _blob(60 + i, OBJ))
+		if not res.ok:
+			return _fail("filling the cache", res)
+		h.append(GSHash.sha256_bytes(_blob(60 + i, OBJ)))
+		await get_tree().create_timer(0.02).timeout
+	first.add_refs("old_map/1.0.0", PackedStringArray([h[0], h[1], h[2]]))
+	first.close()
+
+	# A new page load: the refs are on disk, nothing has mounted them.
+	var store: GSCloudStore = await _open_store(dir, 3 * OBJ)
+	_check("refs survive the reopen", store.ref_count(h[0]) == 1 and store.object_count() == 5)
+	store.add_refs("cur_map/1.0.0", PackedStringArray([h[2]]))
+	var pr := store.prune(0)
+	_check("over the ceiling, unreferenced objects go first", pr.ok and not store.has(h[3]) and not store.has(h[4]) and store.has(h[0]),
+		str(pr.error) if not pr.ok else "")
+	var pr2 := store.prune(OBJ)
+	_check("then one of another map's objects (stamps are whole seconds), never the current map's",
+		pr2.ok and store.has(h[2]) and store.has(h[0]) != store.has(h[1]),
+		str(pr2.error) if not pr2.ok else "")
+	_check("the current map's content is still held", store.has(h[2]))
+	store.close()
+
+	# make_room: the browser's free space (a stand-in) must cover the whole download.
+	GSPaths.remove_tree(dir)
+	var second: GSCloudStore = await _open_store(dir, 0)
+	for i in range(5):
+		await _commit(second, _blob(60 + i, OBJ))
+		await get_tree().create_timer(0.02).timeout
+	second.add_refs("old_map/1.0.0", PackedStringArray([h[0], h[1], h[2]]))
+	second.close()
+	var store2: GSCloudStore = await _open_store(dir, 0)
+	store2.add_refs("cur_map/1.0.0", PackedStringArray([h[2]]))
+	store2.free_bytes_provider = func() -> int: return 6 * OBJ - store2.total_bytes()
+	var a := await store2.make_room(OBJ)
+	_check("room already there", bool(a["fits"]) and int(a["freed"]) == 0)
+	var b := await store2.make_room(3 * OBJ)
+	_check("unreferenced objects evicted to fit", bool(b["fits"]) and int(b["freed"]) == 2 * OBJ and store2.has(h[0]),
+		str(b))
+	var c := await store2.make_room(5 * OBJ)
+	_check("then the earlier session's", bool(c["fits"]) and not store2.has(h[0]) and not store2.has(h[1]) and store2.has(h[2]), str(c))
+	var d := await store2.make_room(6 * OBJ)
+	_check("what this page holds is never evicted, so it does not fit", not bool(d["fits"]) and store2.has(h[2]), str(d))
+	_check("the figures are the store's own", int(d["free"]) == 5 * OBJ, str(d))
+	store2.close()
+	_line("")
+	_done()
 
 
 func _open_store(dir: String, limit: int) -> GSCloudStore:
