@@ -98,7 +98,8 @@ static func resolve(c: Node,
 	if unreachable and version != "":
 		var kept := GSCloudManifestCache.load_cached(c, id, effective_version)
 		if kept.ok:
-			c._note_manifest_from_cache(kept.value, summary)
+			GSLog.warn("cloud", "starting from the kept manifest, the content network was not reachable", {"content": id, "version": version})
+			c.manifest_from_cache.emit(kept.value, summary)
 			return kept
 		tried.append("kept copy: %s" % kept.error.message)
 		summary = "\n".join(tried)

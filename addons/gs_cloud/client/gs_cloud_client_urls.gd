@@ -4,6 +4,9 @@ extends Node
 ## Where a [GSCloudClient] looks for manifests: the base lists, the URL templates and their expansion. A base
 ## layer so the client stays inside the size budget; nothing here is used on its own.
 
+## A manifest could not be fetched; the kept copy was used (offline start). [param detail] lists each address tried and why.
+signal manifest_from_cache(manifest: GSCloudManifest, detail: String)
+
 @export_group("Sources")
 
 ## HTTP base URLs to try when a manifest lists no mirrors of its own.

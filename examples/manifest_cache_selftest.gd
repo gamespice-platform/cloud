@@ -42,7 +42,7 @@ func _run() -> void:
 	var got: GSResult = await online.resolve_manifest(StringName(ID), "1.0.0")
 	_check("online resolve", got.ok, str(got.error))
 	await online.resolve_manifest(StringName(ID), "1.1.0")
-	_check("fetched manifests are kept, newest first", Array(online.cached_versions(StringName(ID))) == ["1.1.0", "1.0.0"], str(online.cached_versions(StringName(ID))))
+	_check("fetched manifests are kept, newest first", Array(GSCloudManifestCache.versions(online.config.cache_dir, ID)) == ["1.1.0", "1.0.0"], str(GSCloudManifestCache.versions(online.config.cache_dir, ID)))
 	_check("an online resolve is not reported as cached", _noticed.is_empty())
 	_drop(online)
 	cdn.stop()
