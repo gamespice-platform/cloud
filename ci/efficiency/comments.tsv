@@ -30,7 +30,6 @@ addons/gs_cloud/transfer/gs_cloud_source_netchan.gd::long_block	10
 addons/gs_cloud/verify/gs_cloud_signature.gd::history	1
 addons/gs_cloud/verify/gs_cloud_signature.gd::long_block	12
 addons/gs_cloud/workshop/gs_cloud_workshop.gd::long_block	3
-addons/gs_cloud/workshop/gs_cloud_workshop_config.gd::long_block	1
 addons/gs_cloud/workshop/gs_cloud_workshop_device.gd::long_block	1
 addons/gs_cloud/workshop/gs_cloud_workshop_list.gd::long_block	1
 examples/addon_boot_check.gd::long_block	1

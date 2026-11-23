@@ -1,15 +1,8 @@
 extends Node
 
-## The mounted-pack boot test's probe (tools/pack_boot_test.sh copies it into a host project built at the
-## addons.lock tags). It mounts a pack's objects the way gs-cloud's mounter does (a .pck under
-## res://gs_cloud/<id>/<version>/) and fails when anything a server boots from would not:
-##   - a script the pack ships does not compile against the host's addons (a stale tree, an addon API drift);
-##   - game.yml's module, scene or client_scene does not load;
-##   - the module does not instantiate, or its _make_bridge() hands back no bridge (the host then logs
-##     "A game has to supply the bridge between itself and the netcode" and the server hibernates);
-##   - requires.json names an addon the host lacks, or a level above the one it carries.
-## User args: OUT_DIR (manifest.json and objects/<2>/<sha>: a publish dry-run's --out, or tools/pack_fetch.py's).
-## Exit 0 clean, 1 failures (each printed), 2 usage or a check that could not be judged off the tree.
+## Probe for tools/pack_boot_test.sh: mounts a pack's objects as the mounter does and fails on a
+## script that does not compile, a game.yml module or scene that does not load, a missing bridge,
+## or a requires.json the host fails. Exit 0 clean, 1 failures, 2 not judgeable.
 
 var _bad := 0
 ## Checks the probe could not decide off the tree (exit 2 when nothing failed).
@@ -116,10 +109,9 @@ func _check_scripts(scripts: PackedStringArray, prefix: String) -> void:
 
 
 func _check_builtins(resources: PackedStringArray, prefix: String) -> void:
-	# A script built into a scene or resource (a .tscn's [sub_resource type="GDScript"]) is no file of its own: each
-	# scene and resource the pack ships is loaded and every built-in script in it must compile too.
-	# Imported assets (_imported/, .godot/: the .glb/.png outputs an import remap points at) hold no scripts and are skipped.
-	# A scene that will not load here is only noted: what the server loads (game.yml's module and scenes) is judged below.
+	# A built-in script (a .tscn's [sub_resource type="GDScript"]) is no file of its own, so every scene
+	# and resource the pack ships is loaded and its built-in scripts must compile. Imported assets hold
+	# no scripts and are skipped; a scene that will not load is only noted (game.yml's are judged below).
 	for path in resources:
 		var rel_res := path.replace(prefix + "/", "")
 		if rel_res.begins_with("_imported/") or rel_res.begins_with(".godot/"):

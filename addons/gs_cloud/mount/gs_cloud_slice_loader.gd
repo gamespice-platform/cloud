@@ -185,11 +185,9 @@ static func named_class_scripts(paths: PackedStringArray, read_from: PackedStrin
 	return out
 
 
-## The scripts under [param root] loaded so far, relative to it: global classes first in class-list order (how
-## [method GSCloudClient.warm_content] compiles them), then by path. A pack's warm list (setting
-## `gs_cloud/warm/list_file`, default `warm.txt` at its root): call it when the scene is playable in a native run
-## (threads, so nothing was warmed ahead) and write one path per line. Directories named in [param skip_dirs]
-## ([constant GSCloudClient.WARM_SKIP_DIRS]) and hidden ones are not walked.
+## The scripts under [param root] loaded so far, relative to it: global classes first (as
+## [method GSCloudClient.warm_content] compiles them), then by path; for a pack's `warm.txt`.
+## Hidden directories and [param skip_dirs] ([constant GSCloudClient.WARM_SKIP_DIRS]) are skipped.
 static func cached_scripts(root: String = "res://", skip_dirs: Array = []) -> PackedStringArray:
 	var base := root.trim_suffix("/") + "/"
 	var cached := {}

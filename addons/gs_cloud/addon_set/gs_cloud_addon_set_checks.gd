@@ -23,15 +23,9 @@ static func record_matches(bridge: Object, record: Variant, expected: Dictionary
 	return GSHash.sha256_bytes(bytes) == str(expected["sha"])
 
 
-## Whether [param manifest] is the addon this build keeps under `res://addons/<dir>/`.
-##
-## [b]The server names the directory and the pack separately, and nothing else ties them
-## together.[/b] A list saying `dir: gs_ui` with the GameSpice Net pack would lay GameSpice Net's files
-## over this build's GameSpice UI and drop GameSpice UI's classes from the list -- signed code, so no
-## worse than a broken client, but a server must not be able to do even that to its own
-## players. So the pack's own `plugin.cfg` names its plugin script, and a directory the
-## build already has must already hold that script. A directory the build does not have is
-## a new addon and replaces nothing.
+## Whether [param manifest] is the addon this build keeps under `res://addons/<dir>/`: a directory
+## the build already has must hold the plugin script the pack's `plugin.cfg` names (the server
+## names directory and pack separately). A new directory replaces nothing.
 static func is_that_addon(cloud: GSCloudClient, dir: String, manifest: GSCloudManifest) -> GSResult:
 	var cfg_sha := ""
 	var cfg_path := _Overlay.base(manifest, dir) + "plugin.cfg"

@@ -50,9 +50,9 @@ static func load_file(lock_path: String, opts: Dictionary = {}) -> GSResult:
 	return GSResult.success(out)
 
 
-## The CDN precedence of fetch_lock.sh, first set wins: `from` / GS_PACKS_FROM (`none` fetches nothing), `cdn` / GS_CDN_URL, the
-## env file's GS_CDN_URL then GS_PACKS_FROM, the lock's `origin` then `mirrors`, https://content.gamespice.net (formerly dotgames.org, still served). A CDN URL is the site root, so
-## "/content" is added unless it ends in it. Empty array for `none`.
+## The CDN precedence of fetch_lock.sh, first set wins: `from` / GS_PACKS_FROM (`none` fetches nothing),
+## `cdn` / GS_CDN_URL, the env file's GS_CDN_URL then GS_PACKS_FROM, the lock's `origin` then `mirrors`,
+## https://content.gamespice.net. A CDN URL is the site root, so "/content" is added unless it ends in it.
 static func resolve_bases(doc: Dictionary, opts: Dictionary, env_file: String) -> PackedStringArray:
 	var environment: Dictionary = opts.get("environment", {})
 	var from := str(opts.get("from", ""))

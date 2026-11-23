@@ -1,10 +1,8 @@
 class_name GSCloudManifestCache
 extends RefCounted
 
-## The manifests this client has fetched and verified, kept beside the object cache so that content already on this machine can still be started when the
-## network cannot be reached. A layer of [GSCloudClient]'s manifest resolving; nothing here is used on its own.
-##
-## It caches bytes, not trust: [method load_cached] runs the same pin, signature and identity checks as a fetch, so a document altered on disk is refused.
+## Verified manifests kept beside the object cache, so content already here starts offline.
+## Caches bytes, not trust: [method load_cached] reruns the pin, signature and identity checks.
 
 const DIR := "manifests"
 

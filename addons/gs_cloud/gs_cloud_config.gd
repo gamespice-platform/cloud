@@ -11,11 +11,9 @@ extends GSConfig
 @export var cache_dir: String = "user://gs_cloud"
 
 ## Cache ceiling in bytes; 0 is unlimited. Unreferenced objects are evicted LRU past it.
-## Defaults to 4 GiB, far too much for a phone (see [member mobile_cache_bytes]).
-## [b]A dedicated server should set 0[/b] (or a size it chose): it mounts every map in its rotation, every
-## mounted object is referenced and cannot be evicted, so past this ceiling the next map is refused with
-## "the content cache is full" on a disk with gigabytes free. Env [code]GS_CLOUD_CACHE_BYTES[/code],
-## argument [code]--cloud-cache-bytes[/code].
+## Defaults to 4 GiB, too much for a phone (see [member mobile_cache_bytes]). [b]A dedicated server
+## should set 0[/b]: mounted objects cannot be evicted, so past the ceiling the next map is refused.
+## Env [code]GS_CLOUD_CACHE_BYTES[/code], argument [code]--cloud-cache-bytes[/code].
 @export var cache_bytes: int = 4 * 1024 * 1024 * 1024
 
 ## Where an operator of this host changes the ceiling, said in a quota refusal beside the GameSpice Cloud
@@ -85,13 +83,9 @@ var limit_hint: String = ""
 ## Needs host support (on web, [code]Accept-Ranges[/code] exposed through CORS); restarts when refused.
 @export var resume_downloads: bool = true
 
-## On web, where in-progress downloads are written: Emscripten's in-memory [code]/tmp[/code], not
-## [code]user://[/code]. [code]user://[/code] there is an IndexedDB mirror saved by an asynchronous sync
-## that lists the files first and reads them afterwards, so a partial renamed into the objects or
-## deleted in between failed the whole save ("Failed to save IDB file system", 70 times over one
-## Fatal Contact first start), and every save rewrote the growing partial into IndexedDB as well.
-## The cost is that a reload restarts an unfinished file instead of resuming it. Empty: use
-## [method persisted_partials_dir] on web too.
+## On web, where in-progress downloads are written: Emscripten's in-memory [code]/tmp[/code], because
+## the IndexedDB mirror behind [code]user://[/code] fails its save when a partial is renamed mid-sync.
+## A reload restarts an unfinished file. Empty: use [method persisted_partials_dir] on web too.
 @export var web_partials_dir: String = "/tmp/gs_cloud_partial"
 
 ## Attempts per file before it is treated as failed, across all mirrors.
@@ -128,9 +122,8 @@ var limit_hint: String = ""
 ## Which side of a game this process fetches packs as: [code]auto[/code], [code]client[/code],
 ## [code]server[/code] or [code]both[/code] (API 8). Entries tagged for the other side ([member GSCloudFile.side])
 ## are never downloaded, cached, mounted or checked for.
-## `auto` is server on a headless process, client elsewhere; a client shell run headless in tests sets
-## `client` so it fetches what a player's does. `both` is a listen server or a republishing tool.
-## [b]A web build is always client[/b] (see [method resolved_side]).
+## `auto` is server on a headless process, client elsewhere. `both` is a listen server or a republishing
+## tool. [b]A web build is always client[/b] (see [method resolved_side]).
 @export_enum("auto", "client", "server", "both") var side: String = "auto"
 
 ## Verify that no mounted path escapes the manifest's mount prefix.

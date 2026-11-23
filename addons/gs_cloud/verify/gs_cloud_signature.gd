@@ -41,15 +41,8 @@ const CHANNEL := "cloud.sig"
 ## from a JSON file or the environment long after anyone read this constant.
 const MIN_KEY_BITS := 2048
 
-## Minimum signature length accepted, in bytes.
-##
-## [b]Why the signature and not the key.[/b] An RSA signature is exactly as long
-## as the modulus — 256 bytes for a 2048-bit key, 384 for 3072 — so its length
-## states the key's size and cannot be padded to lie about it: a longer signature
-## simply fails [method Crypto.verify] against the real key. Godot's [CryptoKey]
-## exposes no bit count, so the alternative was walking the DER inside the PEM to
-## measure the modulus, which is a lot of ASN.1 to arrive at a number already
-## sitting in front of us.
+## Minimum signature length accepted, in bytes. An RSA signature is as long as the modulus, so its length states the key's size and cannot be
+## padded to lie about it; Godot's [CryptoKey] exposes no bit count.
 const MIN_SIGNATURE_BYTES := MIN_KEY_BITS / 8
 
 

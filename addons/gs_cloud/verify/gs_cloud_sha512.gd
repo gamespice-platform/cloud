@@ -1,13 +1,8 @@
 class_name GSCloudSha512
 extends RefCounted
 
-## SHA-512 in plain GDScript.
-##
-## Godot's [HashingContext] stops at SHA-256, and Ed25519 ([GSCloudEd25519]) hashes with SHA-512,
-## so this is the missing piece. It works on 64-bit words held in GDScript's signed 64-bit
-## integers: addition and left shifts wrap exactly as the arithmetic needs, and every right shift
-## is masked so it is logical, not arithmetic. Used for a few hundred bytes at a time (a
-## signature check), not for files.
+## SHA-512 in plain GDScript, because [HashingContext] stops at SHA-256 and [GSCloudEd25519] needs it.
+## Right shifts are masked on signed 64-bit words. For signature checks, not files.
 
 const BLOCK_BYTES := 128
 

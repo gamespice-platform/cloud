@@ -1,23 +1,9 @@
 class_name GSCloudEd25519
 extends RefCounted
 
-## Ed25519 signature verification (RFC 8032) in plain GDScript.
-##
-## Godot's [Crypto] has no EdDSA, and a GDExtension would not reach every export target, so this is
-## the pure-script verifier: field arithmetic modulo 2^255 - 19 on sixteen 16-bit limbs (the layout
-## of the compact TweetNaCl implementation), and the extended-coordinate group law of the twisted
-## Edwards curve. A group element is an [Array] of four limb arrays [X, Y, Z, T].
-##
-## [b]Verification only[/b], and only public data: nothing here is secret, so branching on bits and
-## early exits are fine and no constant-time care is taken. Signing belongs to the publisher, not a
-## game client.
-##
-## [b]Strict.[/b] A signature whose scalar S is not below the group order, a public key whose
-## y-coordinate is not canonical, and a point that is not on the curve are all refused (RFC 8032
-## section 5.1.7), so one message has one valid signature.
-##
-## [b]Cost.[/b] About 10,000 field multiplications, so expect a second or two in a release build
-## of the interpreter. Verify a token once and keep the result; do not verify per frame.
+## Ed25519 verification (RFC 8032) in plain GDScript, as [Crypto] has no EdDSA. Verification only
+## (public data, not constant time) and strict (5.1.7). A second or two in a release build, so
+## verify once and keep the result.
 
 const KEY_BYTES := 32
 const SIGNATURE_BYTES := 64
@@ -56,7 +42,7 @@ static func verify(message: PackedByteArray, signature: PackedByteArray, key_byt
 	if a_neg == null:
 		return GSResult.fail(GSError.CODE_INVALID, "The public key is not a point on the Ed25519 curve.")
 
-	# h = SHA-512(R || A || M) mod L; the check is [S]B - [h]A == R, compared as encoded bytes.
+	# Hash R, A and M, reduce mod L, and compare [S]B - [h]A with R as encoded bytes.
 	var hashed := PackedByteArray()
 	hashed.append_array(signature.slice(0, 32))
 	hashed.append_array(key_bytes)
@@ -72,7 +58,6 @@ static func verify(message: PackedByteArray, signature: PackedByteArray, key_byt
 	return GSResult.success(true)
 
 
-# ---- Scalars ----
 
 static func _scalar_below_order(s: PackedByteArray) -> bool:
 	for i in range(31, -1, -1):
@@ -110,7 +95,6 @@ static func _reduce_mod_l(r: PackedByteArray) -> PackedByteArray:
 	return out
 
 
-# ---- Field arithmetic modulo 2^255 - 19 (sixteen 16-bit limbs) ----
 
 static func _gf(init: Array = []) -> PackedInt64Array:
 	var o := PackedInt64Array()
@@ -232,7 +216,6 @@ static func _fequal(a: PackedInt64Array, b: PackedInt64Array) -> bool:
 	return _fpack(a) == _fpack(b)
 
 
-# ---- Curve points: [X, Y, Z, T] ----
 
 static func _identity() -> Array:
 	return [_gf(), _gf([1]), _gf([1]), _gf()]

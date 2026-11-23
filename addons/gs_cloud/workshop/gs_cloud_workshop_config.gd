@@ -2,12 +2,9 @@
 class_name GSCloudWorkshopConfig
 extends GSConfig
 
-## Everything configurable about the Workshop sync client.
-##
-## Layered like every [GSConfig]: exported defaults, then a JSON file, then
-## [code]GS_CLOUD_WORKSHOP_*[/code] environment variables, then [code]--cloud-workshop-*[/code]
-## arguments. These are a device's settings; the site's subscription list is not configuration and
-## is never read from here.
+## Workshop sync client settings, layered like every [GSConfig]: defaults, JSON file,
+## [code]GS_CLOUD_WORKSHOP_*[/code] environment, [code]--cloud-workshop-*[/code] arguments.
+## The subscription list is never read from here.
 
 ## Off: [method GSCloudWorkshop.sync] succeeds with nothing mounted, and the panel says the
 ## Workshop is off on this build.
@@ -21,12 +18,9 @@ extends GSConfig
 ## [code]any[/code] (site-signed, unreviewed) is for a developer testing their own pack.
 @export var workshop_script_packs: String = "approved"
 
-## Narrows the [code]key_id[/code]s a subscription manifest may be signed with. The keys are the
-## content client's own [member GSCloudConfig.trusted_keys] ([method GSCloudWorkshop.trusted_key_ids]):
-## empty takes that whole keyring, and an id named here that the keyring lacks trusts nothing. So
-## a subscription is never trusted beyond the build's own pack verification: a dev shell's keyring
-## holds [code]tmc-dev[/code], a production one does not. Name ids here to keep a key trusted for
-## a server's content (a box's own [code]local[/code] key) out of a stranger's subscriptions.
+## Narrows the [code]key_id[/code]s a subscription manifest may be signed with, out of the client's
+## [member GSCloudConfig.trusted_keys]. Empty takes the whole keyring; an id it lacks trusts nothing.
+## Name ids to keep a server-content key out of a stranger's subscriptions.
 @export var workshop_key_ids: PackedStringArray = PackedStringArray()
 
 ## [code]ask[/code], [code]allow[/code] or [code]never[/code]: what to do on a metered connection.

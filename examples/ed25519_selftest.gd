@@ -1,8 +1,7 @@
 extends Node
 
-## GSCloudEd25519 and GSCloudSha512 against known answers: SHA-512 across block boundaries,
-## RFC 8032 section 7.1 vectors 1 to 3, further signatures made by an independent implementation,
-## and every way a signature can be wrong, which must each be refused with a code.
+## GSCloudEd25519 and GSCloudSha512 against known answers (RFC 8032 vectors, an independent
+## implementation) and every way a signature can be wrong.
 ## Run: godot --headless --path . res://examples/ed25519_selftest.tscn
 
 ## [public key, message, signature], all hex.
@@ -91,7 +90,7 @@ func _refusals() -> void:
 	_expect_fail("no key", GSCloudEd25519.verify(msg, sig, PackedByteArray()), GSError.CODE_INVALID)
 	_expect_fail("an all-zero signature", GSCloudEd25519.verify(msg, _zeros(64), key), GSError.CODE_INTEGRITY)
 	_expect_fail("S + L (malleable encoding)", GSCloudEd25519.verify(_hex(MALLEABLE_MESSAGE), _hex(MALLEABLE_SIGNATURE), _hex(MALLEABLE_KEY)), GSError.CODE_INTEGRITY)
-	# y = 2 is not the y of any curve point; a non-canonical y (2^255 - 18) is refused outright.
+	# No curve point has y = 2, and a non-canonical y (2^255 - 18) is refused outright.
 	var off_curve := _zeros(32)
 	off_curve[0] = 2
 	_expect_fail("a key that is not on the curve", GSCloudEd25519.verify(msg, sig, off_curve), GSError.CODE_INVALID)
