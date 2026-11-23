@@ -1,19 +1,25 @@
 extends Node
 
-## Real signed manifests as the CDN serves them (examples/fixtures/prod/), through the parser and
-## the signature check. The legacy dot_cloud_signed marker is read, a gs_cloud_signed rewrite of the
-## same envelope is read too, and a changed payload is refused.
+## Real signed manifests as the CDN serves them (examples/fixtures/prod/), through the parser and signature check: legacy and gs markers read, a changed payload refused,
+## the kept copy verified offline, and the real dot_* requirements met by gs_* addons.
 ## Run: godot --headless --path . res://examples/published_manifest_selftest.tscn
 
 const DIR := "res://examples/fixtures/prod/"
 const GAMES := {"game-fatal-contact": "gamemann/game-fatal-contact", "dm-morpheus": "gamemann/dm-morpheus"}
-const CHECKS := 38
+const CHECKS := 51
 
 var _failures := 0
 var _checks := 0
 
 
 func _ready() -> void:
+	await _run()
+	_check("every check ran", _checks + 1 == CHECKS, "%d of %d" % [_checks + 1, CHECKS])
+	print("\n%d checks, %d failed" % [_checks, _failures])
+	get_tree().quit(1 if _failures > 0 else 0)
+
+
+func _run() -> void:
 	GSLog.set_level(GSLog.Level.ERROR)
 	var keys := {"tmc": FileAccess.get_file_as_string(DIR + "tmc.pem")}
 	_check("the prod key loads", keys["tmc"].begins_with("-----BEGIN PUBLIC KEY"))
@@ -32,9 +38,59 @@ func _ready() -> void:
 		tampered[tampered.size() / 2] ^= 1
 		_check("%s: a changed payload fails the signature" % dir, not GSCloudSignature.verify_for(tampered, env["signature"], keys, id, env["key_id"]).ok)
 		_check("%s: a different content id is refused" % dir, not GSCloudSignature.verify_for(env["payload"], env["signature"], {"tmc": {"key": keys["tmc"], "content_ids": ["other/*"]}}, id, env["key_id"]).ok)
-	_check("every check ran", _checks + 1 == CHECKS, "%d of %d" % [_checks + 1, CHECKS])
-	print("\n%d checks, %d failed" % [_checks, _failures])
-	get_tree().quit(1 if _failures > 0 else 0)
+	await _kept_copy(keys)
+	_requirements()
+
+
+## A fetched, verified manifest is kept as the envelope, so the kept copy verifies again with the network gone.
+func _kept_copy(keys: Dictionary) -> void:
+	var raw := FileAccess.get_file_as_bytes(DIR + "game-fatal-contact/manifest.json")
+	var m: GSCloudManifest = GSCloudManifest.from_json_bytes(raw).value
+	var work := "user://gs_cloud_published_cache"
+	GSPaths.remove_tree(work)
+	var config := GSCloudConfig.new()
+	config.cache_dir = work
+	config.trusted_keys = keys
+	config.require_signed_manifests = true
+	var client := GSCloudClient.new()
+	client.config = config
+	client.config_file = ""
+	client.http_base_urls = PackedStringArray(["http://127.0.0.1:1"])
+	client.allow_netchan_fallback = false
+	add_child(client)
+	await client.start()
+	_check("the parsed manifest keeps its envelope", m.envelope_bytes == raw)
+	GSCloudManifestCache.remember(client, m)
+	var path := GSCloudManifestCache.path_for(work, m.content_id, m.version)
+	_check("remember writes the envelope, not the bare payload", GSPaths.read_bytes(path).value == raw)
+	var kept: GSResult = GSCloudManifestCache.load_cached(client, m.content_id, m.version)
+	_check("the kept copy verifies offline against the prod key", kept.ok, str(kept.error))
+	_check("and is the same manifest", kept.ok and kept.value.version == m.version and kept.value.signature_key_id == "tmc")
+	GSPaths.write_bytes(path, m.raw_bytes)
+	_check("a bare payload kept in its place is refused", not GSCloudManifestCache.load_cached(client, m.content_id, m.version).ok)
+	remove_child(client)
+	client.queue_free()
+	GSPaths.remove_tree(work)
+
+
+## The real Fatal Contact requires.json names dot_* addons; a build carrying gs_* satisfies them, and a missing one still fails.
+func _requirements() -> void:
+	var text := FileAccess.get_file_as_string(DIR + "game-fatal-contact/requires.json")
+	var parsed := GSAddonApi.parse(text)
+	_check("the real requires.json parses", parsed.ok, str(parsed.error))
+	var legacy: Dictionary = parsed.value if parsed.ok else {}
+	_check("it names legacy dot_ addons", legacy.keys().filter(func(k: String) -> bool: return k.begins_with("dot_")).size() > 10, str(legacy.keys().slice(0, 3)))
+	var renamed: Dictionary = GSCloudLegacyRequirements.rename(legacy)
+	_check("every dot_ one maps to a gs_ name at its level, others are left alone", renamed.size() == legacy.size() and legacy.keys().all(func(k: String) -> bool: return renamed.get("gs_" + k.substr(4) if k.begins_with("dot_") else k, -1) == legacy[k]))
+	var api := GSAddonApi.new()
+	for name: String in renamed:
+		api.overrides[name] = {"level": 999, "oldest": 1}
+	_check("a build with the gs_ addons meets the list", api.check(renamed).ok, str(api.check(renamed).error))
+	_check("the unmapped list is still refused", not api.check(legacy).ok)
+	api.overrides.erase("gs_core")
+	_check("a missing gs_ addon still fails", not api.check(renamed).ok)
+	_check("dash names map too", GSCloudLegacyRequirements.modern_name("dot-audio") == "gs-audio" and GSCloudLegacyRequirements.modern_name("gs_audio") == "gs_audio")
+	_check("both names keep the higher level", GSCloudLegacyRequirements.rename({"dot_core": 3, "gs_core": 5}) == {"gs_core": 5})
 
 
 func _variant(label: String, bytes: PackedByteArray, id: String, keys: Dictionary, version: String) -> void:

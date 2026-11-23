@@ -91,6 +91,9 @@ var signature_key_id: String = ""
 ## Verification runs over these, never a re-serialisation, where key order or number formatting would break a valid signature.
 var raw_bytes: PackedByteArray = PackedByteArray()
 
+## The whole envelope as received (payload, key id and signature), so a copy kept on disk can be verified again; empty for a manifest built in memory.
+var envelope_bytes: PackedByteArray = PackedByteArray()
+
 
 ## Parses a published manifest, signed or not; the only entry point, so no caller verifies against the envelope.
 ## [member raw_bytes] is set to the [b]payload[/b] bytes, exactly what was signed.
@@ -122,6 +125,7 @@ static func from_json_bytes(bytes: PackedByteArray) -> GSResult:
 
 	var m := res.value as GSCloudManifest
 	m.raw_bytes = payload
+	m.envelope_bytes = bytes
 	m.signature = str(env["signature"])
 	m.signature_key_id = str(env["key_id"])
 

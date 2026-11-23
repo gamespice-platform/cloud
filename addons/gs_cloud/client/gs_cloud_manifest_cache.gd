@@ -21,9 +21,9 @@ static func _safe(part: String) -> bool:
 ## Keeps the signed bytes of a manifest that was fetched and verified. A failure is only logged: the cache is a convenience, never a reason to fail a fetch.
 static func remember(c: Node, manifest: GSCloudManifest) -> void:
 	var path := path_for(c.config.cache_dir, manifest.content_id, manifest.version)
-	if path == "" or manifest.raw_bytes.is_empty():
+	if path == "" or manifest.envelope_bytes.is_empty():
 		return
-	var written := GSPaths.write_bytes(path, manifest.raw_bytes)
+	var written := GSPaths.write_bytes(path, manifest.envelope_bytes)
 	if not written.ok:
 		GSLog.warn("cloud", "could not keep the manifest for offline starts", {"path": path, "detail": written.error.detail})
 
@@ -62,6 +62,7 @@ static func load_cached(c: Node, content_id: String, version: String) -> GSResul
 			"asked for %s@%s, it says %s@%s" % [content_id, version, manifest.content_id, manifest.version])
 	var checked: GSResult = c.verify_manifest(manifest)
 	if not checked.ok:
+		GSLog.warn("cloud", "the kept manifest failed verification", {"id": content_id, "version": version, "detail": checked.error.message})
 		return checked
 	# Objects live beside the manifest wherever it was published, so the HTTP bases are this copy's mirrors, as a fetch gives it.
 	for url: String in c._http_manifest_urls(StringName(content_id), version):

@@ -737,9 +737,7 @@ func check_requirements(manifest: GSCloudManifest) -> GSResult:
 		if not read.ok:
 			return read.wrap("Could not read %s's requirements." % manifest.content_id)
 
-		var checked := addon_api.check_text(
-			(read.value as PackedByteArray).get_string_from_utf8(), host_role
-		)
+		var checked := GSCloudLegacyRequirements.check_text(addon_api, (read.value as PackedByteArray).get_string_from_utf8(), host_role)
 		if not checked.ok:
 			GSLog.warn(CHANNEL, "content needs more than this build has", {
 				"content": manifest.key(),
