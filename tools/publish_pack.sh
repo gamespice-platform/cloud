@@ -218,10 +218,26 @@ if [ "$CMD" = publish ] && [ -n "$SRC" ]; then
                 [ -n "$lv" ] && CAPS+=("$a=$lv")
             done
         done
+        # The host refuses a pack whose level is under the addon's OLDEST ("no longer supports"), but a derived level is only the
+        # newest API the game touches, which falls behind OLDEST whenever the addon removes something unrelated. The pack was
+        # parse-checked against the host's addons, so a derived level under OLDEST is raised to it (OLDEST read from the addon's api file).
+        for a in $(python3 -I -c 'import json,sys; print(" ".join(json.load(open(sys.argv[1])).get("addons", {})))' "$REQ"); do
+            o="$(sed -n 's/^const OLDEST := \([0-9]*\).*/\1/p' "$P/addons/$a/${a}_api.gd" 2>/dev/null | head -1)" || o=""
+            [ -n "$o" ] && CAPS+=("oldest:$a=$o")
+        done
         python3 -I - "$REQ" "$([ "$REQ" = "$TMP/requires.json" ] && echo cap || echo check)" "${CAPS[@]}" <<'PY' || exit 2
 import json, sys
-path, mode, caps = sys.argv[1], sys.argv[2], dict(c.split("=", 1) for c in sys.argv[3:])
+path, mode = sys.argv[1], sys.argv[2]
+allc = dict(c.split("=", 1) for c in sys.argv[3:])
+caps = {k: v for k, v in allc.items() if not k.startswith("oldest:")}
+oldest = {k[7:]: int(v) for k, v in allc.items() if k.startswith("oldest:")}
 doc = json.load(open(path)); addons = doc.get("addons", {}); bad = []
+if mode == "cap":
+    for name in sorted(addons):
+        floor = min(oldest.get(name, 0), int(caps.get(name, 10**9)))
+        if int(addons[name]) < floor:
+            print("publish_pack: requires.json: %s %s raised to the host's oldest supported %s" % (name, addons[name], floor), file=sys.stderr)
+            addons[name] = floor
 for name in sorted(addons):
     if name in caps and int(addons[name]) > int(caps[name]):
         if mode == "check":
