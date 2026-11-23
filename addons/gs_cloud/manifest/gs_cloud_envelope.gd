@@ -44,7 +44,7 @@ extends RefCounted
 ## Marker key. Its presence is what distinguishes an envelope from a manifest.
 const MARKER := "gs_cloud_signed"
 
-## The marker manifests published before the dot -> gs rename carry. Read, never written: those signed documents are already on the CDN and cannot be re-signed here, and without this a client reads
+## TEMPORARY read-only alias: the marker manifests published before the dot -> gs rename carry. Read, never written: those signed documents are already on the CDN and cannot be re-signed here, and without this a client reads
 ## one as a bare manifest ("The manifest has no content_id") and no published content starts.
 const LEGACY_MARKER := "dot_cloud_signed"
 

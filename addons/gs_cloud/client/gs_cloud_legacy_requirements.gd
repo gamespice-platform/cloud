@@ -1,7 +1,7 @@
 class_name GSCloudLegacyRequirements
 extends RefCounted
 
-## Packs published before the dot to gs rename ask for dot_<x> addons; this build carries gs_<x>. Read only: nothing here writes the old names.
+## TEMPORARY read-only alias (remove once no prod pack lists dot_*): packs published before the dot to gs rename ask for dot_<x> addons; this build carries gs_<x>. Read only: nothing here writes the old names.
 
 const OLD_PREFIXES := ["dot_", "dot-"]
 const NEW_PREFIXES := ["gs_", "gs-"]
