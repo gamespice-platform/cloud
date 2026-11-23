@@ -8,9 +8,9 @@ const NEW_PREFIXES := ["gs_", "gs-"]
 
 
 ## [method GSAddonApi.check_text] with the legacy names read as gs names.
-static func check_text(api: GSAddonApi, text: String, who: String) -> GSResult:
+static func check_text(api: GSAddonApi, text: String, who: String, lenient_newer: bool = false) -> GSResult:
 	var parsed := GSAddonApi.parse(text)
-	return api.check(rename(parsed.value as Dictionary), who) if parsed.ok else parsed
+	return api.check(rename(parsed.value as Dictionary), who, lenient_newer) if parsed.ok else parsed
 
 
 ## [param requirements] ({addon: level}) with every legacy name replaced by its gs name. A pack that names both keeps the higher level.

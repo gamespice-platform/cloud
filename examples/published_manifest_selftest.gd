@@ -6,7 +6,7 @@ extends Node
 
 const DIR := "res://examples/fixtures/prod/"
 const GAMES := {"game-fatal-contact": "gamemann/game-fatal-contact", "dm-morpheus": "gamemann/dm-morpheus"}
-const CHECKS := 51
+const CHECKS := 54
 
 var _failures := 0
 var _checks := 0
@@ -87,9 +87,16 @@ func _requirements() -> void:
 		api.overrides[name] = {"level": 999, "oldest": 1}
 	_check("a build with the gs_ addons meets the list", api.check(renamed).ok, str(api.check(renamed).error))
 	_check("the unmapped list is still refused", not api.check(legacy).ok)
+	var with_missing := renamed.duplicate()
+	with_missing["gs_no_such_addon"] = 1
+	_check("a missing gs_ addon still fails", not api.check(with_missing).ok)
 	api.overrides.erase("gs_core")
-	_check("a missing gs_ addon still fails", not api.check(renamed).ok)
+	_check("and a pack older than the build's OLDEST is no longer refused", api.check({"gs_core": 1}).ok)
 	_check("dash names map too", GSCloudLegacyRequirements.modern_name("dot-audio") == "gs-audio" and GSCloudLegacyRequirements.modern_name("gs_audio") == "gs_audio")
+	api.overrides["gs_core"] = 2
+	var newer := GSAddonApi.encode({"gs_core": 9})
+	_check("a newer pack is refused by default", not GSCloudLegacyRequirements.check_text(api, newer, "client").ok)
+	_check("and tried in a solo session (lenient_newer)", GSCloudLegacyRequirements.check_text(api, newer, "client", true).ok)
 	_check("both names keep the higher level", GSCloudLegacyRequirements.rename({"dot_core": 3, "gs_core": 5}) == {"gs_core": 5})
 
 

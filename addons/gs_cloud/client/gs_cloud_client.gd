@@ -451,7 +451,7 @@ func _acquire_inner(
 	# Before the mount: a pack built against a newer addon fails its scripts mid-load with "not declared".
 	# Its requirements are already in the store, and a refusal here leaves nothing mounted, which
 	# matters because a mounted pack can never be unmounted.
-	var fits := check_requirements(manifest)
+	var fits := check_requirements(manifest, str(_mount_opts.get(key, {}).get("session", session_tag)) == GSContentIndex.SESSION_SOLO)
 	if not fits.ok:
 		return _fail(fits.error)
 
@@ -639,7 +639,7 @@ func _preflight_requirements(manifest: GSCloudManifest, key: String) -> GSResult
 			GSLog.debug(CHANNEL, "requirements preflight could not fetch", {"content": key})
 			return GSResult.success({})
 
-	return check_requirements(manifest)
+	return check_requirements(manifest, str(_mount_opts.get(key, {}).get("session", session_tag)) == GSContentIndex.SESSION_SOLO)
 
 
 ## Puts every object [param manifest] names into the store, and mounts nothing.
@@ -724,7 +724,8 @@ func _download(
 ## Whether this build has the addon API a pack's [code]requires.json[/code] asks for.
 ## Read from the store so the pack need not be mounted. No such file (older packs, or one this
 ## acquisition did not fetch) means nothing to check.
-func check_requirements(manifest: GSCloudManifest) -> GSResult:
+## [param lenient_newer] (a solo session) tries a pack newer than this build with a warning; see [method GSAddonApi.check].
+func check_requirements(manifest: GSCloudManifest, lenient_newer: bool = false) -> GSResult:
 	for file in manifest.files:
 		if file.path != GSAddonApi.REQUIREMENTS_FILE:
 			continue
@@ -737,7 +738,7 @@ func check_requirements(manifest: GSCloudManifest) -> GSResult:
 		if not read.ok:
 			return read.wrap("Could not read %s's requirements." % manifest.content_id)
 
-		var checked := GSCloudLegacyRequirements.check_text(addon_api, (read.value as PackedByteArray).get_string_from_utf8(), host_role)
+		var checked := GSCloudLegacyRequirements.check_text(addon_api, (read.value as PackedByteArray).get_string_from_utf8(), host_role, lenient_newer)
 		if not checked.ok:
 			GSLog.warn(CHANNEL, "content needs more than this build has", {
 				"content": manifest.key(),
