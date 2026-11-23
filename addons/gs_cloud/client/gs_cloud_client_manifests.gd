@@ -34,6 +34,13 @@ static func resolve(c: Node,
 			+ "the content a manifest_url of its own"
 		)
 
+	# A version is immutable, so the copy kept when it was first fetched and verified is the answer: a second launch asks nobody. Not for a pinned
+	# or local address, which exist to be checked against the source, nor when the kept copy no longer verifies (then it is fetched again).
+	if version != "" and manifest_url == "":
+		var held := _kept_for(c, id, effective_version, candidates)
+		if held != null:
+			return held
+
 	var last: GSResult = null
 	# Every address asked and why it said no, one per line: the last error alone hid a 404 on the flat fallback over the real cause on the first.
 	var tried := PackedStringArray()
@@ -213,3 +220,12 @@ static func verify(c: Node, manifest: GSCloudManifest) -> GSResult:
 		manifest.content_id,
 		manifest.signature_key_id
 	)
+
+
+## The kept manifest of [param id]@[param version] when every candidate is a plain HTTP address that is not pinned; null otherwise.
+static func _kept_for(c: Node, id: String, version: String, candidates: PackedStringArray) -> GSResult:
+	for candidate in candidates:
+		if c.is_local_manifest_url(candidate) or c._pinned.has(candidate) or not candidate.contains("://"):
+			return null
+	var kept := GSCloudManifestCache.load_cached(c, id, version)
+	return kept if kept.ok else null

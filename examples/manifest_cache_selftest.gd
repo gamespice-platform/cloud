@@ -7,7 +7,7 @@ extends Node
 const TestServer := preload("res://examples/http_test_server.gd")
 const WORK := "user://gs_cloud_manifest_cache"
 const ID := "cache_test/game"
-const CHECKS := 26
+const CHECKS := 27
 
 var _failures := 0
 var _checks := 0
@@ -53,7 +53,9 @@ func _run() -> void:
 	_check("offline, the kept manifest resolves", kept.ok, str(kept.error))
 	_check("and is the one that was published", kept.ok and kept.value.version == "1.0.0" and kept.value.content_id == ID)
 	_check("with the network base as its mirror", kept.ok and Array(kept.value.mirrors).any(func(m: String) -> bool: return m.begins_with(dead)), str(kept.value.mirrors if kept.ok else ""))
-	_check("the client says it used the kept copy", _noticed.size() == 1 and str(_noticed[0]).contains(dead), str(_noticed))
+	_check("a version already kept is answered without asking the network, so no offline notice", _noticed.is_empty(), str(_noticed))
+	var gone: GSResult = await offline.resolve_manifest(StringName(ID), "1.0.0")
+	_check("and again", gone.ok and _noticed.is_empty(), str(gone.error))
 
 	var none: GSResult = await offline.resolve_manifest(StringName(ID), "9.9.9")
 	_check("a version never fetched still fails", not none.ok)
