@@ -77,7 +77,7 @@ Every entry has `kind`, `id` (unique within the pack and kind, `[a-z0-9_]+`), `n
 | `addon` | `dir` | **not mounted from a subscription** (see [online isolation](#online-isolation)) |
 | `game` | none; uses `accepts` | the site and the shell; never subscribable |
 
-A weapon's `def` names its behaviour script by path. A path inside the pack is rebased onto the mount by the publisher's rewrite like any other; a path under `res://addons/` is the host build's copy and is left alone, which is how a pack whose code is already in the shell (zee-gs-weapons, zed-gs-weapons) ships only its definitions and art. Per-pack art roots and similar consumer settings go in the entry's `meta` (zee's `asset_root`, relative to the pack root).
+A weapon's `def` names its behaviour script by path. A path inside the pack is rebased onto the mount by the publisher's rewrite like any other; a path under `res://addons/` is the host build's copy and is left alone, which is how a pack whose code is already in the shell (zee-gs-weapons) ships only its definitions and art. Per-pack art roots and similar consumer settings go in the entry's `meta` (zee's `asset_root`, relative to the pack root).
 
 `kinds` and `map_kind` are open sets. A kind this build does not know is kept in the index and offered to nobody; an unknown field is ignored. Neither is an error, and neither is logged above DEBUG, because a newer pack on an older client is the normal case.
 
