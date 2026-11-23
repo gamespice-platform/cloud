@@ -721,9 +721,7 @@ func _download(
 	return synced
 
 
-## Whether this build has the addon API a pack's [code]requires.json[/code] asks for.
-## Read from the store so the pack need not be mounted. No such file (older packs, or one this
-## acquisition did not fetch) means nothing to check.
+## Whether this build has the addon API a pack's [code]requires.json[/code] asks for. Read from the store so the pack need not be mounted; no such file (older packs, or one this acquisition did not fetch) means nothing to check.
 ## [param lenient_newer] (a solo session) tries a pack newer than this build with a warning; see [method GSAddonApi.check].
 func check_requirements(manifest: GSCloudManifest, lenient_newer: bool = false) -> GSResult:
 	for file in manifest.files:
