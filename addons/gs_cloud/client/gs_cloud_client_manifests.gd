@@ -35,6 +35,10 @@ static func resolve(c: Node,
 		)
 
 	var last: GSResult = null
+	# Every address asked and why it said no, one per line: the last error alone hid a 404 on the flat fallback over the real cause on the first.
+	var tried := PackedStringArray()
+	# True while every failure is a transport one (no document came back): a manifest that arrived and was refused is never replaced by an older copy.
+	var unreachable := true
 
 	for candidate in candidates:
 		var fetched: GSResult = await c.fetch_manifest(candidate)
@@ -44,6 +48,8 @@ static func resolve(c: Node,
 			# content is not a failure until every base has been asked. Only the last
 			# error is kept — reporting five 404s helps nobody.
 			last = fetched
+			tried.append(_describe(candidate, fetched))
+			unreachable = unreachable and _is_transport(fetched)
 			continue
 
 		var manifest: GSCloudManifest = fetched.value
@@ -57,6 +63,8 @@ static func resolve(c: Node,
 				"The manifest at %s is for different content." % candidate,
 				"asked for '%s', it says '%s'" % [id, manifest.content_id]
 			)
+			tried.append(_describe(candidate, last))
+			unreachable = false
 			continue
 
 		if version != "" and manifest.version != effective_version:
@@ -65,6 +73,8 @@ static func resolve(c: Node,
 				"The manifest at %s is the wrong version." % candidate,
 				"asked for '%s', it says '%s'" % [effective_version, manifest.version]
 			)
+			tried.append(_describe(candidate, last))
+			unreachable = false
 			continue
 
 		# A published directory holds the manifest and the objects it names, so a base that answered
@@ -73,14 +83,45 @@ static func resolve(c: Node,
 		if c.is_local_manifest_url(candidate):
 			c._adopt_local_dir(c._local_manifest_path(candidate).get_base_dir())
 
+		if not c.is_local_manifest_url(candidate):
+			GSCloudManifestCache.remember(c, manifest)
+
 		return GSResult.success(manifest)
 
-	return (
-		last if last != null
-		else GSResult.fail(
-			GSError.CODE_IO, "Could not get %s's manifest." % id
-		)
-	)
+	if last == null:
+		return GSResult.fail(GSError.CODE_IO, "Could not get %s's manifest." % id)
+
+	var summary := "\n".join(tried)
+	GSLog.warn("cloud", "no address gave a manifest", {"content": id, "version": version, "tried": summary})
+
+	# Offline, or the CDN is down: content this machine already holds still starts, from the manifest that was verified when it was downloaded.
+	if unreachable and version != "":
+		var kept := GSCloudManifestCache.load_cached(c, id, effective_version)
+		if kept.ok:
+			c._note_manifest_from_cache(kept.value, summary)
+			return kept
+		tried.append("kept copy: %s" % kept.error.message)
+		summary = "\n".join(tried)
+
+	return GSResult.fail(last.error.code if last.error != null else GSError.CODE_IO, last.error.message, summary)
+
+
+## One line of the tried list: the address, then the failure's code, message and detail.
+static func _describe(url: String, res: GSResult) -> String:
+	if res.error == null:
+		return url
+	var line := "%s: [%s] %s" % [url, res.error.code, res.error.message]
+	if res.error.detail != "":
+		line += " (%s)" % res.error.detail
+	return line
+
+
+## Whether a failure means nothing answered usefully (no network, a timeout, an HTTP error or a missing file), as opposed to a document that arrived and was refused.
+static func _is_transport(res: GSResult) -> bool:
+	return res.error != null and res.error.code in [
+		GSError.CODE_NETWORK, GSError.CODE_TIMEOUT, GSError.CODE_HTTP, GSError.CODE_IO,
+		GSError.CODE_STATE, GSError.CODE_INVALID, GSError.CODE_RATE_LIMITED,
+	]
 
 
 static func fetch(c: Node, manifest_url: String) -> GSResult:

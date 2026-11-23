@@ -44,6 +44,10 @@ extends RefCounted
 ## Marker key. Its presence is what distinguishes an envelope from a manifest.
 const MARKER := "gs_cloud_signed"
 
+## The marker manifests published before the dot -> gs rename carry. Read, never written: those signed documents are already on the CDN and cannot be re-signed here, and without this a client reads
+## one as a bare manifest ("The manifest has no content_id") and no published content starts.
+const LEGACY_MARKER := "dot_cloud_signed"
+
 const ENVELOPE_VERSION := 1
 
 ## The only algorithm Godot's [Crypto] can verify. See [GSCloudSignature].
@@ -83,7 +87,8 @@ static func unwrap(bytes: PackedByteArray) -> GSResult:
 
 	var d := parsed as Dictionary
 
-	if not d.has(MARKER):
+	var marker := MARKER if d.has(MARKER) else LEGACY_MARKER
+	if not d.has(marker):
 		# A bare, unsigned manifest. Passed through so the caller's policy — not
 		# this parser — decides whether that is acceptable.
 		return GSResult.success({
@@ -93,7 +98,7 @@ static func unwrap(bytes: PackedByteArray) -> GSResult:
 			"signed": false,
 		})
 
-	var version := int(d.get(MARKER, 0))
+	var version := int(d.get(marker, 0))
 	if version > ENVELOPE_VERSION:
 		return GSResult.fail(
 			GSError.CODE_VERSION,
@@ -144,4 +149,4 @@ static func unwrap(bytes: PackedByteArray) -> GSResult:
 ## Whether these bytes look like a signed envelope.
 static func is_envelope(bytes: PackedByteArray) -> bool:
 	var parsed: Variant = JSON.parse_string(bytes.get_string_from_utf8())
-	return parsed is Dictionary and (parsed as Dictionary).has(MARKER)
+	return parsed is Dictionary and ((parsed as Dictionary).has(MARKER) or (parsed as Dictionary).has(LEGACY_MARKER))

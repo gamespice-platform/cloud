@@ -46,6 +46,9 @@ signal content_released(content_key: String)
 
 signal failed(error: GSError)
 
+## A manifest could not be fetched and this machine's kept copy of it was used instead (offline start). [param detail] lists each address tried and why it failed.
+signal manifest_from_cache(manifest: GSCloudManifest, detail: String)
+
 ## Emitted when an acquisition finishes, so a second caller for the same content can
 ## wait for the first rather than starting a sync that is refused. Internal: a consumer
 ## wants [signal content_ready], which says a mount is usable.
@@ -896,6 +899,16 @@ func resolve_manifest(
 	manifest_url: String = ""
 ) -> GSResult:
 	return await _Manifests.resolve(self, content_id, version, manifest_url)
+
+
+## Versions of [param content_id] whose manifest this machine kept from an earlier fetch, newest first. What an offline start can choose from.
+func cached_versions(content_id: StringName) -> PackedStringArray:
+	return GSCloudManifestCache.versions(config.cache_dir, String(content_id))
+
+
+func _note_manifest_from_cache(manifest: GSCloudManifest, detail: String) -> void:
+	GSLog.warn("cloud", "starting from the kept manifest, the content network was not reachable", {"content": manifest.content_id, "version": manifest.version})
+	manifest_from_cache.emit(manifest, detail)
 
 
 ## Adds a directory to the local source, creating one if there was none. Idempotent.
