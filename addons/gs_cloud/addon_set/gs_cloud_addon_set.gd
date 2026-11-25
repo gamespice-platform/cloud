@@ -33,6 +33,8 @@ extends RefCounted
 
 const _Overlay := preload("gs_cloud_addon_set_overlay.gd")
 const _Checks := preload("gs_cloud_addon_set_checks.gd")
+const _Late := preload("gs_cloud_addon_set_late.gd")
+const _Persist := preload("gs_cloud_addon_set_persist.gd")
 
 const CHANNEL := "cloud.addons"
 
@@ -399,161 +401,13 @@ static func forget() -> void:
 	GSWeb.sync_filesystem()
 
 
-## The engine's object store inside the IndexedDB database that mirrors `user://`
-## (Emscripten's IDBFS names the store; the database is named for the mount point).
-const IDB_STORE := "FILE_DATA"
-
-## Files up to this size are compared byte for byte; a larger one by its length, which is
-## enough for an overlay (named by the hash of its contents, so a file of that name and
-## length is that overlay).
-const PERSIST_COMPARE_BYTES := 256 * 1024
-
-
-## Waits until every file in [param paths] is in the browser's IndexedDB exactly as it is
-## in `user://` now. Succeeds at once anywhere else, where a closed file is on disk.
-##
-## [b]What a browser restart has to wait for, and the only way to know.[/b] A browser's
-## `user://` is an in-memory copy that reaches IndexedDB only through `FS.syncfs`, which
-## the engine runs one at a time from its main loop ([method GSWeb.sync_filesystem] only
-## asks for the next one) and which says nothing to a script when it is done. Each sync
-## walks EVERY file under `user://` and writes what changed, so it takes as long as the
-## player's cache is large: measured at 1 to 5 seconds with under 1 MiB cached, while the
-## shell reloaded on a fixed three seconds. A reload in the middle of a sync loses that
-## sync, so the plan and the overlay were never written and the page came back to download
-## the same addons again. Reading the database itself is the one answer that is not a guess.
-##
-## Fails with [code]CODE_TIMEOUT[/code] when [param timeout_s] passes first, and with
-## [code]CODE_UNSUPPORTED[/code] when the page has no IndexedDB copy of `user://` at all (a
-## private window, storage refused): a restart there could only lose what was written, so
-## the caller should not restart.
+## Waits until every file in [param paths] is in the browser's IndexedDB exactly as it is in `user://` now.
+## Succeeds at once anywhere else. Fails with [code]CODE_TIMEOUT[/code] when [param timeout_s] passes first, and
+## with [code]CODE_UNSUPPORTED[/code] when the page has no IndexedDB copy of `user://`. See the persist helper
+## for why a browser restart has to wait for this and how it reads the database.
 static func persisted(paths: PackedStringArray, timeout_s: float = 30.0) -> GSResult:
-	if not GSWeb.available():
-		return GSResult.success(true)
+	return await _Persist.wait(paths, timeout_s)
 
-	var want := {}
-	var db_name := ""
-
-	for path in paths:
-		if not FileAccess.file_exists(path):
-			return GSResult.fail(GSError.CODE_IO, "There is no file to keep.", path)
-
-		var key := ProjectSettings.globalize_path(path)
-		var f := FileAccess.open(path, FileAccess.READ)
-		var size := f.get_length()
-		f.close()
-		# A large file by its length only: an overlay part is hundreds of MiB, too much to hold twice.
-		var small := size <= PERSIST_COMPARE_BYTES
-		want[key] = {"size": size, "sha": GSHash.sha256_bytes(FileAccess.get_file_as_bytes(path)) if small else ""}
-		# `/userfs/godot/app_userdata/<name>/...` is kept in the database `/userfs`.
-		var parts := key.split("/", false)
-		db_name = "/" + parts[0] if parts.size() > 0 else ""
-
-	if want.is_empty():
-		return GSResult.success(true)
-
-	var tree := Engine.get_main_loop() as SceneTree
-	var deadline := Time.get_ticks_msec() + int(timeout_s * 1000.0)
-	var waiting: Array = want.keys()
-
-	while true:
-		GSWeb.sync_filesystem()
-		await tree.create_timer(0.5).timeout
-
-		var read := await _idb_differs(db_name, want)
-
-		if not read.ok:
-			return read
-
-		waiting = read.value
-
-		if waiting.is_empty():
-			return GSResult.success(true)
-
-		if Time.get_ticks_msec() >= deadline:
-			break
-
-	return GSResult.fail(
-		GSError.CODE_TIMEOUT,
-		"The browser did not save the files a restart needs in time.",
-		", ".join(PackedStringArray(waiting))
-	)
-
-
-## The keys of [param want] whose IndexedDB record is missing or not what is on disk.
-## Through the page's `indexedDB` object and callbacks, never an eval: the player's page
-## refuses `unsafe-eval` (see [method GSWeb.get_global]).
-static func _idb_differs(db_name: String, want: Dictionary) -> GSResult:
-	var idb: Variant = GSWeb.get_global("indexedDB")
-
-	if idb == null or db_name == "":
-		return GSResult.fail(GSError.CODE_UNSUPPORTED, "This page has no IndexedDB.")
-
-	var tree := Engine.get_main_loop() as SceneTree
-	# Containers, not scalars: a lambda captures a local by value (docs/gdscript-hazards).
-	var state := {"db": null, "done": false, "error": ""}
-	var request: Variant = idb.open(db_name)
-	request.onsuccess = GSWeb.create_callback("gs_cloud_idb_open", func(_args: Array) -> void:
-		state["db"] = request.result
-		state["done"] = true
-	)
-	request.onerror = GSWeb.create_callback("gs_cloud_idb_open_error", func(_args: Array) -> void:
-		state["error"] = "the database would not open"
-		state["done"] = true
-	)
-
-	var give_up := Time.get_ticks_msec() + 10000
-
-	while not state["done"] and Time.get_ticks_msec() < give_up:
-		await tree.process_frame
-
-	GSWeb.release_callback("gs_cloud_idb_open")
-	GSWeb.release_callback("gs_cloud_idb_open_error")
-
-	var db: Variant = state["db"]
-
-	if db == null:
-		return GSResult.fail(GSError.CODE_UNSUPPORTED, "The browser's copy of user:// could not be read.",
-			str(state["error"]) if str(state["error"]) != "" else "no answer")
-
-	# An empty database is one this call just created: the engine never had one, so nothing
-	# written in this session is kept anywhere.
-	if not bool(db.objectStoreNames.contains(IDB_STORE)):
-		db.close()
-		return GSResult.fail(GSError.CODE_UNSUPPORTED, "This page keeps nothing between loads.", db_name)
-
-	var store: Variant = db.transaction(IDB_STORE, "readonly").objectStore(IDB_STORE)
-	var differs: Array = []
-	var answered: Array = []
-	var bridge := GSWeb.bridge()
-
-	for key: String in want:
-		var ask: Variant = store.get(key)
-		var name := "gs_cloud_idb_get_%d" % answered.size()
-		answered.append(false)
-		var slot := answered.size() - 1
-		ask.onsuccess = GSWeb.create_callback(name, func(_args: Array) -> void:
-			if not _Checks.record_matches(bridge, ask.result, want[key]):
-				differs.append(key)
-			answered[slot] = true
-		)
-		ask.onerror = GSWeb.create_callback(name + "_error", func(_args: Array) -> void:
-			differs.append(key)
-			answered[slot] = true
-		)
-
-	while answered.has(false) and Time.get_ticks_msec() < give_up:
-		await tree.process_frame
-
-	for i in answered.size():
-		GSWeb.release_callback("gs_cloud_idb_get_%d" % i)
-		GSWeb.release_callback("gs_cloud_idb_get_%d_error" % i)
-
-	db.close()
-
-	if answered.has(false):
-		return GSResult.fail(GSError.CODE_TIMEOUT, "The browser's copy of user:// did not answer.")
-
-	return GSResult.success(differs)
 
 
 func _refusal(dir: String, repo: String, id: String, version: String) -> String:
@@ -692,126 +546,30 @@ func build(wanted: Dictionary, resume: Dictionary = {}) -> GSResult:
 ## fetching or packing again. Idempotent: a pack already mounted by this process is not mounted twice.
 ## Returns {"pack", "files", "bytes", "mounted"}.
 func late_pack(wanted: Dictionary, late: PackedStringArray = PackedStringArray()) -> GSResult:
-	if cloud == null:
-		return GSResult.fail(GSError.CODE_STATE, "No content client to fetch addons with.")
-
-	if groups.has(GSCloudFile.ALL_GROUPS):
-		return GSResult.success({"pack": "", "files": 0, "bytes": 0, "mounted": false})
-
-	var select := late if not late.is_empty() else PackedStringArray([GSCloudFile.ALL_GROUPS])
-	var manifests := {}
-	var pending: Array = []
-	var lines := PackedStringArray()
-	var bytes := 0
-
-	for dir: String in wanted:
-		var entry: Dictionary = wanted[dir]
-		var resolved := await cloud.resolve_manifest(StringName(entry["id"]), str(entry["version"]))
-
-		if not resolved.ok:
-			return resolved.wrap("Could not find %s %s." % [entry["id"], entry["version"]])
-
-		var manifest: GSCloudManifest = resolved.value
-		var at := _Overlay.base(manifest, dir)
-
-		if at == _Overlay.NOT_AN_ADDON:
-			continue
-
-		var held := {}
-		for f in manifest.wanted_files(groups):
-			held[f.path] = true
-
-		for f in manifest.wanted_files(select):
-			if not held.has(f.path):
-				pending.append([dir, manifest, at, f])
-				lines.append("%s/%s:%s" % [dir, f.path, f.sha256])
-				bytes += f.size
-
-		manifests[dir] = manifest
-
-	if pending.is_empty():
-		return GSResult.success({"pack": "", "files": 0, "bytes": 0, "mounted": false})
-
-	lines.sort()
-	var pack_path := DIR.path_join("late-%s.pck" % "\n".join(lines).sha256_text().substr(0, 16))
-	var made := GSPaths.ensure_dir(DIR)
-
-	if not made.ok:
-		return made
-
-	var parts := _Overlay.existing_parts(pack_path)
-
-	if parts.is_empty():
-		# One download per manifest, so the store checks and progress stay the downloader's.
-		for dir: String in manifests:
-			var fetched := await cloud.download_manifest(manifests[dir], select)
-
-			if not fetched.ok:
-				return fetched.wrap("Could not download %s." % (manifests[dir] as GSCloudManifest).key())
-
-		var scratch := DIR.path_join("late_staging")
-		GSPaths.remove_tree(scratch)
-		GSPaths.ensure_dir(scratch)
-		var packer := _Overlay.Parts.new(pack_path, part_bytes)
-		var index := 0
-		var err := OK
-
-		for item: Array in pending:
-			var dir: String = item[0]
-			var manifest: GSCloudManifest = item[1]
-			var f: GSCloudFile = item[3]
-
-			if not cloud.store.has(f.sha256):
-				GSPaths.remove_tree(scratch)
-				return GSResult.fail(GSError.CODE_STATE, "An addon file is not downloaded.", f.path)
-
-			var target := _Overlay.target(manifest, dir, str(item[2]), f.path)
-			var source := _Overlay.unrelocate(manifest, dir, str(item[2]), f.path, cloud.store.path_for(f.sha256), scratch.path_join("t%d" % index))
-			err = _Overlay.add(packer, target, source, scratch.path_join("r%d.remap" % index))
-
-			if err != OK:
-				GSPaths.remove_tree(scratch)
-				return GSResult.failure(GSError.from_engine(err, "adding %s" % target))
-
-			index += 1
-
-		err = packer.finish()
-		GSPaths.remove_tree(scratch)
-
-		if err != OK:
-			return GSResult.failure(GSError.from_engine(err, "writing the late addon pack"))
-
-		parts = packer.paths
-		GSWeb.sync_filesystem()
-
-	var mounted := false
-
-	if not _late_mounted.has(pack_path):
-		for part: String in parts:
-			if not ProjectSettings.load_resource_pack(part, false):
-				return GSResult.fail(GSError.CODE_STATE, "The engine refused the late addon pack.", part)
-
-		var uids: Array = []
-
-		for item: Array in pending:
-			var f: GSCloudFile = item[3]
-			var ext := f.path.get_extension().to_lower()
-
-			if ext == "uid" or ext == "import":
-				_Overlay.note_uid(uids, ext, cloud.store.path_for(f.sha256), _Overlay.target(item[1], str(item[0]), str(item[2]), f.path))
-
-		for pair: Array in uids:
-			_register_uid(str(pair[0]), str(pair[1]))
-
-		_late_mounted[pack_path] = true
-		mounted = true
-		GSLog.info(CHANNEL, "mounted the late addon pack", {"pack": pack_path.get_file(), "files": pending.size(), "bytes": bytes})
-
-	return GSResult.success({"pack": pack_path, "files": pending.size(), "bytes": bytes, "mounted": mounted})
+	return await _Late.new(self).run(wanted, late)
 
 
-## Late packs this process has mounted (path -> true).
-static var _late_mounted := {}
+## The project setting a game reads (`ProjectSettings.get_setting(LATE_PENDING, false)`) to know groups are still on their way:
+## true from the moment a shell decides to top the overlay up until [method late_pack] has mounted it (or failed). A game that
+## defers work on those files waits while it is true, and the files it asked for before then are drawn by its own fallback.
+const LATE_PENDING := "gs_cloud/late_groups/pending"
+
+
+## Sets [constant LATE_PENDING].
+static func mark_late_pending(pending: bool) -> void:
+	ProjectSettings.set_setting(LATE_PENDING, pending)
+
+
+## Whether [constant LATE_PENDING] is set.
+static func late_pending() -> bool:
+	return bool(ProjectSettings.get_setting(LATE_PENDING, false))
+
+
+## Bytes per part of a late pack, much smaller than [member part_bytes]: a part is written inside one frame, and the game is running.
+var late_part_bytes: int = 24 * 1024 * 1024
+
+## Milliseconds of packing before [method late_pack] gives the frame back.
+var late_slice_msec: int = 6
 
 
 ## The overlay: every file at `res://addons/<dir>/<path>`, a self-pointing remap per
