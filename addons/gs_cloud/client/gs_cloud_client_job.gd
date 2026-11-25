@@ -65,8 +65,8 @@ static func register_manifest(c: Node, m: GSCloudManifest, groups: PackedStringA
 	await register_dependencies(c, m, 1)
 
 
-## The download-only pass over every registered manifest, [member GSCloudConfig.parallel_packs] at a time. Returns {key: GSError} for the failures.
-static func download_all(c: Node) -> Dictionary:
+## The download-only pass over every registered manifest, [member GSCloudConfig.parallel_packs] at a time. Returns {key: GSError} for the failures; [param skip_preflight] leaves out the requirements check.
+static func download_all(c: Node, skip_preflight: bool = false) -> Dictionary:
 	var manifests: Array = c._job_manifests.values()
 	var failed := {}
 	var state := {"next": 0, "live": 0}
@@ -78,7 +78,7 @@ static func download_all(c: Node) -> Dictionary:
 			if c.is_mounted(m.content_id, m.version):
 				continue
 			var key := m.key()
-			var got: GSResult = await c._preflight_requirements(m, key)
+			var got: GSResult = GSResult.success({}) if skip_preflight else await c._preflight_requirements(m, key)
 			if got.ok:
 				got = await c._download(m, c._job_groups.get(key, PackedStringArray()), key)
 			if not got.ok:
