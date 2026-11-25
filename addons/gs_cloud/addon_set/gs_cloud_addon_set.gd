@@ -683,6 +683,137 @@ func build(wanted: Dictionary, resume: Dictionary = {}) -> GSResult:
 	return GSResult.success(plan)
 
 
+## Fetches the files [member groups] left out of the overlay, packs them in a pack of their own and mounts it in
+## place (API 36). Only for a set built with [member groups] that are not `*`, and only once that overlay is mounted
+## in this process: the files are new paths, so nothing the overlay holds is replaced and nothing restarts.
+##
+## [param wanted] is the same addon table [method build] took; [param late] limits the top-up to those groups
+## (empty = every group the overlay left out). The pack is named by content, so a later visit reuses it without
+## fetching or packing again. Idempotent: a pack already mounted by this process is not mounted twice.
+## Returns {"pack", "files", "bytes", "mounted"}.
+func late_pack(wanted: Dictionary, late: PackedStringArray = PackedStringArray()) -> GSResult:
+	if cloud == null:
+		return GSResult.fail(GSError.CODE_STATE, "No content client to fetch addons with.")
+
+	if groups.has(GSCloudFile.ALL_GROUPS):
+		return GSResult.success({"pack": "", "files": 0, "bytes": 0, "mounted": false})
+
+	var select := late if not late.is_empty() else PackedStringArray([GSCloudFile.ALL_GROUPS])
+	var manifests := {}
+	var pending: Array = []
+	var lines := PackedStringArray()
+	var bytes := 0
+
+	for dir: String in wanted:
+		var entry: Dictionary = wanted[dir]
+		var resolved := await cloud.resolve_manifest(StringName(entry["id"]), str(entry["version"]))
+
+		if not resolved.ok:
+			return resolved.wrap("Could not find %s %s." % [entry["id"], entry["version"]])
+
+		var manifest: GSCloudManifest = resolved.value
+		var at := _Overlay.base(manifest, dir)
+
+		if at == _Overlay.NOT_AN_ADDON:
+			continue
+
+		var held := {}
+		for f in manifest.wanted_files(groups):
+			held[f.path] = true
+
+		for f in manifest.wanted_files(select):
+			if not held.has(f.path):
+				pending.append([dir, manifest, at, f])
+				lines.append("%s/%s:%s" % [dir, f.path, f.sha256])
+				bytes += f.size
+
+		manifests[dir] = manifest
+
+	if pending.is_empty():
+		return GSResult.success({"pack": "", "files": 0, "bytes": 0, "mounted": false})
+
+	lines.sort()
+	var pack_path := DIR.path_join("late-%s.pck" % "\n".join(lines).sha256_text().substr(0, 16))
+	var made := GSPaths.ensure_dir(DIR)
+
+	if not made.ok:
+		return made
+
+	var parts := _Overlay.existing_parts(pack_path)
+
+	if parts.is_empty():
+		# One download per manifest, so the store checks and progress stay the downloader's.
+		for dir: String in manifests:
+			var fetched := await cloud.download_manifest(manifests[dir], select)
+
+			if not fetched.ok:
+				return fetched.wrap("Could not download %s." % (manifests[dir] as GSCloudManifest).key())
+
+		var scratch := DIR.path_join("late_staging")
+		GSPaths.remove_tree(scratch)
+		GSPaths.ensure_dir(scratch)
+		var packer := _Overlay.Parts.new(pack_path, part_bytes)
+		var index := 0
+		var err := OK
+
+		for item: Array in pending:
+			var dir: String = item[0]
+			var manifest: GSCloudManifest = item[1]
+			var f: GSCloudFile = item[3]
+
+			if not cloud.store.has(f.sha256):
+				GSPaths.remove_tree(scratch)
+				return GSResult.fail(GSError.CODE_STATE, "An addon file is not downloaded.", f.path)
+
+			var target := _Overlay.target(manifest, dir, str(item[2]), f.path)
+			var source := _Overlay.unrelocate(manifest, dir, str(item[2]), f.path, cloud.store.path_for(f.sha256), scratch.path_join("t%d" % index))
+			err = _Overlay.add(packer, target, source, scratch.path_join("r%d.remap" % index))
+
+			if err != OK:
+				GSPaths.remove_tree(scratch)
+				return GSResult.failure(GSError.from_engine(err, "adding %s" % target))
+
+			index += 1
+
+		err = packer.finish()
+		GSPaths.remove_tree(scratch)
+
+		if err != OK:
+			return GSResult.failure(GSError.from_engine(err, "writing the late addon pack"))
+
+		parts = packer.paths
+		GSWeb.sync_filesystem()
+
+	var mounted := false
+
+	if not _late_mounted.has(pack_path):
+		for part: String in parts:
+			if not ProjectSettings.load_resource_pack(part, false):
+				return GSResult.fail(GSError.CODE_STATE, "The engine refused the late addon pack.", part)
+
+		var uids: Array = []
+
+		for item: Array in pending:
+			var f: GSCloudFile = item[3]
+			var ext := f.path.get_extension().to_lower()
+
+			if ext == "uid" or ext == "import":
+				_Overlay.note_uid(uids, ext, cloud.store.path_for(f.sha256), _Overlay.target(item[1], str(item[0]), str(item[2]), f.path))
+
+		for pair: Array in uids:
+			_register_uid(str(pair[0]), str(pair[1]))
+
+		_late_mounted[pack_path] = true
+		mounted = true
+		GSLog.info(CHANNEL, "mounted the late addon pack", {"pack": pack_path.get_file(), "files": pending.size(), "bytes": bytes})
+
+	return GSResult.success({"pack": pack_path, "files": pending.size(), "bytes": bytes, "mounted": mounted})
+
+
+## Late packs this process has mounted (path -> true).
+static var _late_mounted := {}
+
+
 ## The overlay: every file at `res://addons/<dir>/<path>`, a self-pointing remap per
 ## resource, and the merged class list.
 func _assemble(manifests: Dictionary, fingerprint: String) -> GSResult:

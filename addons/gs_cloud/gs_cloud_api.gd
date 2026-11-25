@@ -70,5 +70,7 @@ extends RefCounted
 #     free space covers a download) and prune treats refs left by an earlier session as evictable, after unreferenced objects. Additive.
 # 35: GSCloudClient.job_download(skip_preflight): download a launch job's packs without the requirements preflight, so a game's
 #     pack can download beside the addon overlay it is checked against. Additive.
-const LEVEL := 35
+# 36: GSCloudAddonSet.late_pack: fetch the groups an overlay left out, pack them and mount them in place, so a web
+#     shell can start on the early groups and top up in the background. Additive.
+const LEVEL := 36
 const OLDEST := 1
