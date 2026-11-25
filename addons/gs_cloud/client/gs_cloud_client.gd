@@ -538,10 +538,12 @@ func job_register_manifest(manifest: GSCloudManifest, groups: PackedStringArray 
 
 
 ## Downloads everything the job registered and mounts nothing, [member GSCloudConfig.parallel_packs] packs at a time. The value is [code]{key: GSError}[/code] for the packs that failed (they are left for the mount pass to report); this never fails as a whole.
-func job_download() -> GSResult:
+##
+## [param skip_preflight] (API 35) leaves out the per-pack requirements check, so the download can run beside the addon overlay that check needs mounted; the acquire that mounts the pack still runs it.
+func job_download(skip_preflight: bool = false) -> GSResult:
 	if job == null:
 		return GSResult.fail(GSError.CODE_STATE, "job_download needs an open job.", "call begin_job first")
-	return GSResult.success(await _Job.download_all(self))
+	return GSResult.success(await _Job.download_all(self, skip_preflight))
 
 
 ## Ends the download half: the job's snapshot now says "unpack" with a count, and each pack mounted from here ticks it.
