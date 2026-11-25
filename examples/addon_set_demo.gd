@@ -24,7 +24,7 @@ const WORK := "user://gs_cloud_addon_set_demo"
 const LOCK := "res://addons.lock"
 
 ## Every check, including the one that compares against it. See docs/testing.md.
-const CHECKS := 86
+const CHECKS := 90
 
 var _failures := 0
 var _checks := 0
@@ -488,7 +488,7 @@ func _nested(cloud: GSCloudClient) -> void:
 func _sided(cloud: GSCloudClient) -> void:
 	_section("an addon with sides and groups overlays only what this process fetched")
 	var src := WORK.path_join("sided_source")
-	_write(src.path_join("plugin.cfg"), "[plugin]\n\nname=\"Dot Sided\"\nversion=\"0.1.0\"\nscript=\"\"\n")
+	_write(src.path_join("plugin.cfg"), "[plugin]\n\nname=\"Dot Sided\"\nversion=\"0.1.0\"\nscript=\"gs_sided_api.gd\"\n")
 	_write(src.path_join("gs_sided_api.gd"), "extends RefCounted\n\nconst LEVEL := 1\n")
 	_write(src.path_join("server/rules.json"), "{\"server only\": true}\n")
 	_write(src.path_join("maps/big.bin"), "a large deferred map")
@@ -519,6 +519,19 @@ func _sided(cloud: GSCloudClient) -> void:
 	_check(sha.has("server/rules.json") and not cloud.store.has(str(sha["server/rules.json"])), "the server-only file is never fetched")
 	_check(sha.has("maps/big.bin") and not cloud.store.has(str(sha["maps/big.bin"])), "nor a group it did not ask for")
 	_check(lean.ok and (lean.value as Dictionary).get("groups", ["?"]).is_empty(), "the plan says which groups it holds")
+
+	# What a shell does first: mount the overlay it built, then top it up in place.
+	var lean_pack := str((lean.value as Dictionary)["pack"]) if lean.ok else ""
+	ProjectSettings.set_setting("gs_cloud/addon_overlay", lean_pack)
+	_check(lean.ok and ProjectSettings.load_resource_pack(lean_pack, true), "the lean overlay mounts")
+	var late: GSResult = await set.late_pack(wanted)
+	var late_value: Dictionary = late.value if late.ok else {}
+	_check(late.ok and int(late_value.get("files", 0)) == 1 and bool(late_value.get("mounted", false)),
+		"late_pack fetches and mounts only the group the overlay left out", str(late.error) if not late.ok else str(late_value))
+	_check(FileAccess.file_exists("res://addons/gs_sided/maps/big.bin") and not FileAccess.file_exists("res://addons/gs_sided/server/rules.json"),
+		"the late group is readable in place, the other side's file is not")
+	var again: GSResult = await set.late_pack(wanted)
+	_check(again.ok and not bool((again.value as Dictionary).get("mounted", true)), "a second late_pack mounts nothing twice")
 
 	set.groups = PackedStringArray([GSCloudFile.ALL_GROUPS])
 	var full: GSResult = await set.build(wanted, {})
