@@ -136,6 +136,8 @@ func _apply_options(pub: GSCloudPublisher, opts: Dictionary, claim: Dictionary) 
 	pub.min_engine_version = str(opts.get("min-engine", ""))
 	# For content that reads its own asset files raw; see the property.
 	pub.ship_import_sources = opts.has("with-sources")
+	if opts.has("skip-groups"):
+		pub.set_meta(&"skip_groups", true)  # read by the groups reader
 	# --raw: a source store, every file byte for byte as it is in the tree (docs/source-lock.md).
 	if opts.has("raw"):
 		pub.include_imported = false
@@ -665,6 +667,7 @@ Commands
     --include-ignored    also pack wt-* worktrees and folders the source's .gitignore ignores (skipped by default)
     --with-sources       also ship each imported asset's source file
     --raw                source store: ship every file byte for byte (no imported form, no path rewrite, no exclusions but .git/.godot/ignored dirs)
+    --skip-groups        ignore the source's groups.json (for a raw source store whose group patterns match nothing in it)
     --extra-file P=FILE  ship FILE at pack path P, from outside the source (repeatable; a derived requires.json)
     --mirror URL         base URL clients fetch from  (repeatable)
     --key PATH           private key PEM; omit to publish unsigned

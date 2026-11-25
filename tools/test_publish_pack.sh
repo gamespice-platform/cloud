@@ -219,6 +219,13 @@ chk "source-lock publish exits 0 without importing" "[ $SRC_RC -eq 0 ] && ! grep
 chk "source lock is a store entry with source_files for every file" "python3 -I -c \"import json,sys; d=json.load(open('$W/source.lock.json')); e=d['packs'][0]; f=d['source_files'][e['id']]; sys.exit(0 if e['kind']=='store' and set(f)>={'art/m.glb','art/m.glb.import','NOTES.md'} else 1)\""
 chk "source_files hashes equal the tree's bytes" "python3 -I -c \"import json,hashlib,sys; f=json.load(open('$W/source.lock.json'))['source_files'].popitem()[1]; sys.exit(0 if all(hashlib.sha256(open('$W/ss/'+k,'rb').read()).hexdigest()==v for k,v in f.items()) else 1)\""
 chk "the content lock was not touched by the source publish" "! grep -q demo-source content.lock.json"
+# --skip-groups: a groups.json whose pattern matches nothing in the source is refused, and ignored with the flag
+printf '{"extras": ["nothing_here/"]}' > "$W/ss/groups.json"
+GS_CLI_TOKEN=secret "$HERE/publish_pack.sh" --source "$W/ss" --id demo-source --version 1.0.2 --dry-run --source-lock "$W/g.lock.json" > "$W/out" 2>&1
+chk "a source-lock publish with a dead groups.json pattern is refused" "[ $? -ne 0 ]"
+GS_CLI_TOKEN=secret "$HERE/publish_pack.sh" --source "$W/ss" --id demo-source --version 1.0.2 --dry-run --skip-groups --source-lock "$W/g.lock.json" > "$W/out" 2>&1
+chk "--skip-groups ignores groups.json in a source-lock publish" "[ $? -eq 0 ] && grep -q 'byte-identical' out"
+rm -f "$W/ss/groups.json"
 NPUT=$(grep -c '^PUT' log)
 GS_CLI_TOKEN=secret "$HERE/publish_pack.sh" --source "$W/ss" --id demo-source --version 1.0.1 --dry-run --source-lock "$W/dry.lock.json" > "$W/out" 2>&1
 chk "source-lock --dry-run checks the pack against the tree and sends nothing" "[ $? -eq 0 ] && grep -q 'byte-identical' out && [ \$(grep -c '^PUT' log) -eq $NPUT ] && [ ! -e '$W/dry.lock.json' ]"

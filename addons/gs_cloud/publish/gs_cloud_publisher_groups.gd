@@ -6,6 +6,8 @@ extends RefCounted
 const _Sides := preload("gs_cloud_publisher_sides.gd")
 ## [constant GROUPS_FILE] lives here so this file never names the publisher.
 const GROUPS_FILE := "groups.json"
+## Set this meta on the publisher (the CLI's `--skip-groups`) to ignore `groups.json`: for a raw source store, whose group patterns may match nothing in its tree.
+const SKIP_META := &"skip_groups"
 
 
 ## Reads the source's `groups.json` and returns pack path -> PackedStringArray of the groups the file joins (a path in no rule is absent). Two shapes, mixable: [code]{"group": ["prefix/", "glob*"]}[/code] and [code]{"prefix/": "group"}[/code]
@@ -13,7 +15,7 @@ const GROUPS_FILE := "groups.json"
 ## Refused as CODE_INVALID: a pattern that matches nothing (a typo would publish the files ungrouped and say nothing), an empty group, a pattern that is not a pack path, a malformed entry.
 static func groups_for(pub: RefCounted, source_dir: String, relatives: PackedStringArray, owners: Dictionary = {}) -> GSResult:
 	var file := source_dir.path_join(GROUPS_FILE)
-	if not FileAccess.file_exists(file):
+	if not FileAccess.file_exists(file) or pub.has_meta(SKIP_META):
 		return GSResult.success({})
 	var read := GSPaths.read_json(file)
 	if not read.ok:
