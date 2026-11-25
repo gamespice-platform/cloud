@@ -65,6 +65,13 @@ done
 # file under "source_files". lock_verify.sh --source-lock verifies and fetches by those hashes (docs/source-lock.md). A source pack
 # is not a runtime pack: no import, addon, requires.json or boot step. Give it its own --id (NAME-source).
 CMDX=$CMD; [ -z "$SRCLOCK" ] || CMDX=source
+# A source pack must never get a Workshop page of its own (a bare publish runs EnsureWorkshopAsset and the site deletes nothing).
+if [ -n "$SRCLOCK" ] && [ "$CMD" = publish ]; then
+    case " ${ARGS[*]} " in
+        *" --member-of "*|*" --asset "*) ;;
+        *) echo "publish_pack: --source-lock needs --member-of ASSET (or --asset ID): a bare publish creates a public Workshop page for the source pack" >&2; exit 2 ;;
+    esac
+fi
 # host_names ARG: the addon folder names ARG lists, one per line, normalised to underscores.
 host_names() {
     local f=$1
