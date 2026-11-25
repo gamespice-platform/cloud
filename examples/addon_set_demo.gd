@@ -24,7 +24,7 @@ const WORK := "user://gs_cloud_addon_set_demo"
 const LOCK := "res://addons.lock"
 
 ## Every check, including the one that compares against it. See docs/testing.md.
-const CHECKS := 90
+const CHECKS := 92
 
 var _failures := 0
 var _checks := 0
@@ -524,7 +524,11 @@ func _sided(cloud: GSCloudClient) -> void:
 	var lean_pack := str((lean.value as Dictionary)["pack"]) if lean.ok else ""
 	ProjectSettings.set_setting("gs_cloud/addon_overlay", lean_pack)
 	_check(lean.ok and ProjectSettings.load_resource_pack(lean_pack, true), "the lean overlay mounts")
+	GSCloudAddonSet.mark_late_pending(true)
+	_check(GSCloudAddonSet.late_pending(), "a game can read that late groups are pending")
 	var late: GSResult = await set.late_pack(wanted)
+	GSCloudAddonSet.mark_late_pending(false)
+	_check(not GSCloudAddonSet.late_pending(), "and that they are not")
 	var late_value: Dictionary = late.value if late.ok else {}
 	_check(late.ok and int(late_value.get("files", 0)) == 1 and bool(late_value.get("mounted", false)),
 		"late_pack fetches and mounts only the group the overlay left out", str(late.error) if not late.ok else str(late_value))

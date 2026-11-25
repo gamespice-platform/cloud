@@ -752,11 +752,19 @@ func late_pack(wanted: Dictionary, late: PackedStringArray = PackedStringArray()
 		var scratch := DIR.path_join("late_staging")
 		GSPaths.remove_tree(scratch)
 		GSPaths.ensure_dir(scratch)
-		var packer := _Overlay.Parts.new(pack_path, part_bytes)
+		var packer := _Overlay.Parts.new(pack_path, late_part_bytes)
 		var index := 0
 		var err := OK
+		var tree := Engine.get_main_loop() as SceneTree
+		var slice := Time.get_ticks_msec()
 
 		for item: Array in pending:
+			# A running game must not feel the packing: a part is written when the next file would not fit, so a frame holds at most one
+			# small part, and a frame is given back whenever a few milliseconds are spent.
+			if tree != null and Time.get_ticks_msec() - slice >= late_slice_msec:
+				await tree.process_frame
+				slice = Time.get_ticks_msec()
+
 			var dir: String = item[0]
 			var manifest: GSCloudManifest = item[1]
 			var f: GSCloudFile = item[3]
@@ -809,6 +817,28 @@ func late_pack(wanted: Dictionary, late: PackedStringArray = PackedStringArray()
 
 	return GSResult.success({"pack": pack_path, "files": pending.size(), "bytes": bytes, "mounted": mounted})
 
+
+## The project setting a game reads (`ProjectSettings.get_setting(LATE_PENDING, false)`) to know groups are still on their way:
+## true from the moment a shell decides to top the overlay up until [method late_pack] has mounted it (or failed). A game that
+## defers work on those files waits while it is true, and the files it asked for before then are drawn by its own fallback.
+const LATE_PENDING := "gs_cloud/late_groups/pending"
+
+
+## Sets [constant LATE_PENDING].
+static func mark_late_pending(pending: bool) -> void:
+	ProjectSettings.set_setting(LATE_PENDING, pending)
+
+
+## Whether [constant LATE_PENDING] is set.
+static func late_pending() -> bool:
+	return bool(ProjectSettings.get_setting(LATE_PENDING, false))
+
+
+## Bytes per part of a late pack, much smaller than [member part_bytes]: a part is written inside one frame, and the game is running.
+var late_part_bytes: int = 24 * 1024 * 1024
+
+## Milliseconds of packing before [method late_pack] gives the frame back.
+var late_slice_msec: int = 6
 
 ## Late packs this process has mounted (path -> true).
 static var _late_mounted := {}
