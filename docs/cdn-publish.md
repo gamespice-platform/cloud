@@ -146,3 +146,5 @@ The solo shell fetches a game's addon packs from its `requires.json` (`{"format"
 ## Valve guard
 
 `publish_pack.sh` (and `.ps1`) run `tools/check_valve_files.py` on the source before anything is sent, dry runs included, with no bypass. It refuses and lists every path of a `.vpk`, `.vtf`, `.vmt`, `.mdl`, `.vvd`, `.vtx`, `.phy`, `.ani`, a `textures/orig` folder, an `_orig` pack id, and any file whose CRC32 and size match the stock index (`--build-index OUT ARCHIVE_DIR...`, kept outside git at `$GS_VALVE_INDEX` or `~/.cache/dot/valve_stock.idx`). `--git [--staged] [REPO]` checks tracked files (`--install-hook` adds the pre-commit), `--lock FILE` checks every pack a lock pins by its published manifest.
+
+See [source-lock.md](source-lock.md) for byte-identical source packs (`--source-lock`), `lock_verify.sh --tree/--fetch` and `lock_cover.py`.

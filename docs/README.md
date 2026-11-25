@@ -11,6 +11,7 @@ The reasoning behind content delivery, one subject per file. [CLAUDE.md](../CLAU
 | [store.md](store.md) | Content addressing, the index against the directory, partials, platform notes |
 | [sources.md](sources.md) | The three sources, why a source is skipped, the in-band bounds, resume, the downloader |
 | [cdn-publish.md](cdn-publish.md) | Publishing through the site with a creator token: claim, manifest, presigned PUTs, finalize, the licence gate, `content.lock.json`, stores as packs |
+| [source-lock.md](source-lock.md) | Byte-identical source packs: `publish_pack.sh --source-lock`, `lock_verify.sh --tree/--fetch`, `lock_cover.py` |
 | [publishing.md](publishing.md) | The CLI, imported assets, path rewriting, binary imports, `GSCloudRegistry` |
 | [addon-packs.md](addon-packs.md) | Newer addons over a build: the engine facts, the safeguards, the browser, the test |
 | [auto-update.md](auto-update.md) | `GSCloudAutoUpdate`: a dedicated server restarting itself onto newer packs; the exit-code contract, when-empty, the warning countdown, the config keys and cvars |

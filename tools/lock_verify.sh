@@ -5,11 +5,15 @@
 # version must match the entry; every distinct object must answer HEAD 200 with the manifest's size (--deep: GET and hash it).
 # --diff VERSION (needs --only): lists files added, removed and changed between the pinned version and VERSION (that one is
 # compared by content only, it is not pinned). Base order as fetch_lock.sh: --from, --cdn, the lock's origin, then its mirrors.
+# A source lock (source.lock.json, publish_pack.sh --source-lock) also carries "source_files": every file's sha256. Then each
+# pack's manifest must list exactly those paths and hashes; --tree DIR (default .) must hold each file with that sha256 (a byte
+# check of the tracked tree against the lock); --fetch DIR downloads every file by hash into DIR/<path> and verifies it (restores
+# the tree from the CDN alone). docs/source-lock.md.
 # 403, 429, 5xx and no reply are retried with exponential backoff (LOCK_VERIFY_TRIES=5, LOCK_VERIFY_BACKOFF=0.5 s, Retry-After honoured);
 # what stays throttled is reported as 'rate limited', never as 'missing'. Exit 0 all good, 1 any mismatch or missing object, 2 usage.
 set -euo pipefail
 command -v python3 >/dev/null || { echo "lock_verify: python3 is needed" >&2; exit 2; }
-LOCK=content.lock.json; BASE=""; ONLY=""; DEEP=0; DIFF=""
+LOCK=content.lock.json; BASE=""; ONLY=""; DEEP=0; DIFF=""; TREE=""; FETCH=""
 while [ $# -gt 0 ]; do
     case $1 in
         --lock) LOCK="${2:?}"; shift 2 ;;
@@ -18,14 +22,16 @@ while [ $# -gt 0 ]; do
         --only) ONLY="${2:?}"; shift 2 ;;
         --deep) DEEP=1; shift ;;
         --diff) DIFF="${2:?}"; shift 2 ;;
+        --tree) TREE="${2:?}"; shift 2 ;;
+        --fetch) FETCH="${2:?}"; shift 2 ;;
         *) echo "lock_verify: unknown argument $1" >&2; exit 2 ;;
     esac
 done
 [ -f "$LOCK" ] || { echo "lock_verify: no $LOCK" >&2; exit 2; }
 [ -z "$DIFF" ] || [ -n "$ONLY" ] || { echo "lock_verify: --diff needs --only ID" >&2; exit 2; }
-exec python3 -I - "$LOCK" "$BASE" "$ONLY" "$DEEP" "$DIFF" <<'PY'
+exec python3 -I - "$LOCK" "$BASE" "$ONLY" "$DEEP" "$DIFF" "$TREE" "$FETCH" <<'PY'
 import base64, fnmatch, hashlib, json, sys, urllib.request, urllib.error
-lock, base, only, deep, diff = sys.argv[1:6]; deep = deep == "1"
+lock, base, only, deep, diff, tree, fetch = sys.argv[1:8]; deep = deep == "1"
 doc = json.load(open(lock))
 if doc.get("format") != 1: sys.exit("lock_verify: unsupported lock format")
 bases = [base] if base else ([doc["origin"]] if doc.get("origin") else []) + list(doc.get("mirrors", []))
@@ -97,6 +103,23 @@ for p in doc["packs"]:
     if bun:  # a warning, not a failure: a client whose bundle is missing downloads the objects one by one (docs/sources.md)
         st, _, _ = req("%s/%s/%s/%s" % (b, pid, ver, bun), "HEAD")
         if st != 200: print("warn %s %s: bundle %s answered %s (clients fall back to per-file objects)" % (pid, ver, bun, st or "no reply"))
+    sf = doc.get("source_files", {}).get(pid)
+    if sf is None and (tree or fetch): errs.append("the lock has no source_files for this pack (not a source lock)")
+    if sf is not None:
+        have = {k: v["sha256"] for k, v in files(m).items()}
+        if have != sf: errs.append("manifest and source_files differ (%d path(s))" % len(set(have.items()) ^ set(sf.items())))
+        if tree:
+            off = [k for k, sha in sf.items() if not os.path.isfile(os.path.join(tree, k)) or hashlib.sha256(open(os.path.join(tree, k), "rb").read()).hexdigest() != sha]
+            if off: errs.append("%d file(s) of %s differ from the lock (first: %s)" % (len(off), tree, off[0]))
+        if fetch:
+            nf = 0
+            for k, sha in sorted(sf.items()):
+                dest = os.path.normpath(os.path.join(fetch, k))
+                if not dest.startswith(os.path.normpath(fetch) + os.sep): errs.append("unsafe path %s" % k); continue
+                st, data, _ = req("%s/%s/%s/objects/%s/%s" % (b, pid, ver, sha[:2], sha))
+                if st != 200 or hashlib.sha256(data).hexdigest() != sha: errs.append("fetch of %s failed (%s)" % (k, st or "no reply")); continue
+                os.makedirs(os.path.dirname(dest), exist_ok=True); open(dest, "wb").write(data); nf += 1
+            print("fetched %d/%d files of %s into %s" % (nf, len(sf), pid, fetch))
     if lim: errs.append("%d object(s) could not be checked: rate limited or blocked (403/429/5xx) after %d tries, not known missing" % (lim, TRIES))
     if gone: errs.append("%d object(s) missing" % gone)
     if wrong: errs.append("%d object(s) with the wrong %s" % (wrong, "bytes" if deep else "size"))

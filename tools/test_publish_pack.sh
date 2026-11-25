@@ -210,6 +210,20 @@ GS_VALVE_INDEX=/nonexistent GS_CLI_TOKEN=secret "$HERE/publish_pack.sh" --source
 chk "an _orig pack id is refused" "[ $? -ne 0 ] && grep -q '_orig' out"
 GS_VALVE_INDEX=/nonexistent GS_CLI_TOKEN=secret "$HERE/publish_pack.sh" --source "$W/vsrc" --id vtest --version 1.0.0 > "$W/out" 2>&1
 chk "a clean pack still publishes" "[ $? -eq 0 ] && grep -q 'clean' out"
+# (i) --source-lock: byte-identical source store (a .import marker, a .md and a binary ship as they are), per-file hashes in the lock
+mkdir -p "$W/ss/art"; printf '\x00\x01\xffbin' > "$W/ss/art/m.glb"; printf '[remap]\npath="res://.godot/imported/m.glb-x.scn"\n' > "$W/ss/art/m.glb.import"
+echo notes > "$W/ss/NOTES.md"; cp "$W/src/licence.json" "$W/ss/"; printf 'config_version=5\n' > "$W/ss/project.godot"
+GS_CLI_TOKEN=secret "$HERE/publish_pack.sh" --source "$W/ss" --id demo-source --version 1.0.0 --source-lock "$W/source.lock.json" > "$W/out" 2>&1
+SRC_RC=$?
+chk "source-lock publish exits 0 without importing" "[ $SRC_RC -eq 0 ] && ! grep -q 'importing' out && grep -q 'records .* file hash' out"
+chk "source lock is a store entry with source_files for every file" "python3 -I -c \"import json,sys; d=json.load(open('$W/source.lock.json')); e=d['packs'][0]; f=d['source_files'][e['id']]; sys.exit(0 if e['kind']=='store' and set(f)>={'art/m.glb','art/m.glb.import','NOTES.md'} else 1)\""
+chk "source_files hashes equal the tree's bytes" "python3 -I -c \"import json,hashlib,sys; f=json.load(open('$W/source.lock.json'))['source_files'].popitem()[1]; sys.exit(0 if all(hashlib.sha256(open('$W/ss/'+k,'rb').read()).hexdigest()==v for k,v in f.items()) else 1)\""
+chk "the content lock was not touched by the source publish" "! grep -q demo-source content.lock.json"
+NPUT=$(grep -c '^PUT' log)
+GS_CLI_TOKEN=secret "$HERE/publish_pack.sh" --source "$W/ss" --id demo-source --version 1.0.1 --dry-run --source-lock "$W/dry.lock.json" > "$W/out" 2>&1
+chk "source-lock --dry-run checks the pack against the tree and sends nothing" "[ $? -eq 0 ] && grep -q 'byte-identical' out && [ \$(grep -c '^PUT' log) -eq $NPUT ] && [ ! -e '$W/dry.lock.json' ]"
+python3 -I "$HERE/source_lock.py" check "$W/ho/manifest.json" "$W/ss" >/dev/null 2>&1
+chk "source_lock check refuses a manifest from another tree" "[ $? -ne 0 ]"
 chk "ps1 runs the Valve guard" "grep -q 'check_valve_files.py' '$HERE/publish_pack.ps1'"
 # a class cache older than one of the checkout's scripts is re-imported before the CLI runs (a stale one failed every publish)
 CC="$HERE/../.godot/global_script_class_cache.cfg"

@@ -97,4 +97,21 @@ LOCK_VERIFY_TRIES=1 "$V" --lock "$T/flaky.lock.json" > "$T/o" 2>&1; chk "TRIES=1
 "$V" --lock "$T/flaky.lock.json" > "$T/o" 2>"$T/e"; RC=$?
 chk "403/429/503 retried; a permanently 429 object is rate limited, not missing" "[ $RC -eq 1 ] && grep -q '1 object(s) could not be checked: rate limited' $T/o && ! grep -q 'object(s) missing' $T/o && grep -q 'stayed throttled' $T/e"
 chk "manifest 403 on first try was retried (no manifest failure)" "! grep -q 'manifest.json answered' $T/o"
+# source lock: source_files pin every path to a hash; --tree checks a tree, --fetch restores one from the CDN alone
+python3 -I - "$T" <<'PY'
+import json, hashlib, sys
+t = sys.argv[1]; lock = json.load(open(t + "/content.lock.json")); m = open(t + "/cdn/content/o/demo/1.0.0/manifest.json", "rb").read()
+lock["packs"][0].update(version="1.0.0", manifest_sha256=hashlib.sha256(m).hexdigest())
+lock["source_files"] = {"o/demo": {"a.txt": hashlib.sha256(b"one").hexdigest(), "b.txt": hashlib.sha256(b"two").hexdigest(), "c.txt": hashlib.sha256(b"three").hexdigest()}}
+json.dump(lock, open(t + "/source.lock.json", "w"))
+lock["source_files"]["o/demo"]["b.txt"] = "0" * 64; json.dump(lock, open(t + "/srcbad.lock.json", "w"))
+PY
+mkdir -p "$T/tree"; printf one > "$T/tree/a.txt"; printf two > "$T/tree/b.txt"; printf three > "$T/tree/c.txt"
+"$V" --lock "$T/source.lock.json" --tree "$T/tree" > "$T/o" 2>&1; chk "source lock: matching tree passes" "[ $? -eq 0 ] && grep -q '^ok ' $T/o"
+printf TWO > "$T/tree/b.txt"
+"$V" --lock "$T/source.lock.json" --tree "$T/tree" > "$T/o" 2>&1; chk "source lock: a changed tree file fails" "[ $? -eq 1 ] && grep -q '1 file(s) of .* differ from the lock (first: b.txt)' $T/o"
+"$V" --lock "$T/srcbad.lock.json" > "$T/o" 2>&1; chk "source lock: manifest vs source_files mismatch fails" "[ $? -eq 1 ] && grep -q 'manifest and source_files differ' $T/o"
+"$V" --lock "$T/source.lock.json" --fetch "$T/restored" > "$T/o" 2>&1
+chk "source lock: --fetch restores the exact bytes by hash" "[ $? -eq 0 ] && grep -q 'fetched 3/3' $T/o && cmp -s $T/restored/a.txt <(printf one) && cmp -s $T/restored/b.txt <(printf two) && cmp -s $T/restored/c.txt <(printf three)"
+"$V" --lock "$T/content.lock.json" --tree "$T/tree" > "$T/o" 2>&1; chk "--tree on a lock without source_files fails" "[ $? -eq 1 ] && grep -q 'not a source lock' $T/o"
 echo "lock_verify: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]

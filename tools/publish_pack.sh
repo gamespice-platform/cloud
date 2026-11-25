@@ -33,7 +33,7 @@ esac
 GODOT="${GODOT:-godot}"; SITE="${GS_SITE:-}"; TOKEN_FILE="${GS_CLI_TOKEN_FILE:-$HOME/.config/gs/cli-token}"
 # Godot is not on PATH under `sudo -u gamedev heavy` (sudo's secure PATH): fall back to the user's ~/.local/bin/godot.
 command -v "$GODOT" >/dev/null 2>&1 || ! [ -x "$HOME/.local/bin/godot" ] || GODOT="$HOME/.local/bin/godot"
-SRC=""; HOST=(); HOSTLV=(); PACKADD=(); OUT=""; LOCK="content.lock.json"; DRY=""; IMPORT=1; ARGS=()
+SRCLOCK=""; SRC=""; HOST=(); HOSTLV=(); PACKADD=(); OUT=""; LOCK="content.lock.json"; DRY=""; IMPORT=1; ARGS=()
 abs() { case $1 in /*) printf %s "$1" ;; *) printf %s "$PWD/$1" ;; esac; }
 while [ $# -gt 0 ]; do
     case $1 in
@@ -45,6 +45,7 @@ while [ $# -gt 0 ]; do
         --source) SRC="$(abs "${2:?}")"; ARGS+=(--source "$SRC"); shift 2 ;;
         --host-addons) HOST+=("${2:?}"); shift 2 ;;
         --pack-addon) PACKADD+=("${2:?}"); shift 2 ;;
+        --source-lock) SRCLOCK="$(abs "${2:?publish_pack: --source-lock needs a lock file (source.lock.json)}")"; LOCK="$SRCLOCK"; ARGS+=(--raw --kind store); shift 2 ;;
         --dry-run) DRY=1; shift ;;
         --no-import) IMPORT=""; shift ;;
         --version) case "${2:-}" in
@@ -59,6 +60,11 @@ while [ $# -gt 0 ]; do
         *) echo "publish_pack: unexpected argument '$1' (a verb such as 'versions' goes before any flag; the per-game publish.sh wrappers only publish)" >&2; exit 2 ;;
     esac
 done
+# --source-lock FILE: publish SRC as a source store: every file byte for byte (publisher --raw: no import, no path rewrite, no
+# exclusions), then check the manifest against the tree and write FILE (source.lock.json): the lock entry plus the sha256 of every
+# file under "source_files". lock_verify.sh --source-lock verifies and fetches by those hashes (docs/source-lock.md). A source pack
+# is not a runtime pack: no import, addon, requires.json or boot step. Give it its own --id (NAME-source).
+CMDX=$CMD; [ -z "$SRCLOCK" ] || CMDX=source
 # host_names ARG: the addon folder names ARG lists, one per line, normalised to underscores.
 host_names() {
     local f=$1
@@ -109,11 +115,11 @@ relink_broken_addons() {
         else echo "publish_pack: $l is dangling ($t) and $repo is not in the family directory" >&2; fi
     done
 }
-if [ "$CMD" = publish ] && [ -n "$SRC" ]; then
+if [ "$CMDX" = publish ] && [ -n "$SRC" ]; then
     P="$SRC"; while [ "$P" != / ] && [ ! -f "$P/project.godot" ]; do P="$(dirname "$P")"; done
     [ -f "$P/project.godot" ] && relink_broken_addons "$P"
 fi
-if [ "$CMD" = publish ] && [ -n "$SRC" ] && [ -d "$SRC/addons" ]; then
+if [ "$CMDX" = publish ] && [ -n "$SRC" ] && [ -d "$SRC/addons" ]; then
     if [ ${#HOST[@]} -eq 0 ]; then
         echo "publish_pack: no --host-addons: packing every addon under $SRC/addons (a host that already owns one will refuse the pack; see docs/cdn-publish.md)" >&2
     else
@@ -132,7 +138,7 @@ if [ "$CMD" = publish ] && [ -n "$SRC" ] && [ -d "$SRC/addons" ]; then
         echo "publish_pack: packing ${#KEPT[@]} other addon(s): ${KEPT[*]:-none}" >&2
     fi
 fi
-if [ "$CMD" = publish ] && [ -n "$SRC" ] && [ -d "$SRC/addons" ]; then
+if [ "$CMDX" = publish ] && [ -n "$SRC" ] && [ -d "$SRC/addons" ]; then
     EXC=" "; for ((i=0; i<${#ARGS[@]}; i++)); do [ "${ARGS[i]}" = --exclude-dir ] && EXC+="${ARGS[i+1]#addons/} "; done
     NPACK=0
     for d in "$SRC"/addons/*/; do
@@ -151,7 +157,7 @@ if [ "$CMD" = publish ] && [ -n "$SRC" ] && [ -d "$SRC/addons" ]; then
 fi
 # A VRAM-compressed import that holds only the desktop variant (s3tc_bptc, no etc2_astc) is dead weight on web and mobile
 # clients, which cannot use it; it is also the biggest thing a pack can carry (18 textures were 25 of 38 MB). Warn, never fail.
-if [ "$CMD" = publish ] && [ -n "$SRC" ]; then
+if [ "$CMDX" = publish ] && [ -n "$SRC" ]; then
     FIND_X=(-name .godot -prune); for ((i=0; i<${#ARGS[@]}; i++)); do [ "${ARGS[i]}" = --exclude-dir ] && FIND_X+=(-o -path "$SRC/${ARGS[i+1]}" -prune); done
     DESK="$(find "$SRC" \( "${FIND_X[@]}" \) -o -name '*.import' -type f -print0 2>/dev/null | xargs -0 -r grep -l '^imported_formats=.*s3tc_bptc' 2>/dev/null | xargs -r grep -L '^imported_formats=.*etc2_astc' 2>/dev/null || true)"
     if [ -n "$DESK" ]; then
@@ -172,7 +178,7 @@ if [ -n "${GS_CLI_TOKEN:-}" ]; then
 fi
 [ -s "$TOKEN_FILE" ] || { [ "$DRY" ] && [ "$CMD" = publish ]; } || { echo "publish_pack: no token (set GS_CLI_TOKEN or write one to $TOKEN_FILE)" >&2; exit 2; }
 [ -n "$SITE" ] && ARGS+=(--site "$SITE")
-if [ "$CMD" = publish ] && [ -n "$SRC" ] && [ "$IMPORT" ]; then
+if [ "$CMDX" = publish ] && [ -n "$SRC" ] && [ "$IMPORT" ]; then
     P="$SRC"; while [ "$P" != / ] && [ ! -f "$P/project.godot" ]; do P="$(dirname "$P")"; done
     if [ -f "$P/project.godot" ]; then
         echo "publish_pack: importing $P" >&2
@@ -185,7 +191,7 @@ fi
 # applies requires.floor.json, judged against the lock's levels), then capped at the levels the host's addons.lock pins: the checkout's own addons are
 # usually newer than the shell players run. A committed requires.json is the game's word and is only checked: a level
 # above the host's is refused. --host-level NAME=N names a host level by hand (one the lock cannot resolve).
-if [ "$CMD" = publish ] && [ -n "$SRC" ]; then
+if [ "$CMDX" = publish ] && [ -n "$SRC" ]; then
     P="$SRC"; while [ "$P" != / ] && [ ! -f "$P/project.godot" ]; do P="$(dirname "$P")"; done
     if [ -f "$P/project.godot" ] && [ -f "$P/addons/gs_core/tools/gs_requires.gd" ]; then
         REQ="$SRC/requires.json"
@@ -283,7 +289,7 @@ fi
 # else the sibling ../gs-server-deploy/addons.lock; with neither it is not judged and not sent (exit 2, not a verdict).
 # Scope: this gate covers uploads through this script. The website's release-sync "publish" and its pack uploads do not
 # pass through here; the published_packs_boot.sh sweep (GameSpice Server Deploy) re-boots every game pack's latest after the fact.
-if [ -z "$DRY" ] && [ -n "$SRC" ] && [ -f "$SRC/game.yml" ]; then
+if [ -z "$DRY" ] && [ -z "$SRCLOCK" ] && [ -n "$SRC" ] && [ -f "$SRC/game.yml" ]; then
     BOOTLOCK=""
     for h in "${HOST[@]}" "$HERE/../gs-server-deploy"; do
         for c in "$h" "$h/addons.lock" "$(dirname "$h")/addons.lock"; do
@@ -320,8 +326,23 @@ if [ -z "$DRY" ] && [ -n "$SRC" ] && [ -f "$SRC/game.yml" ]; then
     done < <(find "$SRC" \( -path "$SRC/.godot" -o -name .git "${GATE_X[@]}" \) -prune -o -type f -newer "$TMP/boot.stamp" -print0)
     [ -z "$changed" ] || { echo "publish_pack: refusing to upload: $changed changed after the boot gate built the pack; the uploaded build would not be the one judged. Nothing was sent; re-run." >&2; exit 2; }
 fi
-if [ "$DRY" ]; then "${RUN[@]}" publish --out "$OUT" "${ARGS[@]}"; exit $?; fi
+if [ "$DRY" ]; then "${RUN[@]}" publish --out "$OUT" "${ARGS[@]}" || exit $?; [ -z "$SRCLOCK" ] || python3 -I "$HERE/tools/source_lock.py" check "$OUT/manifest.json" "$SRC"; exit $?; fi
+if [ -n "$SRCLOCK" ]; then
+    # Build once more into $TMP and compare with the tree before anything is sent: a source pack that differs from the tree is worthless.
+    CARGS=(); skip=""
+    for a in "${ARGS[@]}"; do
+        if [ -n "$skip" ]; then skip=""; continue; fi
+        case "$a" in --bump) CARGS+=(--version 0.0.0); skip=1 ;; *) CARGS+=("$a") ;; esac
+    done
+    "${RUN[@]}" publish --out "$TMP/srccheck" "${CARGS[@]}" >/dev/null || exit $?
+    python3 -I "$HERE/tools/source_lock.py" check "$TMP/srccheck/manifest.json" "$SRC" || { echo "publish_pack: the source pack differs from $SRC; nothing was sent." >&2; exit 1; }
+    rm -rf "$TMP/srccheck"
+fi
 "${RUN[@]}" publish --upload --token-file "$(abs "$TOKEN_FILE")" --lock "$(abs "$LOCK")" --out "$OUT" "${ARGS[@]}" || exit $?
+if [ -n "$SRCLOCK" ]; then
+    ID=""; for ((i=0; i<${#ARGS[@]}; i++)); do [ "${ARGS[i]}" = --id ] && ID="${ARGS[i+1]}"; done
+    python3 -I "$HERE/tools/source_lock.py" record "$OUT/manifest.json" "$SRC" "$SRCLOCK" "$ID" || exit $?
+fi
 # The bytes that went up are in $OUT: boot them too, so a change during the upload's own build cannot ship unseen.
 if [ -n "${BOOTLOCK:-}" ]; then
     brc=0; GODOT="$GODOT" bash "$HERE/tools/pack_boot_test.sh" "$OUT" "$BOOTLOCK" || brc=$?
