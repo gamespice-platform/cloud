@@ -5,7 +5,7 @@ extends Node
 ## Run: godot --headless --path . res://examples/dependency_demo.tscn
 
 const WORK := "user://gs_cloud_dependency_demo"
-const CHECKS := 98
+const CHECKS := 102
 const SECTIONS := 11
 
 var _failures: int = 0
@@ -272,7 +272,24 @@ func _section_two_phase() -> void:
 	_check("the bytes did not move while unpacking", int(last.get("done_bytes", -1)) == total, str(last))
 	client.end_job()
 	client.queue_free()
+	await _section_skip_preflight(deps)
 	_end()
+
+
+## job_download(true) (API 35) fetches the same bytes and mounts nothing; the later acquire still mounts.
+func _section_skip_preflight(deps: Array) -> void:
+	var early := _client("skip_preflight", true)
+	var snaps: Array = []
+	early.job_progress_changed.connect(func(s: Dictionary) -> void: snaps.append(s))
+	early.begin_job()
+	var _reg := await early.job_register(deps)
+	var dl := await early.job_download(true)
+	_check("the download without the preflight succeeds", dl.ok and dl.value.is_empty(), str(dl.value))
+	_check("it mounts nothing", not early.is_mounted(&"map_a", "1") and not early.is_mounted(&"map_b", "1"))
+	_check("it moved every registered byte", not snaps.is_empty() and int(snaps[-1].get("done_bytes", -1)) == int(snaps[-1].get("total_bytes", -2)) and int(snaps[-1].get("total_bytes", 0)) > 0, str(snaps[-1] if not snaps.is_empty() else {}))
+	_check("the pack then mounts from the store", (await early.ensure(&"map_a", "1")).ok)
+	early.end_job()
+	early.queue_free()
 
 
 func _collection(id: String, deps: Array) -> void:

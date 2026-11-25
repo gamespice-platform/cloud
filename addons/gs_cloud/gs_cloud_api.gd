@@ -68,5 +68,7 @@ extends RefCounted
 #     and the measured free space limit a download). Additive.
 # 34: GSCloudStore.make_room / GSCloudClient.make_room (evict what this process does not hold until the browser's measured
 #     free space covers a download) and prune treats refs left by an earlier session as evictable, after unreferenced objects. Additive.
-const LEVEL := 34
+# 35: GSCloudClient.job_download(skip_preflight): download a launch job's packs without the requirements preflight, so a game's
+#     pack can download beside the addon overlay it is checked against. Additive.
+const LEVEL := 35
 const OLDEST := 1
