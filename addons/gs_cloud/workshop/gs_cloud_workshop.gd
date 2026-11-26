@@ -251,9 +251,9 @@ func _run(game: String, cloud_client: GSCloudClient, summary: Dictionary) -> GSR
 		await _mount_all(null, cloud_client, summary)
 		return GSResult.success(null)
 
-	var cached := _read_cache(game)
+	var cached := GSCloudWorkshopCache.read(cache_dir, game)
 	var list: GSCloudWorkshopList = null
-	if not cached.is_empty() and _cache_is_this_account(cached):
+	if not cached.is_empty() and GSCloudWorkshopCache.is_this_account(cached, account_id):
 		list = GSCloudWorkshopList.from_response(cached["response"] as Dictionary)
 	var since: String = str(cached.get("revision", "")) if list != null else ""
 
@@ -267,7 +267,7 @@ func _run(game: String, cloud_client: GSCloudClient, summary: Dictionary) -> GSR
 			fetched = await _fetch(game, token, "")
 		if fetched.ok and not bool((fetched.value as Dictionary).get("unchanged", false)):
 			list = GSCloudWorkshopList.from_response(fetched.value)
-			_write_cache(game, list)
+			GSCloudWorkshopCache.write(cache_dir, game, list)
 			for r in list.removed():
 				GSLog.debug(CHANNEL, "not on for this game", {
 					"content": r.get("contentId", ""), "reason": r.get("reason", ""),
@@ -276,7 +276,7 @@ func _run(game: String, cloud_client: GSCloudClient, summary: Dictionary) -> GSR
 		var err: GSError = fetched.error
 		if err.code == GSError.CODE_AUTH:
 			# A rejected token is a guest, and the cached list belonged to whoever held the old one.
-			_drop_cache(game)
+			GSCloudWorkshopCache.drop(cache_dir, game)
 			summary["guest"] = true
 			summary["reason"] = "guest"
 			_list = null
@@ -340,7 +340,7 @@ func _post_scope(body: Dictionary) -> GSResult:
 		return res
 	# The cached list is now stale, and its revision must not be trusted: a "since" equal to the
 	# server's new revision would answer "unchanged" and keep the old items for another launch.
-	_forget_revision(_game_id)
+	GSCloudWorkshopCache.forget_revision(cache_dir, _game_id)
 	GSLog.info(CHANNEL, "scope changed", {"subscription": str(body.get("subscriptionId", ""))})
 	return res
 
@@ -755,51 +755,3 @@ func request_platform() -> String:
 			"forced": forced, "sent": own,
 		})
 	return own
-
-
-func _cache_path(game: String) -> String:
-	return cache_dir.path_join("%s_%s.json" % [GSPaths.slugify(game, 40), game.sha256_text().substr(0, 8)])
-
-
-func _read_cache(game: String) -> Dictionary:
-	var path := _cache_path(game)
-	if not FileAccess.file_exists(path):
-		return {}
-	var read := GSPaths.read_json(path)
-	if not read.ok or not (read.value is Dictionary):
-		GSLog.warn(CHANNEL, "cached list unreadable, ignoring it", {"path": path})
-		return {}
-	var d: Dictionary = read.value
-	if not (d.get("response", null) is Dictionary):
-		return {}
-	return d
-
-
-func _cache_is_this_account(cached: Dictionary) -> bool:
-	if account_id == "":
-		return true
-	return GSValue.same(str(cached.get("account", "")), account_id)
-
-
-func _write_cache(game: String, list: GSCloudWorkshopList) -> void:
-	var written := GSPaths.write_json(_cache_path(game), {
-		"account": list.account(), "revision": list.revision(),
-		"fetched_at": int(Time.get_unix_time_from_system()), "response": list.response,
-	})
-	if not written.ok:
-		GSLog.warn(CHANNEL, "could not cache the list", {"why": written.code(), "message": written.error.message})
-
-
-func _drop_cache(game: String) -> void:
-	var path := _cache_path(game)
-	if FileAccess.file_exists(path):
-		DirAccess.remove_absolute(path)
-		GSWeb.sync_filesystem()
-
-
-func _forget_revision(game: String) -> void:
-	var cached := _read_cache(game)
-	if cached.is_empty():
-		return
-	cached["revision"] = ""
-	GSPaths.write_json(_cache_path(game), cached)

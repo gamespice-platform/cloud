@@ -44,7 +44,7 @@ Read the family [CLAUDE.md](../../CLAUDE.md) first; this file is only what is sp
 | `addons/gs_cloud/addon_set/`, `boot/` | newer addons as packs; the boot scene that mounts the overlay (names no addon class, and must not) |
 | `addons/gs_cloud/publish/` | publisher, CLI, `GSCloudRegistry` (built ahead of its consumer) |
 | `addons/gs_cloud/server/` | `GSCloudAutoUpdate` (registry `gs_cloud_autoupdate`, server only, a no-op on web), `GSCloudAutoUpdateConfig` |
-| `addons/gs_cloud/workshop/` | `GSCloudWorkshop` (registry `gs_workshop`, the solo sync client), `GSCloudWorkshopConfig`, `GSCloudWorkshopList`, `GSCloudWorkshopDevice` (this device's overrides) |
+| `addons/gs_cloud/workshop/` | `GSCloudWorkshop` (registry `gs_workshop`, the solo sync client), `GSCloudWorkshopConfig`, `GSCloudWorkshopList`, `GSCloudWorkshopDevice` (this device's overrides), `GSCloudWorkshopCache` (the kept subscription list per game) |
 | `examples/` | the demos, `http_test_server.gd`, `workshop_backbone.gd` (a fake site), the addon boot probe |
 
 ## Running and testing

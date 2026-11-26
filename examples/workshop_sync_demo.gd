@@ -633,13 +633,17 @@ func _check_suggested() -> void:
 	_line("[b]suggested packs: on by default, off by mode, one by one[/b]")
 	_check(GSCloudSuggested.wants("all", "maps") and not GSCloudSuggested.wants("none", "maps"), "all and none")
 	_check(GSCloudSuggested.wants("maps,props", "props") and not GSCloudSuggested.wants("maps", "props"), "a list names groups")
-	var argv := PackedStringArray(["--no-suggested-maps"])
-	_check(GSCloudSuggested.mode_from_args(argv, PackedStringArray(["maps", "props"]), "all") == "props", "--no-suggested-maps drops that group only")
+	_check(GSCloudSuggested.mode_from_args(PackedStringArray(["--no-suggested-maps"]), PackedStringArray(["maps", "props"]), "all") == "props", "--no-suggested-maps drops that group only")
 	_check(GSCloudSuggested.mode_from_args(PackedStringArray(["--suggested=none"]), PackedStringArray(["maps"]), "all") == "none", "--suggested=none")
 	_check(GSCloudSuggested.mode_from_args(PackedStringArray(["--no-suggested"]), PackedStringArray(["maps"]), "all") == "none", "--no-suggested")
 	_check(GSCloudSuggested.mode_from_args(PackedStringArray(), PackedStringArray(["maps"]), "none") == "none", "no flag keeps the fallback")
 	_check(not GSCloudSuggested.valid_mode("a b") and GSCloudSuggested.valid_mode("maps,props"), "modes are validated")
+	await _check_suggested_default()
+	await _check_suggested_modes()
+	await _check_suggested_one_by_one()
 
+
+func _check_suggested_default() -> void:
 	_make_pack("ws_s1", "map")
 	_make_pack("ws_s2", "map")
 	for id in ["ws_s1", "ws_s2"]:
@@ -656,6 +660,8 @@ func _check_suggested() -> void:
 	_check(_cloud.is_mounted(&"ws_s1", "1.0.0"), "and they are mounted")
 	_check(int(on.value.get("suggested", _ws.describe()["suggested"]).get("kept", -1)) == 2 or _ws.describe()["suggested"]["kept"] == 2, "the summary says two were kept")
 
+
+func _check_suggested_modes() -> void:
 	_make_pack("ws_s3", "map")
 	GSPaths.write_text(str(_content.root).path_join("ws_s3").path_join("latest.json"), JSON.stringify({"version": "1.0.0"}))
 	_ws.suggested = GSCloudSuggested.from_ids("maps", PackedStringArray(["ws_s3"]))
@@ -669,9 +675,10 @@ func _check_suggested() -> void:
 	_ws.device.set_suggested_mode("ask")
 	var asked_s: Array = []
 	var yes_s := [false]
-	_ws.ask_fn = func(summary: Dictionary) -> bool:
+	var asker := func(summary: Dictionary) -> bool:
 		asked_s.append(summary)
 		return yes_s[0]
+	_ws.ask_fn = asker
 	var no_ask := await _ws.sync(GAME)
 	_check(asked_s.size() == 1 and asked_s[0].get("suggested", false) and no_ask.value["mounted"].is_empty()
 		and _reasons(no_ask.value["skipped"]) == "ws_s3:suggested_declined" and not _cloud.is_mounted(&"ws_s3", "1.0.0"),
@@ -680,12 +687,13 @@ func _check_suggested() -> void:
 	var no_fn := await _ws.sync(GAME)
 	_check(no_fn.value["mounted"].is_empty(), "mode ask with nobody to ask (headless) mounts nothing")
 	yes_s[0] = true
-	_ws.ask_fn = func(summary: Dictionary) -> bool:
-		asked_s.append(summary)
-		return yes_s[0]
+	_ws.ask_fn = asker
 	var yes_r := await _ws.sync(GAME)
 	_check(_ids(yes_r.value["mounted"]) == PackedStringArray(["ws_s3"]), "mode ask: accepting mounts it")
 	_ws.ask_fn = Callable()
+
+
+func _check_suggested_one_by_one() -> void:
 	_check(GSCloudSuggested.device_choice("none") == "off" and GSCloudSuggested.device_choice("ask") == "ask"
 		and GSCloudSuggested.device_choice("") == "auto" and GSCloudSuggested.mode_for_choice("auto") == ""
 		and GSCloudSuggested.mode_for_choice("off") == "none", "the menu's off/ask/auto map to modes and back")
