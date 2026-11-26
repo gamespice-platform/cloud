@@ -143,19 +143,35 @@ static func slice_loader(h: Node) -> void:
 	h._check("a missing path fails", not bad.ok)
 	h._check("with CODE_IO", bad.error.code == GSError.CODE_IO)
 
-	var probe := "user://slice_probe.gd"
-	var f := FileAccess.open(probe, FileAccess.WRITE)
-	f.store_string("extends Node\nvar a: GSCloudSliceLoader\nvar b: GSCloudWorkshopDevice\nvar c: NotAClass\n")
-	f.close()
+	_named_class_checks(h)
+	h._sections_finished += 1
+
+
+## [method GSCloudSliceLoader.named_class_scripts]: which classes a source names, read from a probe file.
+static func _named_class_checks(h: Node) -> void:
 	var device := ""
 	for entry in ProjectSettings.get_global_class_list():
 		if entry["class"] == &"GSCloudWorkshopDevice":
 			device = entry["path"]
-	var named := GSCloudSliceLoader.named_class_scripts(PackedStringArray([probe]))
+	var uncached := not ResourceLoader.has_cached(device)
+	var named := _named_in("extends Node\nvar a: GSCloudSliceLoader\nvar b: GSCloudWorkshopDevice\nvar c: NotAClass\n")
 	h._check("named: an uncached class is listed, a cached one is not",
-		named.has(device) == (not ResourceLoader.has_cached(device)) and named.size() <= 1, str(named))
+		named.has(device) == uncached and named.size() <= 1, str(named))
+	# A class only a comment names is no dependency, so it is not warmed; a "#" in a string is not a comment.
+	named = _named_in("extends Node\n## Like [GSCloudWorkshopDevice].\nvar a := 1 # GSCloudWorkshopDevice\n#GSCloudWorkshopDevice\n")
+	h._check("named: a class only comments name is not listed", not named.has(device))
+	named = _named_in("extends Node\nvar c := \"#fff\"; var d: GSCloudWorkshopDevice\n")
+	h._check("named: code after a '#' inside a string still counts", named.has(device) == uncached)
+
+
+static func _named_in(source: String) -> PackedStringArray:
+	var probe := "user://slice_probe.gd"
+	var f := FileAccess.open(probe, FileAccess.WRITE)
+	f.store_string(source)
+	f.close()
+	var named := GSCloudSliceLoader.named_class_scripts(PackedStringArray([probe]))
 	DirAccess.remove_absolute(probe)
-	h._sections_finished += 1
+	return named
 
 
 ## A mount refused for an object that rotted after it was committed, and accepted with the check off.

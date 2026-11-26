@@ -40,6 +40,10 @@ var slowest: Array = []
 
 const SLOWEST_KEPT := 8
 
+## A GDScript comment: a `#` at a line start or after a space or tab, to the line end. A `#` inside a string
+## ("#ff0000") is left alone; a comment after one only keeps its names, which costs a compile, never a miss.
+const COMMENT_PATTERN := "(?m)(^|[ \\t])#.*$"
+
 
 ## Loads every path, yielding between slices. Threaded where [param threaded] says so (default:
 ## the platform can); a browser without threads loads on the main thread, a slice per frame.
@@ -170,9 +174,12 @@ static func named_class_scripts(paths: PackedStringArray, read_from: PackedStrin
 
 	var named := {}
 	var words := RegEx.create_from_string("\\b[A-Z][A-Za-z0-9_]+\\b")
+	var comments := RegEx.create_from_string(COMMENT_PATTERN)
 	for i in range(paths.size()):
 		var source := read_from[i] if read_from.size() == paths.size() else paths[i]
-		for found in words.search_all(FileAccess.get_file_as_string(source)):
+		# A class a comment names ("## Like [GSFoo]") is no dependency: warming it compiled scripts the game never loads.
+		var code := comments.sub(FileAccess.get_file_as_string(source), "", true)
+		for found in words.search_all(code):
 			var script_path: String = by_name.get(found.get_string(), "")
 			if script_path != "" and not own.has(script_path):
 				named[script_path] = true
