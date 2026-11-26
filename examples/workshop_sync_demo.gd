@@ -15,7 +15,7 @@ extends Node
 ## Per process: two runs at once (the heavy queue allows two) would otherwise delete each other's files.
 var WORK := "user://gs_cloud_workshop_sync_demo_%d" % OS.get_process_id()
 const GAME := "gamemann/game-playlot"
-const CHECKS := 147
+const CHECKS := 153
 const ACCEPTS := {"kinds": ["map", "prop", "script"], "map_kinds": ["sandbox"]}
 
 var _failures := 0
@@ -697,6 +697,14 @@ func _check_suggested() -> void:
 		reasons.append(sk["reason"])
 	_check(one.ok and one.value["mounted"].is_empty() and reasons.has("device_off"), "one pack switched off by hand is skipped")
 	_ws.set_device_off("ws_s3", false)
+	var rec := GSCloudSuggested.from_entries(PackedStringArray(["weapons=gamemann/zz-modern-weapons!", "maps=gamemann/zz-map"]))
+	_check(rec.size() == 2 and rec[0]["id"] == "gamemann/zz-modern-weapons" and rec[0].get("recommended", false) and not rec[1].has("recommended"), "a trailing ! in game.yml marks a recommended pack")
+	_ws.suggested = rec
+	_check(_ws.uninstall_warning("gamemann/zz-modern-weapons").contains("recommended pack"), "removing a recommended pack warns")
+	_check(_ws.uninstall_warning("gamemann/zz-map") == "" and _ws.uninstall_warning("gamemann/other") == "", "a plain suggested pack, or an unknown one, does not")
+	_check(GSCloudSuggested.dropped_recommended(rec, "none") == PackedStringArray(["gamemann/zz-modern-weapons"]), "mode none would drop the recommended pack")
+	_check(GSCloudSuggested.dropped_recommended(rec, "weapons").is_empty() and GSCloudSuggested.dropped_recommended(rec, "all").is_empty(), "a mode that keeps its group drops nothing")
+	_check(GSCloudSuggested.select(rec, "all").size() == 2, "a recommended pack is still an ordinary suggested one")
 	_ws.suggested = GSCloudSuggested.from_ids("maps", PackedStringArray(["ws_s_missing"]))
 	var gone := await _ws.sync(GAME)
 	_check(gone.ok and (gone.value["failed"] as Array).size() == 1, "an unpublished suggested pack is a failure, not an abort")

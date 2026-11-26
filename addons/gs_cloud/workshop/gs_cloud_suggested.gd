@@ -20,12 +20,38 @@ static func from_ids(group: String, ids: PackedStringArray) -> Array[Dictionary]
 
 
 ## A declaration from `group=id` strings, as a game.yml lists them; no `group=` means `maps`.
+## A trailing `!` marks the pack as recommended (the default weapons or mutants a game is built around): `weapons=gamemann/zz-modern-weapons!`.
 static func from_entries(entries: PackedStringArray) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
 	for e in entries:
 		var eq := e.find("=")
 		var group := "maps" if eq < 0 else e.substr(0, eq)
-		out.append({"group": group, "id": e.substr(eq + 1), "version": ""})
+		var id := e.substr(eq + 1)
+		var recommended := id.ends_with("!")
+		if recommended:
+			id = id.trim_suffix("!")
+		var d := {"group": group, "id": id, "version": ""}
+		if recommended:
+			d["recommended"] = true
+		out.append(d)
+	return out
+
+
+## The warning to show before a player removes (or turns off) the suggested pack [param id], or "" when it is not a recommended one.
+## A recommended pack is one the game is built to run with; the game still runs without it, with its built-in stand-ins.
+static func uninstall_warning(declared: Array, id: String) -> String:
+	for e in declared:
+		if e is Dictionary and str(e.get("id", "")) == id and bool(e.get("recommended", false)):
+			return "%s is a recommended pack for this game. You can remove it and the game still runs, but its %s will fall back to the built-in ones until you install it again." % [id.get_slice("/", id.count("/")), str(e.get("group", "content"))]
+	return ""
+
+
+## The recommended packs a suggested [param mode] would stop mounting, for a warning before the player picks it.
+static func dropped_recommended(declared: Array, mode: String) -> PackedStringArray:
+	var out := PackedStringArray()
+	for e in declared:
+		if e is Dictionary and bool(e.get("recommended", false)) and not wants(mode, str(e.get("group", ""))):
+			out.append(str(e.get("id", "")))
 	return out
 
 

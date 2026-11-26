@@ -72,5 +72,7 @@ extends RefCounted
 #     pack can download beside the addon overlay it is checked against. Additive.
 # 36: GSCloudAddonSet.late_pack: fetch the groups an overlay left out, pack them and mount them in place, so a web
 #     shell can start on the early groups and top up in the background. Additive.
-const LEVEL := 36
+# 37: GSCloudSuggested recommended entries (a trailing `!` in from_entries), uninstall_warning, dropped_recommended, GSCloudWorkshop.uninstall_warning:
+#     the text a menu shows before a recommended pack is removed. Additive.
+const LEVEL := 37
 const OLDEST := 1

@@ -174,6 +174,11 @@ func set_all_games(subscription_id: String, on: bool) -> GSResult:
 	return await _post_scope({"subscriptionId": subscription_id, "all": on})
 
 
+## The warning to show before [method set_device_off] turns off, or the player removes, a recommended suggested pack; "" for any other. See [method GSCloudSuggested.uninstall_warning].
+func uninstall_warning(content_id: String) -> String:
+	return GSCloudSuggested.uninstall_warning(suggested, content_id)
+
+
 ## This device's switch for one pack; never reaches the site. Applies at the next launch.
 func set_device_off(content_id: String, off: bool) -> GSResult:
 	var prepared := _prepare()
