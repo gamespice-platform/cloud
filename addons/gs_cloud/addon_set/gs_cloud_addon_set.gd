@@ -401,10 +401,9 @@ static func forget() -> void:
 	GSWeb.sync_filesystem()
 
 
-## Waits until every file in [param paths] is in the browser's IndexedDB exactly as it is in `user://` now.
-## Succeeds at once anywhere else. Fails with [code]CODE_TIMEOUT[/code] when [param timeout_s] passes first, and
-## with [code]CODE_UNSUPPORTED[/code] when the page has no IndexedDB copy of `user://`. See the persist helper
-## for why a browser restart has to wait for this and how it reads the database.
+## Waits until every file in [param paths] is in the browser's IndexedDB as it is in `user://` now; at once elsewhere.
+## Fails with [code]CODE_TIMEOUT[/code] after [param timeout_s], [code]CODE_UNSUPPORTED[/code] without an IndexedDB copy.
+## The persist helper says why a browser restart has to wait.
 static func persisted(paths: PackedStringArray, timeout_s: float = 30.0) -> GSResult:
 	return await _Persist.wait(paths, timeout_s)
 
@@ -460,10 +459,8 @@ static func compare_versions(a: String, b: String) -> int:
 	return 0
 
 
-## Fetches every pack in [param wanted] and writes the overlay and its plan.
-##
-## Nothing is mounted: the boot script does that, at the next start. [param resume] is
-## kept in the plan for the shell to act on after the restart (where it was connecting).
+## Fetches every pack in [param wanted] and writes the overlay and its plan. Nothing is mounted: the boot script
+## does that at the next start. [param resume] is kept in the plan for the shell to act on after the restart.
 func build(wanted: Dictionary, resume: Dictionary = {}) -> GSResult:
 	if cloud == null:
 		return GSResult.fail(GSError.CODE_STATE, "No content client to fetch addons with.")
@@ -537,14 +534,9 @@ func build(wanted: Dictionary, resume: Dictionary = {}) -> GSResult:
 	return GSResult.success(plan)
 
 
-## Fetches the files [member groups] left out of the overlay, packs them in a pack of their own and mounts it in
-## place (API 36). Only for a set built with [member groups] that are not `*`, and only once that overlay is mounted
-## in this process: the files are new paths, so nothing the overlay holds is replaced and nothing restarts.
-##
-## [param wanted] is the same addon table [method build] took; [param late] limits the top-up to those groups
-## (empty = every group the overlay left out). The pack is named by content, so a later visit reuses it without
-## fetching or packing again. Idempotent: a pack already mounted by this process is not mounted twice.
-## Returns {"pack", "files", "bytes", "mounted"}.
+## Packs the files [member groups] left out of the overlay and mounts them in place, no restart (API 36). Only for a
+## set built with [member groups] other than `*`, once that overlay is mounted. [param wanted] is [method build]'s
+## table; [param late] limits the groups. Named by content, so idempotent. Returns {"pack", "files", "bytes", "mounted"}.
 func late_pack(wanted: Dictionary, late: PackedStringArray = PackedStringArray()) -> GSResult:
 	return await _Late.new(self).run(wanted, late)
 

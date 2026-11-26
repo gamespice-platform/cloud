@@ -1,6 +1,6 @@
 # comments
 # Baselines only shrink: scripts/<gate> --update lowers or drops entries and refuses to add.
-addons/gs_cloud/addon_set/gs_cloud_addon_set.gd::long_block	6
+addons/gs_cloud/addon_set/gs_cloud_addon_set.gd::long_block	4
 addons/gs_cloud/addon_set/gs_cloud_script_class.gd::long_block	3
 addons/gs_cloud/boot/gs_cloud_boot.gd::history	1
 addons/gs_cloud/boot/gs_cloud_boot.gd::long_block	1

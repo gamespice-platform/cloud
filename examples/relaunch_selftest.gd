@@ -1,8 +1,7 @@
 extends Node
 
-## A second launch of content already installed asks the network for nothing: a fresh client (a new process) on the
-## same cache answers a versioned `ensure` from the kept manifest and the object store, with zero requests. A newest-version
-## ask may fetch the small manifest again, never an object. A cache that lost one object fetches just that one.
+## A second launch on the same cache asks the network for no object: a versioned `ensure` is answered from the
+## kept manifest and the store, a newest-version ask may refetch the manifest only, a lost object refetches just that one.
 ## Run: godot --headless --path . res://examples/relaunch_selftest.tscn
 
 const TestServer := preload("res://examples/http_test_server.gd")

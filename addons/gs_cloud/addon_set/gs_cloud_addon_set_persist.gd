@@ -15,23 +15,9 @@ const IDB_STORE := "FILE_DATA"
 const PERSIST_COMPARE_BYTES := 256 * 1024
 
 
-## Waits until every file in [param paths] is in the browser's IndexedDB exactly as it is
-## in `user://` now. Succeeds at once anywhere else, where a closed file is on disk.
-##
-## [b]What a browser restart has to wait for, and the only way to know.[/b] A browser's
-## `user://` is an in-memory copy that reaches IndexedDB only through `FS.syncfs`, which
-## the engine runs one at a time from its main loop ([method GSWeb.sync_filesystem] only
-## asks for the next one) and which says nothing to a script when it is done. Each sync
-## walks EVERY file under `user://` and writes what changed, so it takes as long as the
-## player's cache is large: measured at 1 to 5 seconds with under 1 MiB cached, while the
-## shell reloaded on a fixed three seconds. A reload in the middle of a sync loses that
-## sync, so the plan and the overlay were never written and the page came back to download
-## the same addons again. Reading the database itself is the one answer that is not a guess.
-##
-## Fails with [code]CODE_TIMEOUT[/code] when [param timeout_s] passes first, and with
-## [code]CODE_UNSUPPORTED[/code] when the page has no IndexedDB copy of `user://` at all (a
-## private window, storage refused): a restart there could only lose what was written, so
-## the caller should not restart.
+## Waits until every file in [param paths] is in the browser's IndexedDB as it is in `user://` now; at once elsewhere.
+## Fails with [code]CODE_TIMEOUT[/code] after [param timeout_s], [code]CODE_UNSUPPORTED[/code] without an IndexedDB
+## copy (a restart there could only lose what was written). Why a restart waits: docs/addon-packs.md.
 static func wait(paths: PackedStringArray, timeout_s: float = 30.0) -> GSResult:
 	if not GSWeb.available():
 		return GSResult.success(true)
