@@ -32,6 +32,7 @@ extends RefCounted
 ## version with a bug that was fixed. Only signed packs from [member namespaces] are taken.
 
 const _Overlay := preload("gs_cloud_addon_set_overlay.gd")
+const _Groups := preload("gs_cloud_addon_set_groups.gd")
 const _Checks := preload("gs_cloud_addon_set_checks.gd")
 const _Late := preload("gs_cloud_addon_set_late.gd")
 const _Persist := preload("gs_cloud_addon_set_persist.gd")
@@ -490,6 +491,7 @@ func build(wanted: Dictionary, resume: Dictionary = {}) -> GSResult:
 				"it has no plugin.cfg at its root or at addons/%s/" % dir
 			)
 
+		await _Groups.derive(cloud, manifest, groups)
 		var downloaded := await cloud.download_manifest(manifest, groups)
 
 		if not downloaded.ok:

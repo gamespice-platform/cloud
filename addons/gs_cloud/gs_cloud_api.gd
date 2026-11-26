@@ -74,5 +74,7 @@ extends RefCounted
 #     shell can start on the early groups and top up in the background. Additive.
 # 37: GSCloudSuggested recommended entries (a trailing `!` in from_entries), uninstall_warning, dropped_recommended, GSCloudWorkshop.uninstall_warning:
 #     the text a menu shows before a recommended pack is removed. Additive.
-const LEVEL := 37
+# 38: GSCloudAddonSet derives file groups from a pack's groups.json when its signed manifest tags none (the site's publish
+#     path), so a web overlay fetches only the groups it asked for. gs_cloud_publisher_groups.gd rules_of/tag are shared. Additive.
+const LEVEL := 38
 const OLDEST := 1

@@ -23,28 +23,12 @@ static func groups_for(pub: RefCounted, source_dir: String, relatives: PackedStr
 	if not (read.value is Dictionary):
 		return GSResult.fail(GSError.CODE_PARSE, "%s must be a JSON object." % GROUPS_FILE)
 
-	var rules := _rules(read.value as Dictionary)
+	var rules := rules_of(read.value as Dictionary)
 	if not rules.ok:
 		return rules
 
 	var hits := {}
-	var out := {}
-	for rel in relatives:
-		var names := PackedStringArray([rel])
-		if rel.ends_with(".import"):
-			names.append(rel.trim_suffix(".import"))
-		if owners.has(rel):
-			names.append(str(owners[rel]))
-		var groups := PackedStringArray()
-		for rule: Array in rules.value:
-			for n in names:
-				if _Sides.pattern_matches(rule[0], n):
-					hits[rule[0]] = true
-					if not groups.has(rule[1]):
-						groups.append(rule[1])
-					break
-		if not groups.is_empty():
-			out[rel] = groups
+	var out := tag(rules.value, relatives, owners, hits)
 
 	for rule: Array in rules.value:
 		if not hits.has(rule[0]):
@@ -57,8 +41,31 @@ static func groups_for(pub: RefCounted, source_dir: String, relatives: PackedStr
 	return GSResult.success(out)
 
 
+## Pack path -> the groups of [param rules] (as [method rules_of] returns them) it joins, for each of [param relatives]; a path in no group is absent.
+## [param hits] collects each pattern that matched. Shared with a client that derives groups a manifest does not carry (GSCloudAddonSet, API 38).
+static func tag(rules: Array, relatives: PackedStringArray, owners: Dictionary, hits: Dictionary) -> Dictionary:
+	var out := {}
+	for rel in relatives:
+		var names := PackedStringArray([rel])
+		if rel.ends_with(".import"):
+			names.append(rel.trim_suffix(".import"))
+		if owners.has(rel):
+			names.append(str(owners[rel]))
+		var groups := PackedStringArray()
+		for rule: Array in rules:
+			for n in names:
+				if _Sides.pattern_matches(rule[0], n):
+					hits[rule[0]] = true
+					if not groups.has(rule[1]):
+						groups.append(rule[1])
+					break
+		if not groups.is_empty():
+			out[rel] = groups
+	return out
+
+
 ## The file's entries as [[pattern, group], ...], validated.
-static func _rules(doc: Dictionary) -> GSResult:
+static func rules_of(doc: Dictionary) -> GSResult:
 	var list: Array = []
 	for key: Variant in doc:
 		var value: Variant = doc[key]

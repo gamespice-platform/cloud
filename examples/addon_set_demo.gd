@@ -24,7 +24,7 @@ const WORK := "user://gs_cloud_addon_set_demo"
 const LOCK := "res://addons.lock"
 
 ## Every check, including the one that compares against it. See docs/testing.md.
-const CHECKS := 92
+const CHECKS := 98
 
 var _failures := 0
 var _checks := 0
@@ -56,6 +56,7 @@ func _run() -> void:
 		_boots()
 		await _nested(cloud)
 		await _sided(cloud)
+		await _untagged(cloud)
 
 	_finish()
 
@@ -548,6 +549,52 @@ func _sided(cloud: GSCloudClient) -> void:
 	_check(mounted and FileAccess.file_exists("res://addons/gs_sided/maps/big.bin")
 		and not FileAccess.file_exists("res://addons/gs_sided/server/rules.json"),
 		"mounted, the overlay holds the group and not the other side's file")
+	_done()
+
+
+# 7
+
+func _untagged(cloud: GSCloudClient) -> void:
+	_section("a pack whose manifest tags no group still splits by its groups.json")
+	var src := WORK.path_join("untagged_source")
+	_write(src.path_join("plugin.cfg"), "[plugin]\n\nname=\"Dot Untagged\"\nversion=\"0.1.0\"\nscript=\"gs_untagged_api.gd\"\n")
+	_write(src.path_join("gs_untagged_api.gd"), "extends RefCounted\n\nconst LEVEL := 1\n")
+	_write(src.path_join("maps/big.bin"), "a large map the site published untagged")
+	_write(src.path_join("groups.json"), "{\"big\": [\"maps/*\"]}\n")
+
+	var pub := GSCloudPublisher.new()
+	pub.content_id = "modcommunity/gs-untagged"
+	pub.version = "0.1.0"
+	pub.signing_key_pem = str(_keys["private"])
+	pub.rewrite_resource_paths = false
+	pub.set_meta(&"skip_groups", true)
+	var published := pub.publish(src, WORK.path_join("origin/modcommunity/gs-untagged/0.1.0"))
+	_check(published.ok, "an addon publishes with groups.json but no group tags", str(published.error) if not published.ok else "")
+
+	var big := ""
+	var tagged := false
+	var resolved: GSResult = await cloud.resolve_manifest(&"modcommunity/gs-untagged", "0.1.0")
+	if resolved.ok:
+		for f in (resolved.value as GSCloudManifest).files:
+			tagged = tagged or not f.groups.is_empty()
+			if f.path == "maps/big.bin":
+				big = f.sha256
+	_check(resolved.ok and big != "" and not tagged, "its signed manifest tags no file")
+
+	var wanted := {"gs_untagged": _entry("gs_untagged", "modcommunity/gs-untagged", "0.1.0")}
+	var set := GSCloudAddonSet.new(cloud)
+	set.groups = PackedStringArray()
+	var lean: GSResult = await set.build(wanted, {})
+	_check(lean.ok and not cloud.store.has(big), "a client with no groups leaves the map out, grouped from groups.json", str(lean.error) if not lean.ok else "")
+
+	var lean_pack := str((lean.value as Dictionary)["pack"]) if lean.ok else ""
+	ProjectSettings.set_setting("gs_cloud/addon_overlay", lean_pack)
+	_check(lean.ok and ProjectSettings.load_resource_pack(lean_pack, true), "that overlay mounts")
+	var late: GSResult = await set.late_pack(wanted)
+	var late_value: Dictionary = late.value if late.ok else {}
+	_check(late.ok and int(late_value.get("files", 0)) == 1 and bool(late_value.get("mounted", false)),
+		"late_pack fetches and mounts the map it left out", str(late.error) if not late.ok else str(late_value))
+	_check(FileAccess.file_exists("res://addons/gs_untagged/maps/big.bin"), "and the map is readable in place")
 	_done()
 
 

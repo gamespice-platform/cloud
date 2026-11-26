@@ -1,6 +1,7 @@
 extends RefCounted
 
 const _Overlay := preload("gs_cloud_addon_set_overlay.gd")
+const _Groups := preload("gs_cloud_addon_set_groups.gd")
 
 ## The body of [method GSCloudAddonSet.late_pack], in a file of its own so the addon set stays inside the size budget.
 ## Nothing here is used on its own.
@@ -69,6 +70,7 @@ func _plan(wanted: Dictionary, select: PackedStringArray) -> GSResult:
 			return resolved.wrap("Could not find %s %s." % [entry["id"], entry["version"]])
 
 		var manifest: GSCloudManifest = resolved.value
+		await _Groups.derive(_set.cloud, manifest, _set.groups)
 		var at := _Overlay.base(manifest, dir)
 
 		if at == _Overlay.NOT_AN_ADDON:
