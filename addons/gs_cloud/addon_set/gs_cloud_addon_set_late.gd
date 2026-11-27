@@ -52,7 +52,7 @@ func run(wanted: Dictionary, late: PackedStringArray) -> GSResult:
 
 		parts = packed.value
 
-	return _mount(pack_path, parts, pending, int(plan["bytes"]))
+	return await _mount(pack_path, parts, pending, int(plan["bytes"]))
 
 
 ## The files the overlay left out: {"manifests", "pending" ([dir, manifest, base, file]), "lines" (sorted, names the pack), "bytes"}.
@@ -147,17 +147,30 @@ func _fetch_and_pack(manifests: Dictionary, select: PackedStringArray, pending: 
 	return GSResult.success(packer.paths)
 
 
+## Mounts the parts and registers their uids. A running game feels each engine call that reads a pack's directory or a uid file, so
+## the frame is given back after every part and whenever [member GSCloudAddonSet.late_slice_msec] is spent.
 func _mount(pack_path: String, parts: PackedStringArray, pending: Array, bytes: int) -> GSResult:
 	var mounted := false
+	var tree := Engine.get_main_loop() as SceneTree
 
 	if not _mounted.has(pack_path):
+		_mounted[pack_path] = true  # before the first await: a second caller must not mount it again
 		for part: String in parts:
 			if not ProjectSettings.load_resource_pack(part, false):
+				_mounted.erase(pack_path)
 				return GSResult.fail(GSError.CODE_STATE, "The engine refused the late addon pack.", part)
 
+			if tree != null:
+				await tree.process_frame
+
 		var uids: Array = []
+		var slice := Time.get_ticks_msec()
 
 		for item: Array in pending:
+			if tree != null and Time.get_ticks_msec() - slice >= _set.late_slice_msec:
+				await tree.process_frame
+				slice = Time.get_ticks_msec()
+
 			var f: GSCloudFile = item[3]
 			var ext := f.path.get_extension().to_lower()
 
@@ -165,9 +178,12 @@ func _mount(pack_path: String, parts: PackedStringArray, pending: Array, bytes: 
 				_Overlay.note_uid(uids, ext, _set.cloud.store.path_for(f.sha256), _Overlay.target(item[1], str(item[0]), str(item[2]), f.path))
 
 		for pair: Array in uids:
+			if tree != null and Time.get_ticks_msec() - slice >= _set.late_slice_msec:
+				await tree.process_frame
+				slice = Time.get_ticks_msec()
+
 			GSCloudAddonSet._register_uid(str(pair[0]), str(pair[1]))
 
-		_mounted[pack_path] = true
 		mounted = true
 		GSLog.info(GSCloudAddonSet.CHANNEL, "mounted the late addon pack", {"pack": pack_path.get_file(), "files": pending.size(), "bytes": bytes})
 
