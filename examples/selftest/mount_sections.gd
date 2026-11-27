@@ -142,7 +142,13 @@ static func slice_loader(h: Node) -> void:
 	var bad := await GSCloudSliceLoader.new().load_all(h.get_tree(), PackedStringArray(["res://nope.gd"]), false)
 	h._check("a missing path fails", not bad.ok)
 	h._check("with CODE_IO", bad.error.code == GSError.CODE_IO)
+	h._sections_finished += 1
 
+
+## named_class_scripts lists the uncached global classes a source names in code, never in a comment or a string.
+static func named_classes(h: Node) -> void:
+	h._sections_started += 1
+	h._line("[b]13. named classes are read from code only[/b]")
 	var probe := "user://slice_probe.gd"
 	var f := FileAccess.open(probe, FileAccess.WRITE)
 	f.store_string("extends Node\nvar a: GSCloudSliceLoader\nvar b: GSCloudWorkshopDevice\nvar c: NotAClass\n")
@@ -154,6 +160,14 @@ static func slice_loader(h: Node) -> void:
 	var named := GSCloudSliceLoader.named_class_scripts(PackedStringArray([probe]))
 	h._check("named: an uncached class is listed, a cached one is not",
 		named.has(device) == (not ResourceLoader.has_cached(device)) and named.size() <= 1, str(named))
+	var commented := "user://slice_probe_comments.gd"
+	GSPaths.write_text(commented, "extends Node\n# var b: GSCloudWorkshopDevice\nvar s := \"GSCloudWorkshopDevice # no comment\"\nvar t := '''GSCloudWorkshopDevice\n'''\n")
+	h._check("named: a class only in a comment or a string is not listed",
+		not GSCloudSliceLoader.named_class_scripts(PackedStringArray([commented])).has(device))
+	DirAccess.remove_absolute(commented)
+	var code := GSCloudSliceLoader.code_only("var a: Aa # Bb\nvar s := \"Cc\\\" # Dd\" + Ee\nvar t := '#' + Ff\n")
+	h._check("code_only keeps code and drops comments and strings, a # or an escaped quote inside a string included",
+		code.contains("Aa") and code.contains("Ee") and code.contains("Ff") and not code.contains("Bb") and not code.contains("Cc") and not code.contains("Dd"), code)
 	DirAccess.remove_absolute(probe)
 	h._sections_finished += 1
 

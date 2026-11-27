@@ -16,6 +16,10 @@ var deadline_msec: int = 0
 ## Paths [method load_all] left unloaded because [member deadline_msec] ran out.
 var remaining: PackedStringArray = PackedStringArray()
 
+## Scripts a warm list left out and [method GSCloudClient.warm_content] did not compile (setting
+## `gs_cloud/warm/unlisted` = "lazy"): each compiles at its first load(). [method load_unlisted] compiles them in the background.
+var unlisted: PackedStringArray = PackedStringArray()
+
 ## Set while [method load_all] runs to stop it before its next path; the rest goes to [member remaining].
 ## A caller that needs the main thread now takes over rather than waiting out a background warm.
 var stop_requested := false
@@ -105,6 +109,15 @@ func load_rest(tree: SceneTree, budget: int = 3) -> void:
 			slice_start = Time.get_ticks_msec()
 
 
+## Compiles [member unlisted] at most [param budget] msec per frame, for a game that would rather pay for them once
+## it is showing and idle than at each first use. Call it no earlier than the first playable frame.
+func load_unlisted(tree: SceneTree, budget: int = 3) -> void:
+	var todo := unlisted
+	unlisted = PackedStringArray()
+	remaining.append_array(todo)
+	await load_rest(tree, budget)
+
+
 func _note_slow(ms: int, path: String) -> void:
 	if slowest.size() >= SLOWEST_KEPT and ms <= int(slowest[-1][0]):
 		return
@@ -170,9 +183,10 @@ static func named_class_scripts(paths: PackedStringArray, read_from: PackedStrin
 
 	var named := {}
 	var words := RegEx.create_from_string("\\b[A-Z][A-Za-z0-9_]+\\b")
+	var strip := RegEx.create_from_string(_COMMENTS_AND_STRINGS)
 	for i in range(paths.size()):
 		var source := read_from[i] if read_from.size() == paths.size() else paths[i]
-		for found in words.search_all(FileAccess.get_file_as_string(source)):
+		for found in words.search_all(code_only(FileAccess.get_file_as_string(source), strip)):
 			var script_path: String = by_name.get(found.get_string(), "")
 			if script_path != "" and not own.has(script_path):
 				named[script_path] = true
@@ -183,6 +197,20 @@ static func named_class_scripts(paths: PackedStringArray, read_from: PackedStrin
 		if named.has(script_path) and not ResourceLoader.has_cached(script_path):
 			out.append(script_path)
 	return out
+
+
+## Triple-quoted, double- and single-quoted strings (any r/&/^ prefix is left as a lone letter) and `#` comments,
+## leftmost first, so a `#` inside a string or a quote inside a comment is taken with what holds it.
+const _COMMENTS_AND_STRINGS := "\"\"\"[\\s\\S]*?\"\"\"|'''[\\s\\S]*?'''|\"(?:[^\"\\\\\\n]|\\\\.)*\"|'(?:[^'\\\\\\n]|\\\\.)*'|#[^\\n]*"
+
+
+## [param source] (GDScript) with its comments and string literals blanked, so a word scan sees code only: a class
+## named only in a comment or a string is not compiled ahead (FC: about 4% of the classes its packs name).
+## Pass [param strip] to reuse one compiled pattern across many files.
+static func code_only(source: String, strip: RegEx = null) -> String:
+	if strip == null:
+		strip = RegEx.create_from_string(_COMMENTS_AND_STRINGS)
+	return strip.sub(source, " ", true)
 
 
 ## The scripts under [param root] loaded so far, relative to it: global classes first (as

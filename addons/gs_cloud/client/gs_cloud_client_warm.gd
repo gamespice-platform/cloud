@@ -16,6 +16,10 @@ const SET_SKIP := "gs_cloud/warm/skip_dirs"
 ## Empty, or a pack without the file = every script under the cover, as before.
 const SET_LIST := "gs_cloud/warm/list_file"
 const DEFAULT_LIST := "warm.txt"
+## What happens to the scripts a warm list leaves out: "lazy" (default) compiles none of them, each compiles at its
+## first load() and the rest wait in [member GSCloudSliceLoader.unlisted]; "background" compiles them all right after
+## the cover drops at background_budget_msec per frame (before API 39; on a single web thread it slowed FC's first seconds).
+const SET_UNLISTED := "gs_cloud/warm/unlisted"
 ## Top-level pack folders whose scripts are not warmed ([constant GSCloudClient.WARM_SKIP_DIRS]).
 const SKIP_DIRS := ["tools", "examples", "tests", "ci"]
 
@@ -46,9 +50,14 @@ static func prewarm_classes(c: Node, manifest: GSCloudManifest) -> void:
 	c._prewarm = GSCloudSliceLoader.new()
 	var t0 := Time.get_ticks_msec()
 	var classes := GSCloudSliceLoader.named_class_scripts(names, files)
+	# With a warm list, only the classes it names: the rest (server-only code, menus opened later) compile at first use.
+	var listed: Variant = _prewarm_listed(c, manifest)
+	var named_count := classes.size()
+	if listed != null:
+		classes = PackedStringArray(Array(classes).filter(func(p: String) -> bool: return (listed as Dictionary).has(p)))
 	var res: GSResult = await c._prewarm.load_all(c.get_tree(), classes, false)
 	GSLog.info(CHANNEL, "addon classes prewarmed", {
-		"classes": classes.size(), "left_to_warm": c._prewarm.remaining.size(), "ms": Time.get_ticks_msec() - t0, "ok": res.ok,
+		"classes": classes.size(), "named": named_count, "listed": listed != null, "left_to_warm": c._prewarm.remaining.size(), "ms": Time.get_ticks_msec() - t0, "ok": res.ok,
 	})
 	c._prewarming = false
 	c._prewarm_done.emit()
@@ -100,15 +109,19 @@ static func warm_content(c: Node, tree: SceneTree, keys: PackedStringArray, forc
 	loader.budget_msec = int(ProjectSettings.get_setting(SET_BUDGET, 40))
 	loader.deadline_msec = int(ProjectSettings.get_setting(SET_BLOCKING, 0))
 	var res := await loader.load_all(tree, order, false)
+	var lazy := str(ProjectSettings.get_setting(SET_UNLISTED, "lazy")) != "background"
 	if res.ok:
-		loader.remaining.append_array(unlisted)
+		if lazy:
+			loader.unlisted = unlisted
+		else:
+			loader.remaining.append_array(unlisted)
 	var deferred := loader.remaining.size()
 	if deferred > 0:
 		loader.load_rest(tree, int(ProjectSettings.get_setting(SET_TAIL_BUDGET, 3)))
 
 	GSLog.info(CHANNEL, "scripts warmed", {
 		"content": ",".join(keys), "pack_scripts": scripts.size(), "addon_classes": named.size(),
-		"listed": listed_count, "unlisted": unlisted.size(),
+		"listed": listed_count, "unlisted": unlisted.size(), "lazy": loader.unlisted.size(),
 		"scan_ms": scan_ms, "ms": Time.get_ticks_msec() - t0, "frames": loader.frames_yielded,
 		"deferred": deferred, "ok": res.ok, "why": "" if res.ok else str(res.error),
 	})
@@ -157,11 +170,36 @@ static func listed_scripts(c: Node, keys: PackedStringArray) -> Dictionary:
 			if file.path != list_name:
 				continue
 			var prefix := manifest.mount_prefix()
-			for line in FileAccess.get_file_as_string(manifest.resource_path(file)).split("\n"):
-				var rel := line.split("#", true, 1)[0].strip_edges().simplify_path()
-				if rel.get_extension() != "gd" or rel.begins_with("..") or rel.contains("://"):
-					continue
+			for rel in _list_lines(FileAccess.get_file_as_string(manifest.resource_path(file))):
 				var path := prefix.path_join(rel)
 				out[path if ResourceLoader.exists(path) else "res://" + rel] = true
 	return out
+
+
+## The `.gd` paths of a warm list's text, relative, without comments and escapes.
+static func _list_lines(text: String) -> PackedStringArray:
+	var out := PackedStringArray()
+	for line in text.split("\n"):
+		var rel := line.split("#", true, 1)[0].strip_edges().simplify_path()
+		if rel.get_extension() == "gd" and not rel.begins_with("..") and not rel.contains("://"):
+			out.append(rel)
+	return out
+
+
+## The host (res://) scripts the warm list of a pack not yet mounted names, read from its stored object; null when
+## the pack ships no list (or the object is not here yet), so the class prewarm takes every named class as before.
+static func _prewarm_listed(c: Node, manifest: GSCloudManifest) -> Variant:
+	var list_name := str(ProjectSettings.get_setting(SET_LIST, DEFAULT_LIST))
+	if list_name == "":
+		return null
+	for file in manifest.files:
+		if file.path == list_name:
+			var object: String = c.store.path_for(file.sha256)
+			if not FileAccess.file_exists(object):
+				return null
+			var out := {}
+			for rel in _list_lines(FileAccess.get_file_as_string(object)):
+				out["res://" + rel] = true
+			return out
+	return null
 

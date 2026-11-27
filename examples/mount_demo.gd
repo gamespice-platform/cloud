@@ -28,7 +28,7 @@ const _Sections := preload("res://examples/selftest/mount_sections.gd")
 ## Every check this suite runs, including the one that compares against it. The section
 ## counter cannot see a section that aborted after announcing itself — its remaining checks
 ## simply never run — and a total can. See docs/testing.md.
-const CHECKS := 128
+const CHECKS := 130
 
 var _failures: int = 0
 var _checks: int = 0
@@ -81,6 +81,7 @@ func _run() -> void:
 	await _Sections.two_publishers(self)
 	await _Sections.namespaced_ids(self)
 	await _Sections.slice_loader(self)
+	_Sections.named_classes(self)
 
 	_line("")
 	_check(

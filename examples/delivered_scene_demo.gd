@@ -29,7 +29,7 @@ var _checks := 0
 ## Every check this suite runs, including the one that compares against it. A suite that is
 ## one long function has no sections to count, but a check skipped by a branch that should
 ## not have been taken is still one only a total can see. See docs/testing.md.
-const CHECKS := 51
+const CHECKS := 53
 
 
 func _ready() -> void:
@@ -174,8 +174,13 @@ script = ExtResource("1")
 		"listed scripts block in the usual order, the unlisted are left for after the cover", "%s / %s" % [first, unlisted])
 	for i in 30:
 		await get_tree().process_frame
-	_check(warmed.loaded.any(func(r: Resource) -> bool: return r.resource_path == prefix + "game/extra.gd"),
-		"and an unlisted script still compiles behind the cover")
+	var has_extra := func() -> bool: return warmed.loaded.any(func(r: Resource) -> bool: return r.resource_path == prefix + "game/extra.gd")
+	_check(not has_extra.call() and warmed.unlisted == PackedStringArray([prefix + "game/extra.gd"]),
+		"an unlisted script is left to its first use (gs_cloud/warm/unlisted lazy), not compiled behind the cover", str(warmed.unlisted))
+	await warmed.load_unlisted(get_tree(), 0)
+	_check(has_extra.call() and warmed.unlisted.is_empty(), "load_unlisted compiles them when the game asks")
+	_check(_Warm._list_lines("a/b.gd\n#c.gd\nx.tscn\n../e.gd\nres://f.gd\n c/./d.gd # note\n") == PackedStringArray(["a/b.gd", "c/d.gd"]),
+		"a warm list's lines for the class prewarm: .gd paths only, comments and escapes dropped")
 	var recorded := GSCloudSliceLoader.cached_scripts(prefix, GSCloudClient.WARM_SKIP_DIRS)
 	_check(recorded.has("game/thing.gd") and recorded.has("game/extra.gd"),
 		"cached_scripts lists the loaded scripts relative to the root it was given", str(recorded))

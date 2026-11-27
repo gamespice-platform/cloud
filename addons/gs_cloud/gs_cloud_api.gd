@@ -76,5 +76,8 @@ extends RefCounted
 #     the text a menu shows before a recommended pack is removed. Additive.
 # 38: GSCloudAddonSet derives file groups from a pack's groups.json when its signed manifest tags none (the site's publish
 #     path), so a web overlay fetches only the groups it asked for. gs_cloud_publisher_groups.gd rules_of/tag are shared. Additive.
-const LEVEL := 38
+# 39: setting gs_cloud/warm/unlisted ("lazy" default, "background" = before): with a warm list the unlisted scripts are
+#     not compiled behind the cover but at first use (GSCloudSliceLoader.unlisted / load_unlisted); the class prewarm
+#     takes only listed classes; GSCloudSliceLoader.code_only, and named_class_scripts skips comments and strings. Additive.
+const LEVEL := 39
 const OLDEST := 1
