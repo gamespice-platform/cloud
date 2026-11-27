@@ -2,6 +2,8 @@
 
 Runtime content delivery for Godot 4.7+. A server hands a client a manifest. The client downloads what it is missing, verifies it and mounts it, so a game does not have to bake all its content into the download. It works on Windows, macOS, Linux, Android, iOS and in the browser. Part of the [**GameSpice**](https://gamespice.net) platform: a family of Godot addons, alongside [GameSpice Core](https://github.com/gamespice-platform/core), [GameSpice Server](https://github.com/gamespice-platform/server) and [GameSpice Auth](https://github.com/gamespice-platform/auth).
 
+A GameSpice addon under the MIT licence, built with Claude Code. Three offline headless demos test it: `sync_demo`, `http_demo` and `store_demo` in `examples/`. The games in [Zee's Games](https://zeesgames.com) are built on the GameSpice addons and run on live servers, so content delivery is used in real play.
+
 ## Install
 
 1. Copy `addons/gs_core/` and `addons/gs_cloud/` into your project.
@@ -90,9 +92,26 @@ godot --headless --path . res://examples/store_demo.tscn
 
 All three run offline and headless and exit non-zero on any failure.
 
-## Status
+## Used by
 
-Built and maintained with Claude Code. The test suites pass, but little of this has been in front of real players yet. Please report rough edges by opening an issue.
+Every game in the collection vendors it:
+
+- [Fatal Contact](https://zeesgames.com/fatal-contact)
+- [Airdrift](https://zeesgames.com/airdrift)
+- [Playlot](https://zeesgames.com/playlot)
+- [Hungario](https://zeesgames.com/hungario)
+- [Buses From Hell](https://zeesgames.com/buses-from-hell)
+- [Smash Copter](https://zeesgames.com/smash-copter)
+- [Zombie Zone](https://zeesgames.com/zombie-zone)
+- [Hide n Seek](https://zeesgames.com/hide-n-seek)
+- [Prop Hunt](https://zeesgames.com/prop-hunt)
+- [Murder Mystery](https://zeesgames.com/murder-mystery)
+- [Deathrun](https://zeesgames.com/deathrun)
+- [Wipeout](https://zeesgames.com/wipeout)
+- [Dangerous Delivery](https://zeesgames.com/dangerous-delivery)
+- [Look At Me](https://zeesgames.com/look-at-me)
+
+The whole collection is at [zeesgames.com](https://zeesgames.com).
 
 ## Licence
 
